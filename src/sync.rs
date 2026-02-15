@@ -15,8 +15,12 @@ pub async fn sync_account(
     let store = MailStore::new(&account.mail_path(config));
     store.ensure_folders()?;
 
-    crate::imap::sync_messages(account, &store).await?;
+    let result = crate::imap::sync_messages(account, &store).await?;
 
-    tracing::info!(account = account.name, "sync complete (stub)");
-    Ok(SyncResult::default())
+    tracing::info!(
+        account = account.name,
+        new = result.new,
+        "sync complete"
+    );
+    Ok(result)
 }

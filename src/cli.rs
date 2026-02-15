@@ -23,6 +23,9 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Initialize vivarium config directory and files
+    Init,
+
     /// Sync mail from IMAP to local store
     Sync {
         /// Account to sync (overrides --account)

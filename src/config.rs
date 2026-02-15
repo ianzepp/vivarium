@@ -33,8 +33,12 @@ pub struct Account {
     pub email: String,
     pub imap_host: String,
     pub imap_port: Option<u16>,
+    #[serde(default)]
+    pub imap_security: Security,
     pub smtp_host: String,
     pub smtp_port: Option<u16>,
+    #[serde(default)]
+    pub smtp_security: Security,
     pub username: String,
     pub password: Option<String>,
     pub password_cmd: Option<String>,
@@ -53,10 +57,21 @@ pub enum Provider {
     Standard,
 }
 
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Security {
+    /// Direct TLS/SSL connection (port 993 for IMAP, 465 for SMTP)
+    #[default]
+    Ssl,
+    /// STARTTLS upgrade from plaintext (port 143 for IMAP, 587 for SMTP)
+    Starttls,
+}
+
 fn config_dir() -> PathBuf {
-    let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("vivarium");
-    path
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".config")
+        .join("vivarium")
 }
 
 impl Config {

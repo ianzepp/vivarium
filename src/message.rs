@@ -61,17 +61,61 @@ impl MessageEntry {
 impl fmt::Display for MessageEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let date = self.date.format("%Y-%m-%d %H:%M");
-        write!(f, "{date}  {:<30}  {}", self.from, self.subject)
+        write!(
+            f,
+            "{:<16}  {date}  {:<30}  {}",
+            self.message_id, self.from, self.subject
+        )
     }
 }
 
-#[derive(Debug)]
-pub struct ParsedMessage {
-    pub raw: Vec<u8>,
-}
+/// Render a raw .eml as readable terminal output.
+pub fn render_message(data: &[u8]) -> Result<String, VivariumError> {
+    let parsed = mail_parser::MessageParser::default()
+        .parse(data)
+        .ok_or_else(|| VivariumError::Parse("failed to parse message".into()))?;
 
-impl fmt::Display for ParsedMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "(parsed message, {} bytes)", self.raw.len())
-    }
+    let from = parsed
+        .from()
+        .and_then(|a| a.first())
+        .map(|a| {
+            let name = a.name().unwrap_or("");
+            let addr = a.address().unwrap_or("");
+            if name.is_empty() {
+                addr.to_string()
+            } else {
+                format!("{name} <{addr}>")
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let to = parsed
+        .to()
+        .and_then(|a| a.first())
+        .map(|a| {
+            let name = a.name().unwrap_or("");
+            let addr = a.address().unwrap_or("");
+            if name.is_empty() {
+                addr.to_string()
+            } else {
+                format!("{name} <{addr}>")
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let subject = parsed.subject().unwrap_or("(no subject)");
+    let date = parsed
+        .date()
+        .and_then(|d| DateTime::from_timestamp(d.to_timestamp(), 0))
+        .map(|dt| dt.format("%Y-%m-%d %H:%M %Z").to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let body = parsed
+        .body_text(0)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "(no text body)".to_string());
+
+    Ok(format!(
+        "From:    {from}\nTo:      {to}\nDate:    {date}\nSubject: {subject}\n\n{body}"
+    ))
 }
