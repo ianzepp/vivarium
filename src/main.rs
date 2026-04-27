@@ -3,26 +3,24 @@ use std::process;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
+use vivarium::VivariumError;
 use vivarium::cli::{Cli, Command};
 use vivarium::config::{AccountsFile, Config};
 use vivarium::message;
 use vivarium::store::MailStore;
-use vivarium::VivariumError;
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
 
     tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                if cli.verbose {
-                    EnvFilter::new("vivarium=debug")
-                } else {
-                    EnvFilter::new("vivarium=info")
-                }
-            }),
-        )
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            if cli.verbose {
+                EnvFilter::new("vivarium=debug")
+            } else {
+                EnvFilter::new("vivarium=info")
+            }
+        }))
         .init();
 
     if let Err(e) = run(cli).await {
@@ -139,7 +137,10 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
             let draft_id = format!("draft-{}", chrono::Utc::now().timestamp());
             let path = store.store_message("drafts", &draft_id, draft.as_bytes())?;
             println!("draft created: {}", path.display());
-            println!("edit the file, then send with: vivarium send {}", path.display());
+            println!(
+                "edit the file, then send with: vivarium send {}",
+                path.display()
+            );
         }
     }
 

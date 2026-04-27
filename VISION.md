@@ -32,7 +32,7 @@ There is no GUI. There is no daemon with an API. Messages are files. The filesys
                                │
                                ▼
                     ┌─────────────────────┐
-                    │   ~/Mail/           │
+                    │   ~/.local/share/vivarium/           │
                     │   ├── account/      │
                     │   │   ├── Inbox/    │
                     │   │   │   ├── cur/  │
@@ -118,7 +118,7 @@ vivarium compose --to someone@example.com
 # ~/.config/vivarium/config.toml
 
 [defaults]
-maildir = "~/Mail"
+mail_root = "~/.local/share/vivarium"
 editor = "$EDITOR"
 
 [account.work]
@@ -140,7 +140,7 @@ password_cmd = "security find-generic-password -s vivarium-personal -w"
 
 ## Non-Goals
 
-- **Not a TUI mail client.** No curses interface, no pstrstrstrstrstrstrstrstrstrstranes, no keybindings. Use `neomutt` or `aerc` if you want that.
+- **Not a TUI mail client.** No curses interface, no panes, no keybindings. Use `neomutt` or `aerc` if you want that.
 - **Not a search engine.** Use `grep`, `ripgrep`, or `notmuch` for indexing and search.
 - **Not an AI agent.** Vivarium provides the substrate — files on disk — that AI agents operate on. It does not embed or invoke any LLM directly.
 - **Not a calendar or contacts tool.** Email only.

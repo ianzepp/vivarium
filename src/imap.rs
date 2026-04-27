@@ -39,12 +39,10 @@ pub async fn connect(account: &Account) -> Result<ImapSession, VivariumError> {
     let tls_connector = tokio_native_tls::TlsConnector::from(tls_connector);
 
     let tls_stream = match account.imap_security {
-        Security::Ssl => {
-            tls_connector
-                .connect(host, tcp)
-                .await
-                .map_err(|e| VivariumError::Imap(format!("TLS handshake failed: {e}")))?
-        }
+        Security::Ssl => tls_connector
+            .connect(host, tcp)
+            .await
+            .map_err(|e| VivariumError::Imap(format!("TLS handshake failed: {e}")))?,
         Security::Starttls => {
             let mut client = async_imap::Client::new(tcp);
             if let Some(resp) = client.read_response().await {
@@ -175,7 +173,10 @@ async fn sync_folder(
     );
 
     // Phase 4: Build UID chunks and download with worker pool
-    let chunks: Vec<Vec<u32>> = missing.chunks(CHUNK_SIZE as usize).map(|c| c.to_vec()).collect();
+    let chunks: Vec<Vec<u32>> = missing
+        .chunks(CHUNK_SIZE as usize)
+        .map(|c| c.to_vec())
+        .collect();
     let chunks = Arc::new(Mutex::new(chunks.into_iter()));
     let result = Arc::new(Mutex::new(SyncResult::default()));
     let store = Arc::new(store.clone());
@@ -192,7 +193,7 @@ async fn sync_folder(
         let remote_folder = remote_folder.to_string();
 
         let handle = tokio::spawn(async move {
-            if let Err(e) = worker(
+            worker(
                 worker_id,
                 &account,
                 &remote_folder,
@@ -202,15 +203,16 @@ async fn sync_folder(
                 &result,
             )
             .await
-            {
-                tracing::error!(worker_id, error = %e, "worker failed");
-            }
         });
         handles.push(handle);
     }
 
     for handle in handles {
-        handle.await.ok();
+        match handle.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(e),
+            Err(e) => return Err(VivariumError::Imap(format!("worker join failed: {e}"))),
+        }
     }
 
     let result = Arc::try_unwrap(result).unwrap().into_inner();
@@ -266,7 +268,12 @@ async fn worker(
             };
 
             let message_id = format!("{local_folder}-{uid}");
-            store.store_message(local_folder, &message_id, body)?;
+            let subdir = if local_folder == "inbox" {
+                "new"
+            } else {
+                "cur"
+            };
+            store.store_message_in(local_folder, subdir, &message_id, body)?;
             new_count += 1;
         }
 

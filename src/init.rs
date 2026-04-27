@@ -6,7 +6,7 @@ use crate::config::{AccountsFile, Config};
 use crate::error::VivariumError;
 
 const DEFAULT_CONFIG: &str = r#"[defaults]
-# mail_root = "~/Mail"
+# mail_root = "~/.local/share/vivarium"
 # check_interval_secs = 300
 "#;
 

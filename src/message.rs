@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 
 use crate::error::VivariumError;
+use crate::store::message_id_from_path;
 
 #[derive(Debug)]
 pub struct MessageEntry {
@@ -17,11 +18,7 @@ pub struct MessageEntry {
 impl MessageEntry {
     /// Build a MessageEntry by reading and parsing an .eml file.
     pub fn from_path(path: &Path) -> Result<Self, VivariumError> {
-        let message_id = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let message_id = message_id_from_path(path).unwrap_or_else(|| "unknown".to_string());
 
         let data = std::fs::read(path)?;
         let parsed = mail_parser::MessageParser::default()
@@ -38,10 +35,7 @@ impl MessageEntry {
             })
             .unwrap_or_else(|| "unknown".to_string());
 
-        let subject = parsed
-            .subject()
-            .unwrap_or("(no subject)")
-            .to_string();
+        let subject = parsed.subject().unwrap_or("(no subject)").to_string();
 
         let date = parsed
             .date()
@@ -105,11 +99,12 @@ pub fn build_reply(original: &[u8], body: &str, from: &str) -> Result<String, Vi
 
     let date = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S %z");
 
-    let mut eml = format!(
-        "From: {from}\r\nTo: {reply_to}\r\nSubject: {reply_subject}\r\nDate: {date}\r\n"
-    );
+    let mut eml =
+        format!("From: {from}\r\nTo: {reply_to}\r\nSubject: {reply_subject}\r\nDate: {date}\r\n");
     if !message_id.is_empty() {
-        eml.push_str(&format!("In-Reply-To: {message_id}\r\nReferences: {message_id}\r\n"));
+        eml.push_str(&format!(
+            "In-Reply-To: {message_id}\r\nReferences: {message_id}\r\n"
+        ));
     }
     eml.push_str(&format!("\r\n{body}\r\n\r\n{quoted}\r\n"));
 

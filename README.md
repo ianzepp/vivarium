@@ -1,10 +1,10 @@
 # Vivarium
 
-Local-first IMAP email sync for LLMs. Pulls email from IMAP into plain `.eml` files on disk. No database, no flags, no labels — just files in folders.
+Local-first IMAP email sync for LLMs. Pulls email from IMAP into standard Maildir folders on disk. No required database or service - just RFC 5322 message files that existing mail tools and local AI can read.
 
 ## Why
 
-LLMs need access to email. Existing tools (offstrstrstrstrlineimap, mbsync, mutt) are built for humans and carry decades of Maildir complexity. Vivarium is simple: inbox, archive, sent, drafts, outbox. Each message is a single `.eml` file. Point an LLM at the directory and it has everything it needs.
+LLMs need access to email. Existing tools (offlineimap, mbsync, mutt) are built for humans and carry decades of assumptions. Vivarium keeps the storage layer compatible anyway: inbox, archive, sent, drafts, and outbox are Maildir folders. Point an LLM, notmuch, or another local tool at the directory and it has real message files to work with.
 
 ## Install
 
@@ -52,18 +52,28 @@ vivarium sync
 
 ## Mail Storage
 
-Messages are stored as plain `.eml` files under `~/.local/share/vivarium/{account}/`:
+Messages are stored as Maildir folders under `~/.local/share/vivarium/{account}/`:
 
 ```
 ~/.local/share/vivarium/proton/
-├── inbox/          <- messages in INBOX
-├── archive/        <- archived messages
-├── sent/           <- sent mail
-├── drafts/         <- work in progress
-└── outbox/         <- queued for sending
+├── INBOX/
+│   ├── tmp/
+│   ├── new/
+│   └── cur/
+├── Archive/
+│   ├── tmp/
+│   ├── new/
+│   └── cur/
+├── Sent/
+├── Drafts/
+└── outbox/
+    ├── tmp/
+    ├── new/
+    ├── cur/
+    └── failed/
 ```
 
-No Maildir `cur/new/tmp`. No UIDs in filenames. No flags. Just email files.
+Vivarium-generated filenames keep a `.eml` stem for non-mail tooling, while `cur/` entries use the usual Maildir info suffix such as `:2,S`.
 
 ## Commands
 
@@ -76,7 +86,7 @@ vivarium list sent                             # list sent folder
 vivarium show inbox-1                          # read a message
 vivarium archive inbox-1                       # move from inbox to archive
 vivarium compose --to a@b.com --subject "Hi"   # create a draft
-vivarium send ~/Mail/proton/drafts/draft.eml   # send an .eml file
+vivarium send ~/.local/share/vivarium/proton/Drafts/new/draft.eml   # send an .eml file
 ```
 
 All commands accept `--account <name>` to target a specific account. Without it, the first account in `accounts.toml` is used.
@@ -90,7 +100,7 @@ Vivarium handles the differences between IMAP providers:
 | Gmail      | `"gmail"`    | INBOX label  | [Gmail]/Sent Mail    |
 | Standard   | `"standard"` | INBOX folder | Sent folder          |
 
-Gmail syncs `[Gmail]/All Mail` into `archive/`. Standard IMAP (Proton Bridge, Fastmail, etc.) syncs `INBOX` and `Sent` directly.
+Gmail syncs `[Gmail]/All Mail` into `Archive/`. Standard IMAP (Proton Bridge, Fastmail, etc.) syncs `INBOX` and `Sent` directly.
 
 ## Security
 

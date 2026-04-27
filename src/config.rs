@@ -250,7 +250,9 @@ mod tests {
     fn accounts_file_parses() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("accounts.toml");
-        fs::write(&path, r#"
+        fs::write(
+            &path,
+            r#"
             [[accounts]]
             name = "test"
             email = "test@example.com"
@@ -258,7 +260,9 @@ mod tests {
             smtp_host = "smtp.example.com"
             username = "test"
             password = "secret"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         // Set secure permissions
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         let accounts = AccountsFile::load(&path).unwrap();
@@ -270,7 +274,9 @@ mod tests {
     fn find_account_by_name() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("accounts.toml");
-        fs::write(&path, r#"
+        fs::write(
+            &path,
+            r#"
             [[accounts]]
             name = "gmail"
             email = "ian@gmail.com"
@@ -287,7 +293,9 @@ mod tests {
             smtp_host = "127.0.0.1"
             username = "ian"
             password = "pw"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         let accounts = AccountsFile::load(&path).unwrap();
         let gmail = accounts.find_account("gmail").unwrap();
