@@ -115,8 +115,17 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
             }
         }
         Command::Watch { account } => {
-            let _account_name = account.or(cli.account);
-            tracing::info!("watch command stub");
+            let account_name = account.or(cli.account);
+            match account_name {
+                Some(name) => {
+                    let acct = accounts_file.find_account(&name)?;
+                    vivarium::watch::watch_account(acct, &config, cli.insecure).await?;
+                }
+                None => {
+                    vivarium::watch::watch_all(&accounts_file.accounts, &config, cli.insecure)
+                        .await?;
+                }
+            }
         }
         Command::Send { path } => {
             let acct = resolve_account(cli.account)?;

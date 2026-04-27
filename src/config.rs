@@ -7,13 +7,13 @@ use serde::Deserialize;
 use crate::error::VivariumError;
 
 /// General settings from `config.toml`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub defaults: Defaults,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Defaults {
     /// Base directory for all account mail, e.g. "~/Mail"
     pub mail_root: Option<String>,
