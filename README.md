@@ -31,17 +31,16 @@ Edit `accounts.toml` to add an account:
 
 ```toml
 [[accounts]]
-name = "proton"
-email = "you@proton.me"
-username = "you@proton.me"
-password = "your-bridge-password"
-imap_host = "127.0.0.1"
-imap_port = 1143
-imap_security = "starttls"
-smtp_host = "127.0.0.1"
-smtp_port = 1025
+name = "gmail"
+email = "you@gmail.com"
+username = "you@gmail.com"
+auth = "xoauth2"
+token_cmd = "your-command-that-prints-a-gmail-access-token"
+imap_host = "imap.gmail.com"
+imap_security = "ssl"
+smtp_host = "smtp.gmail.com"
 smtp_security = "ssl"
-provider = "standard"
+provider = "gmail"
 ```
 
 Then sync:
@@ -112,6 +111,11 @@ Gmail syncs `[Gmail]/All Mail` into `Archive/`. Standard IMAP (Proton Bridge, Fa
 - `password_cmd` is supported as an alternative to plaintext passwords:
   ```toml
   password_cmd = "security find-generic-password -s vivarium -a you@proton.me -w"
+  ```
+- Gmail OAuth is supported with `auth = "xoauth2"` and `token_cmd`; the command must print a current OAuth access token:
+  ```toml
+  auth = "xoauth2"
+  token_cmd = "your-command-that-prints-a-gmail-access-token"
   ```
 - Self-signed certs are accepted by default for compatibility with local bridges
 - Set `reject_invalid_certs = true` under `[defaults]` or an account to require certificate validation

@@ -143,7 +143,8 @@ smtp_host = "smtp.gmail.com"
 smtp_port = 587
 smtp_security = "starttls"
 username = "you@gmail.com"
-password_cmd = "security find-generic-password -s vivarium-personal -w"
+auth = "xoauth2"
+token_cmd = "your-command-that-prints-a-gmail-access-token"
 provider = "gmail"
 ```
 

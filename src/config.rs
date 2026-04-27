@@ -42,8 +42,11 @@ pub struct Account {
     #[serde(default)]
     pub smtp_security: Security,
     pub username: String,
+    #[serde(default)]
+    pub auth: Auth,
     pub password: Option<String>,
     pub password_cmd: Option<String>,
+    pub token_cmd: Option<String>,
     /// Override mail directory for this account
     pub mail_dir: Option<String>,
     /// Provider hint: "gmail" or "standard"
@@ -68,6 +71,14 @@ pub enum Security {
     Ssl,
     /// STARTTLS upgrade from plaintext (port 143 for IMAP, 587 for SMTP)
     Starttls,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Auth {
+    #[default]
+    Password,
+    Xoauth2,
 }
 
 fn config_dir() -> PathBuf {
@@ -157,7 +168,14 @@ fn check_permissions(path: &Path, ignore_permissions: bool) -> Result<(), Vivari
 }
 
 impl Account {
-    pub async fn resolve_password(&self) -> Result<String, VivariumError> {
+    pub async fn resolve_secret(&self) -> Result<String, VivariumError> {
+        match self.auth {
+            Auth::Password => self.resolve_password().await,
+            Auth::Xoauth2 => self.resolve_oauth_token().await,
+        }
+    }
+
+    async fn resolve_password(&self) -> Result<String, VivariumError> {
         if let Some(ref pw) = self.password {
             return Ok(pw.clone());
         }
@@ -179,6 +197,36 @@ impl Account {
             "no password or password_cmd for account '{}'",
             self.name
         )))
+    }
+
+    async fn resolve_oauth_token(&self) -> Result<String, VivariumError> {
+        let Some(ref cmd) = self.token_cmd else {
+            return Err(VivariumError::Config(format!(
+                "auth = \"xoauth2\" requires token_cmd for account '{}'",
+                self.name
+            )));
+        };
+
+        let output = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .output()
+            .await?;
+        if !output.status.success() {
+            return Err(VivariumError::Config(format!(
+                "token_cmd failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if token.is_empty() {
+            return Err(VivariumError::Config(format!(
+                "token_cmd produced an empty token for account '{}'",
+                self.name
+            )));
+        }
+        Ok(token)
     }
 
     pub fn reject_invalid_certs(&self, config: &Config) -> bool {
@@ -371,8 +419,10 @@ mod tests {
             smtp_port: None,
             smtp_security: Security::Ssl,
             username: "test".into(),
+            auth: Auth::Password,
             password: Some("secret".into()),
             password_cmd: None,
+            token_cmd: None,
             mail_dir: None,
             provider: Provider::Standard,
             reject_invalid_certs: Some(false),
@@ -411,8 +461,35 @@ mod tests {
         let accounts = AccountsFile::load(&path).unwrap();
         let gmail = accounts.find_account("gmail").unwrap();
         assert_eq!(gmail.provider, Provider::Gmail);
+        assert_eq!(gmail.auth, Auth::Password);
         let proton = accounts.find_account("proton").unwrap();
         assert_eq!(proton.provider, Provider::Standard);
         assert!(accounts.find_account("nope").is_err());
+    }
+
+    #[test]
+    fn account_parses_xoauth2_auth() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("accounts.toml");
+        fs::write(
+            &path,
+            r#"
+            [[accounts]]
+            name = "gmail"
+            email = "ian@gmail.com"
+            imap_host = "imap.gmail.com"
+            smtp_host = "smtp.gmail.com"
+            username = "ian@gmail.com"
+            auth = "xoauth2"
+            token_cmd = "pass gmail-token"
+        "#,
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let accounts = AccountsFile::load(&path).unwrap();
+        let gmail = accounts.find_account("gmail").unwrap();
+        assert_eq!(gmail.auth, Auth::Xoauth2);
+        assert_eq!(gmail.token_cmd.as_deref(), Some("pass gmail-token"));
     }
 }

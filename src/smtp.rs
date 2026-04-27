@@ -1,8 +1,8 @@
 use lettre::address::{Address, Envelope};
-use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::authentication::{Credentials, Mechanism};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
 
-use crate::config::{Account, Security};
+use crate::config::{Account, Auth, Security};
 use crate::error::VivariumError;
 
 /// Send raw .eml bytes via the account's SMTP server.
@@ -16,11 +16,11 @@ pub async fn send_raw(
         Security::Ssl => 465,
         Security::Starttls => 587,
     });
-    let password = account.resolve_password().await?;
+    let secret = account.resolve_secret().await?;
 
     tracing::info!(host, port, security = %account.smtp_security, "connecting to SMTP");
 
-    let creds = Credentials::new(account.username.clone(), password);
+    let creds = Credentials::new(account.username.clone(), secret);
 
     let tls_parameters = tls_parameters(host, reject_invalid_certs)?;
 
@@ -37,6 +37,10 @@ pub async fn send_raw(
             )),
     };
 
+    let builder = match account.auth {
+        Auth::Password => builder,
+        Auth::Xoauth2 => builder.authentication(vec![Mechanism::Xoauth2]),
+    };
     let transport = builder.credentials(creds).build();
     let envelope = envelope_from_raw(data)?;
 

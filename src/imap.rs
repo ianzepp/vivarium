@@ -2,14 +2,14 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_imap::Session;
 use async_imap::extensions::idle::IdleResponse;
+use async_imap::{Authenticator, Session};
 use futures::TryStreamExt;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio_native_tls::TlsStream;
 
-use crate::config::{Account, Provider, Security};
+use crate::config::{Account, Auth, Provider, Security};
 use crate::error::VivariumError;
 use crate::message::{message_id_from_bytes, normalize_message_id};
 use crate::store::MailStore;
@@ -36,6 +36,19 @@ struct WorkerContext {
     reject_invalid_certs: bool,
 }
 
+struct Xoauth2 {
+    user: String,
+    access_token: String,
+}
+
+impl Authenticator for Xoauth2 {
+    type Response = String;
+
+    fn process(&mut self, _challenge: &[u8]) -> Self::Response {
+        xoauth2_initial_response(&self.user, &self.access_token)
+    }
+}
+
 /// Connect and authenticate to the account's IMAP server.
 pub async fn connect(
     account: &Account,
@@ -46,7 +59,7 @@ pub async fn connect(
         Security::Ssl => 993,
         Security::Starttls => 143,
     });
-    let password = account.resolve_password().await?;
+    let secret = account.resolve_secret().await?;
 
     tracing::debug!(host, port, security = %account.imap_security, "connecting to IMAP");
 
@@ -86,10 +99,22 @@ pub async fn connect(
     };
 
     let client = async_imap::Client::new(tls_stream);
-    let session = client
-        .login(&account.username, &password)
-        .await
-        .map_err(|(e, _)| VivariumError::Imap(format!("login failed: {e}")))?;
+    let session = match account.auth {
+        Auth::Password => client
+            .login(&account.username, &secret)
+            .await
+            .map_err(|(e, _)| VivariumError::Imap(format!("login failed: {e}")))?,
+        Auth::Xoauth2 => client
+            .authenticate(
+                "XOAUTH2",
+                Xoauth2 {
+                    user: account.username.clone(),
+                    access_token: secret,
+                },
+            )
+            .await
+            .map_err(|(e, _)| VivariumError::Imap(format!("XOAUTH2 failed: {e}")))?,
+    };
 
     tracing::debug!(account = account.name, "IMAP authenticated");
     Ok(session)
@@ -354,6 +379,10 @@ fn uid_set_string(uids: &[u32]) -> String {
         .join(",")
 }
 
+fn xoauth2_initial_response(user: &str, access_token: &str) -> String {
+    format!("user={user}\x01auth=Bearer {access_token}\x01\x01")
+}
+
 pub async fn idle(account: &Account, reject_invalid_certs: bool) -> Result<(), VivariumError> {
     let mut session = connect(account, reject_invalid_certs).await?;
     session
@@ -397,5 +426,18 @@ impl fmt::Display for Security {
             Security::Ssl => write!(f, "ssl"),
             Security::Starttls => write!(f, "starttls"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_xoauth2_initial_response() {
+        assert_eq!(
+            xoauth2_initial_response("me@example.com", "token"),
+            "user=me@example.com\u{1}auth=Bearer token\u{1}\u{1}"
+        );
     }
 }
