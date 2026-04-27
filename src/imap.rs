@@ -18,7 +18,10 @@ const CHUNK_SIZE: u32 = 100;
 const WORKER_COUNT: usize = 4;
 
 /// Connect and authenticate to the account's IMAP server.
-pub async fn connect(account: &Account) -> Result<ImapSession, VivariumError> {
+pub async fn connect(
+    account: &Account,
+    reject_invalid_certs: bool,
+) -> Result<ImapSession, VivariumError> {
     let host = &account.imap_host;
     let port = account.imap_port.unwrap_or(match account.imap_security {
         Security::Ssl => 993,
@@ -32,17 +35,20 @@ pub async fn connect(account: &Account) -> Result<ImapSession, VivariumError> {
         .await
         .map_err(|e| VivariumError::Imap(format!("TCP connect to {host}:{port} failed: {e}")))?;
 
-    let tls_connector = native_tls::TlsConnector::builder()
-        .danger_accept_invalid_certs(true)
+    let mut tls_builder = native_tls::TlsConnector::builder();
+    if !reject_invalid_certs {
+        tls_builder.danger_accept_invalid_certs(true);
+    }
+    let tls_connector = tls_builder
         .build()
-        .map_err(|e| VivariumError::Imap(format!("TLS connector build failed: {e}")))?;
+        .map_err(|e| VivariumError::Tls(format!("TLS connector build failed: {e}")))?;
     let tls_connector = tokio_native_tls::TlsConnector::from(tls_connector);
 
     let tls_stream = match account.imap_security {
         Security::Ssl => tls_connector
             .connect(host, tcp)
             .await
-            .map_err(|e| VivariumError::Imap(format!("TLS handshake failed: {e}")))?,
+            .map_err(|e| VivariumError::Tls(format!("TLS handshake failed: {e}")))?,
         Security::Starttls => {
             let mut client = async_imap::Client::new(tcp);
             if let Some(resp) = client.read_response().await {
@@ -56,7 +62,7 @@ pub async fn connect(account: &Account) -> Result<ImapSession, VivariumError> {
             tls_connector
                 .connect(host, inner)
                 .await
-                .map_err(|e| VivariumError::Imap(format!("STARTTLS TLS upgrade failed: {e}")))?
+                .map_err(|e| VivariumError::Tls(format!("STARTTLS TLS upgrade failed: {e}")))?
         }
     };
 
@@ -74,22 +80,23 @@ pub async fn connect(account: &Account) -> Result<ImapSession, VivariumError> {
 pub async fn sync_messages(
     account: &Account,
     store: &MailStore,
+    reject_invalid_certs: bool,
 ) -> Result<SyncResult, VivariumError> {
     let mut result = SyncResult::default();
 
     // Sync inbox
-    let r = sync_folder(account, store, "INBOX", "inbox").await?;
+    let r = sync_folder(account, store, "INBOX", "inbox", reject_invalid_certs).await?;
     result.new += r.new;
 
     // Sync sent
     let sent = account.sent_folder();
-    let r = sync_folder(account, store, sent, "sent").await?;
+    let r = sync_folder(account, store, sent, "sent", reject_invalid_certs).await?;
     result.new += r.new;
 
     // For Gmail, sync All Mail → archive
     if account.provider == Provider::Gmail {
         let all_mail = account.all_mail_folder();
-        let r = sync_folder(account, store, all_mail, "archive").await?;
+        let r = sync_folder(account, store, all_mail, "archive", reject_invalid_certs).await?;
         result.new += r.new;
     }
 
@@ -105,9 +112,10 @@ async fn sync_folder(
     store: &MailStore,
     remote_folder: &str,
     local_folder: &str,
+    reject_invalid_certs: bool,
 ) -> Result<SyncResult, VivariumError> {
     // Phase 1: SELECT and get message count
-    let mut session = connect(account).await?;
+    let mut session = connect(account, reject_invalid_certs).await?;
     let mailbox = session
         .select(remote_folder)
         .await
@@ -201,6 +209,7 @@ async fn sync_folder(
                 &store,
                 &chunks,
                 &result,
+                reject_invalid_certs,
             )
             .await
         });
@@ -228,8 +237,9 @@ async fn worker(
     store: &MailStore,
     chunks: &Mutex<std::vec::IntoIter<Vec<u32>>>,
     result: &Mutex<SyncResult>,
+    reject_invalid_certs: bool,
 ) -> Result<(), VivariumError> {
-    let mut session = connect(account).await?;
+    let mut session = connect(account, reject_invalid_certs).await?;
     session
         .select(remote_folder)
         .await

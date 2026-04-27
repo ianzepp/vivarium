@@ -18,6 +18,8 @@ pub struct Defaults {
     /// Base directory for all account mail, e.g. "~/Mail"
     pub mail_root: Option<String>,
     pub check_interval_secs: Option<u64>,
+    #[serde(default)]
+    pub reject_invalid_certs: bool,
 }
 
 /// Credential and connection details from `accounts.toml`.
@@ -47,6 +49,7 @@ pub struct Account {
     /// Provider hint: "gmail" or "standard"
     #[serde(default)]
     pub provider: Provider,
+    pub reject_invalid_certs: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
@@ -102,13 +105,17 @@ impl Config {
 
 impl AccountsFile {
     pub fn load(path: &Path) -> Result<Self, VivariumError> {
+        Self::load_with_options(path, false)
+    }
+
+    pub fn load_with_options(path: &Path, ignore_permissions: bool) -> Result<Self, VivariumError> {
         if !path.exists() {
             return Err(VivariumError::Config(format!(
                 "accounts file not found: {}",
                 path.display()
             )));
         }
-        check_permissions(path)?;
+        check_permissions(path, ignore_permissions)?;
         let contents = fs::read_to_string(path).map_err(|e| {
             VivariumError::Config(format!("failed to read {}: {e}", path.display()))
         })?;
@@ -128,16 +135,23 @@ impl AccountsFile {
     }
 }
 
-/// Warn if accounts.toml is readable by group or others.
-fn check_permissions(path: &Path) -> Result<(), VivariumError> {
+/// Reject accounts.toml when it is readable by group or others.
+fn check_permissions(path: &Path, ignore_permissions: bool) -> Result<(), VivariumError> {
     let metadata = fs::metadata(path)?;
     let mode = metadata.permissions().mode();
     if mode & 0o077 != 0 {
-        tracing::warn!(
-            path = %path.display(),
-            mode = format!("{mode:o}"),
-            "accounts file has insecure permissions, expected 600"
-        );
+        if ignore_permissions {
+            tracing::warn!(
+                path = %path.display(),
+                mode = format!("{mode:o}"),
+                "accounts file has insecure permissions, ignoring by request"
+            );
+        } else {
+            return Err(VivariumError::Config(format!(
+                "insecure permissions on {}: expected mode 600, got {mode:o}; rerun with --ignore-permissions to bypass",
+                path.display()
+            )));
+        }
     }
     Ok(())
 }
@@ -165,6 +179,11 @@ impl Account {
             "no password or password_cmd for account '{}'",
             self.name
         )))
+    }
+
+    pub fn reject_invalid_certs(&self, config: &Config) -> bool {
+        self.reject_invalid_certs
+            .unwrap_or(config.defaults.reject_invalid_certs)
     }
 
     /// Resolve the mail directory for this account.
@@ -236,6 +255,24 @@ mod tests {
         let path = tmp.path().join("nonexistent.toml");
         let config = Config::load(&path).unwrap();
         assert!(config.defaults.mail_root.is_none());
+        assert!(!config.defaults.reject_invalid_certs);
+    }
+
+    #[test]
+    fn config_parses_reject_invalid_certs_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        fs::write(
+            &path,
+            r#"
+            [defaults]
+            reject_invalid_certs = true
+        "#,
+        )
+        .unwrap();
+
+        let config = Config::load(&path).unwrap();
+        assert!(config.defaults.reject_invalid_certs);
     }
 
     #[test]
@@ -268,6 +305,80 @@ mod tests {
         let accounts = AccountsFile::load(&path).unwrap();
         assert_eq!(accounts.accounts.len(), 1);
         assert_eq!(accounts.accounts[0].name, "test");
+    }
+
+    #[test]
+    fn accounts_file_rejects_insecure_permissions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("accounts.toml");
+        fs::write(
+            &path,
+            r#"
+            [[accounts]]
+            name = "test"
+            email = "test@example.com"
+            imap_host = "imap.example.com"
+            smtp_host = "smtp.example.com"
+            username = "test"
+            password = "secret"
+        "#,
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let err = AccountsFile::load(&path).unwrap_err();
+        assert!(err.to_string().contains("insecure permissions"));
+    }
+
+    #[test]
+    fn accounts_file_can_ignore_insecure_permissions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("accounts.toml");
+        fs::write(
+            &path,
+            r#"
+            [[accounts]]
+            name = "test"
+            email = "test@example.com"
+            imap_host = "imap.example.com"
+            smtp_host = "smtp.example.com"
+            username = "test"
+            password = "secret"
+        "#,
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let accounts = AccountsFile::load_with_options(&path, true).unwrap();
+        assert_eq!(accounts.accounts.len(), 1);
+    }
+
+    #[test]
+    fn account_reject_invalid_certs_overrides_default() {
+        let config = Config {
+            defaults: Defaults {
+                reject_invalid_certs: true,
+                ..Defaults::default()
+            },
+        };
+        let account = Account {
+            name: "test".into(),
+            email: "test@example.com".into(),
+            imap_host: "imap.example.com".into(),
+            imap_port: None,
+            imap_security: Security::Ssl,
+            smtp_host: "smtp.example.com".into(),
+            smtp_port: None,
+            smtp_security: Security::Ssl,
+            username: "test".into(),
+            password: Some("secret".into()),
+            password_cmd: None,
+            mail_dir: None,
+            provider: Provider::Standard,
+            reject_invalid_certs: Some(false),
+        };
+
+        assert!(!account.reject_invalid_certs(&config));
     }
 
     #[test]

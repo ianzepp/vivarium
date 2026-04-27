@@ -36,7 +36,11 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
 
     let config_path = cli.config.unwrap_or_else(Config::default_path);
     let config = Config::load(&config_path)?;
-    let accounts_file = AccountsFile::load(&AccountsFile::default_path())?;
+    let accounts_file =
+        AccountsFile::load_with_options(&AccountsFile::default_path(), cli.ignore_permissions)?;
+    if cli.insecure {
+        tracing::warn!("accepting invalid TLS certificates because --insecure was provided");
+    }
 
     // Resolve which account to use for commands that need one
     let resolve_account = |name: Option<String>| -> Result<_, VivariumError> {
@@ -59,12 +63,13 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
             match account_name {
                 Some(name) => {
                     let acct = accounts_file.find_account(&name)?;
-                    let result = vivarium::sync::sync_account(acct, &config).await?;
+                    let result = vivarium::sync::sync_account(acct, &config, cli.insecure).await?;
                     println!("synced {}: {} new messages", name, result.new);
                 }
                 None => {
                     for acct in &accounts_file.accounts {
-                        let result = vivarium::sync::sync_account(acct, &config).await?;
+                        let result =
+                            vivarium::sync::sync_account(acct, &config, cli.insecure).await?;
                         println!("synced {}: {} new messages", acct.name, result.new);
                     }
                 }
@@ -116,7 +121,8 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
         Command::Send { path } => {
             let acct = resolve_account(cli.account)?;
             let data = std::fs::read(&path)?;
-            vivarium::smtp::send_raw(&acct, &data).await?;
+            let reject_invalid_certs = acct.reject_invalid_certs(&config) && !cli.insecure;
+            vivarium::smtp::send_raw(&acct, &data, reject_invalid_certs).await?;
             println!("sent {}", path.display());
         }
         Command::Reply { message_id, body } => {
@@ -124,7 +130,8 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
             let store = MailStore::new(&acct.mail_path(&config));
             let original = store.read_message(&message_id)?;
             let reply_eml = message::build_reply(&original, &body, &acct.email)?;
-            vivarium::smtp::send_raw(&acct, reply_eml.as_bytes()).await?;
+            let reject_invalid_certs = acct.reject_invalid_certs(&config) && !cli.insecure;
+            vivarium::smtp::send_raw(&acct, reply_eml.as_bytes(), reject_invalid_certs).await?;
             println!("replied to {message_id}");
         }
         Command::Compose { to, subject } => {

@@ -17,6 +17,14 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
+    /// Accept invalid TLS certificates for this run
+    #[arg(long, global = true)]
+    pub insecure: bool,
+
+    /// Allow accounts.toml to be group/world readable
+    #[arg(long, global = true)]
+    pub ignore_permissions: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }

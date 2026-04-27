@@ -11,6 +11,9 @@ pub enum VivariumError {
     #[error("SMTP error: {0}")]
     Smtp(String),
 
+    #[error("TLS error: {0}")]
+    Tls(String),
+
     #[error(transparent)]
     Io(#[from] io::Error),
 

@@ -145,7 +145,7 @@ impl MailStore {
     ) -> Result<PathBuf, VivariumError> {
         self.ensure_folder(to)?;
         let src = self
-            .find_message(message_id, &[canonical_folder(from)])?
+            .find_message_in_subdirs(message_id, canonical_folder(from), MAILDIR_DIRS)?
             .ok_or_else(|| {
                 VivariumError::Message(format!("message not found in {from}: {message_id}"))
             })?;
@@ -153,7 +153,13 @@ impl MailStore {
             .parent()
             .and_then(|p| p.file_name())
             .and_then(|n| n.to_str())
-            .unwrap_or("cur");
+            .ok_or_else(|| VivariumError::Message("message path has no parent".into()))?;
+        if !matches!(subdir, "new" | "cur") {
+            return Err(VivariumError::Message(format!(
+                "cannot move message from unexpected maildir subdirectory '{subdir}': {}",
+                src.display()
+            )));
+        }
         let filename = src
             .file_name()
             .ok_or_else(|| VivariumError::Message("message path has no filename".into()))?;
@@ -225,18 +231,31 @@ impl MailStore {
     ) -> Result<Option<PathBuf>, VivariumError> {
         let wanted = display_message_id(message_id);
         for folder in folders {
-            let path = self.folder_path(folder);
-            for subdir in ["new", "cur"] {
-                let dir = path.join(subdir);
-                if !dir.exists() {
-                    continue;
-                }
-                for entry in fs::read_dir(&dir)? {
-                    let entry = entry?;
-                    let file_path = entry.path();
-                    if message_id_from_path(&file_path).as_deref() == Some(wanted.as_str()) {
-                        return Ok(Some(file_path));
-                    }
+            if let Some(path) = self.find_message_in_subdirs(&wanted, folder, &["new", "cur"])? {
+                return Ok(Some(path));
+            }
+        }
+        Ok(None)
+    }
+
+    fn find_message_in_subdirs(
+        &self,
+        message_id: &str,
+        folder: &str,
+        subdirs: &[&str],
+    ) -> Result<Option<PathBuf>, VivariumError> {
+        let wanted = display_message_id(message_id);
+        let path = self.folder_path(folder);
+        for subdir in subdirs {
+            let dir = path.join(subdir);
+            if !dir.exists() {
+                continue;
+            }
+            for entry in fs::read_dir(&dir)? {
+                let entry = entry?;
+                let file_path = entry.path();
+                if message_id_from_path(&file_path).as_deref() == Some(wanted.as_str()) {
+                    return Ok(Some(file_path));
                 }
             }
         }
@@ -332,5 +351,37 @@ mod tests {
     fn message_ids_ignore_maildir_flags() {
         let path = PathBuf::from("INBOX/cur/inbox-1.eml:2,S");
         assert_eq!(message_id_from_path(&path).unwrap(), "inbox-1");
+    }
+
+    #[test]
+    fn move_message_preserves_source_subdir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        let src = store
+            .store_message("inbox", "inbox-1", b"Subject: hello\r\n\r\nbody")
+            .unwrap();
+
+        let dst = store.move_message("inbox-1", "inbox", "archive").unwrap();
+
+        assert_eq!(src.parent().unwrap().file_name().unwrap(), "new");
+        assert_eq!(dst, tmp.path().join("Archive/new/inbox-1.eml"));
+        assert!(dst.exists());
+    }
+
+    #[test]
+    fn move_message_rejects_tmp_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        store.ensure_folders().unwrap();
+        fs::write(
+            tmp.path().join("INBOX/tmp/inbox-1.eml"),
+            b"Subject: hello\r\n\r\nbody",
+        )
+        .unwrap();
+
+        let err = store
+            .move_message("inbox-1", "inbox", "archive")
+            .unwrap_err();
+        assert!(err.to_string().contains("unexpected maildir subdirectory"));
     }
 }

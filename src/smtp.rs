@@ -6,7 +6,11 @@ use crate::config::{Account, Security};
 use crate::error::VivariumError;
 
 /// Send raw .eml bytes via the account's SMTP server.
-pub async fn send_raw(account: &Account, data: &[u8]) -> Result<(), VivariumError> {
+pub async fn send_raw(
+    account: &Account,
+    data: &[u8],
+    reject_invalid_certs: bool,
+) -> Result<(), VivariumError> {
     let host = &account.smtp_host;
     let port = account.smtp_port.unwrap_or(match account.smtp_security {
         Security::Ssl => 465,
@@ -18,22 +22,18 @@ pub async fn send_raw(account: &Account, data: &[u8]) -> Result<(), VivariumErro
 
     let creds = Credentials::new(account.username.clone(), password);
 
+    let tls_parameters = tls_parameters(host, reject_invalid_certs)?;
+
     let builder = match account.smtp_security {
         Security::Ssl => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
             .port(port)
             .tls(lettre::transport::smtp::client::Tls::Wrapper(
-                lettre::transport::smtp::client::TlsParameters::builder(host.clone())
-                    .dangerous_accept_invalid_certs(true)
-                    .build()
-                    .map_err(|e| VivariumError::Smtp(format!("TLS params failed: {e}")))?,
+                tls_parameters,
             )),
         Security::Starttls => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
             .port(port)
             .tls(lettre::transport::smtp::client::Tls::Required(
-                lettre::transport::smtp::client::TlsParameters::builder(host.clone())
-                    .dangerous_accept_invalid_certs(true)
-                    .build()
-                    .map_err(|e| VivariumError::Smtp(format!("TLS params failed: {e}")))?,
+                tls_parameters,
             )),
     };
 
@@ -47,6 +47,22 @@ pub async fn send_raw(account: &Account, data: &[u8]) -> Result<(), VivariumErro
 
     tracing::info!("message sent");
     Ok(())
+}
+
+fn tls_parameters(
+    host: &str,
+    reject_invalid_certs: bool,
+) -> Result<lettre::transport::smtp::client::TlsParameters, VivariumError> {
+    if reject_invalid_certs {
+        return lettre::transport::smtp::client::TlsParameters::builder(host.to_string())
+            .build()
+            .map_err(|e| VivariumError::Tls(format!("TLS params failed: {e}")));
+    }
+
+    lettre::transport::smtp::client::TlsParameters::builder(host.to_string())
+        .dangerous_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| VivariumError::Tls(format!("TLS params failed: {e}")))
 }
 
 /// Extract From/To addresses from raw .eml to build a lettre Envelope.
