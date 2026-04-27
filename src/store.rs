@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::error::VivariumError;
-use crate::message::MessageEntry;
+use crate::message::{MessageEntry, message_id_from_bytes};
 
 /// Local Maildir folders.
 const FOLDERS: &[&str] = &["INBOX", "Archive", "Sent", "Drafts", "outbox"];
@@ -212,6 +212,39 @@ impl MailStore {
         Ok(map)
     }
 
+    pub fn has_rfc_message_id(
+        &self,
+        folder: &str,
+        rfc_message_id: &str,
+        size: u64,
+    ) -> Result<bool, VivariumError> {
+        if self.index_entry_matches(folder, rfc_message_id, size) {
+            return Ok(true);
+        }
+
+        let Some((uid, local_size)) = self.find_local_rfc_message_id(folder, rfc_message_id)?
+        else {
+            return Ok(false);
+        };
+        self.write_message_index(folder, rfc_message_id, uid, local_size)?;
+        Ok(local_size == size)
+    }
+
+    pub fn write_message_index(
+        &self,
+        folder: &str,
+        rfc_message_id: &str,
+        uid: u32,
+        size: u64,
+    ) -> Result<(), VivariumError> {
+        let path = self.index_path(folder, rfc_message_id);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, format!("{uid}\n{size}\n"))?;
+        Ok(())
+    }
+
     fn ensure_folder(&self, folder: &str) -> Result<(), VivariumError> {
         let path = self.folder_path(folder);
         for dir in MAILDIR_DIRS {
@@ -260,6 +293,58 @@ impl MailStore {
             }
         }
         Ok(None)
+    }
+
+    fn index_entry_matches(&self, folder: &str, rfc_message_id: &str, size: u64) -> bool {
+        let path = self.index_path(folder, rfc_message_id);
+        let Ok(contents) = fs::read_to_string(path) else {
+            return false;
+        };
+        let mut lines = contents.lines();
+        let Some(_) = lines.next() else {
+            return false;
+        };
+        lines
+            .next()
+            .and_then(|line| line.parse::<u64>().ok())
+            .is_some_and(|indexed_size| indexed_size == size)
+    }
+
+    fn find_local_rfc_message_id(
+        &self,
+        folder: &str,
+        rfc_message_id: &str,
+    ) -> Result<Option<(u32, u64)>, VivariumError> {
+        let path = self.folder_path(folder);
+        for subdir in ["new", "cur"] {
+            let dir = path.join(subdir);
+            if !dir.exists() {
+                continue;
+            }
+            for entry in fs::read_dir(&dir)? {
+                let entry = entry?;
+                let file_path = entry.path();
+                if !is_message_file(&file_path) {
+                    continue;
+                }
+                let data = fs::read(&file_path)?;
+                if message_id_from_bytes(&data).as_deref() == Some(rfc_message_id) {
+                    let size = fs::metadata(&file_path)?.len();
+                    let uid = message_id_from_path(&file_path)
+                        .and_then(|id| id.rsplit_once('-').and_then(|(_, uid)| uid.parse().ok()))
+                        .unwrap_or(0);
+                    return Ok(Some((uid, size)));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn index_path(&self, folder: &str, rfc_message_id: &str) -> PathBuf {
+        self.root
+            .join(".vivarium_index")
+            .join(canonical_folder(folder))
+            .join(format!("{:016x}", stable_hash(rfc_message_id)))
     }
 }
 
@@ -313,6 +398,12 @@ fn display_message_id(message_id: &str) -> String {
         .strip_suffix(".eml")
         .unwrap_or(before_flags)
         .to_string()
+}
+
+fn stable_hash(value: &str) -> u64 {
+    value.bytes().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    })
 }
 
 #[cfg(test)]
@@ -383,5 +474,45 @@ mod tests {
             .move_message("inbox-1", "inbox", "archive")
             .unwrap_err();
         assert!(err.to_string().contains("unexpected maildir subdirectory"));
+    }
+
+    #[test]
+    fn message_id_index_matches_size() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+
+        store
+            .write_message_index("inbox", "abc@example.com", 42, 99)
+            .unwrap();
+
+        assert!(
+            store
+                .has_rfc_message_id("inbox", "abc@example.com", 99)
+                .unwrap()
+        );
+        assert!(
+            !store
+                .has_rfc_message_id("inbox", "abc@example.com", 100)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn message_id_index_can_rebuild_from_local_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        let data = b"Message-ID: <ABC@example.COM>\r\nSubject: hello\r\n\r\nbody";
+        store.store_message("inbox", "inbox-7", data).unwrap();
+
+        assert!(
+            store
+                .has_rfc_message_id("inbox", "abc@example.com", data.len() as u64)
+                .unwrap()
+        );
+        assert!(
+            store
+                .has_rfc_message_id("inbox", "abc@example.com", data.len() as u64)
+                .unwrap()
+        );
     }
 }

@@ -63,6 +63,23 @@ impl fmt::Display for MessageEntry {
     }
 }
 
+pub fn message_id_from_bytes(data: &[u8]) -> Option<String> {
+    let parsed = mail_parser::MessageParser::default().parse(data)?;
+    normalize_message_id(parsed.message_id()?)
+}
+
+pub fn normalize_message_id(message_id: &str) -> Option<String> {
+    let trimmed = message_id
+        .trim()
+        .trim_start_matches('<')
+        .trim_end_matches('>');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_ascii_lowercase())
+    }
+}
+
 /// Build a reply .eml from an original message.
 pub fn build_reply(original: &[u8], body: &str, from: &str) -> Result<String, VivariumError> {
     let parsed = mail_parser::MessageParser::default()
@@ -160,4 +177,27 @@ pub fn render_message(data: &[u8]) -> Result<String, VivariumError> {
     Ok(format!(
         "From:    {from}\nTo:      {to}\nDate:    {date}\nSubject: {subject}\n\n{body}"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_message_id() {
+        assert_eq!(
+            normalize_message_id(" <ABC@example.COM> "),
+            Some("abc@example.com".into())
+        );
+        assert_eq!(normalize_message_id("<>"), None);
+    }
+
+    #[test]
+    fn extracts_message_id_from_bytes() {
+        let data = b"Message-ID: <ABC@example.COM>\r\nSubject: hello\r\n\r\nbody";
+        assert_eq!(
+            message_id_from_bytes(data),
+            Some("abc@example.com".to_string())
+        );
+    }
 }

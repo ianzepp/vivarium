@@ -9,6 +9,7 @@ use tokio_native_tls::TlsStream;
 
 use crate::config::{Account, Provider, Security};
 use crate::error::VivariumError;
+use crate::message::{message_id_from_bytes, normalize_message_id};
 use crate::store::MailStore;
 use crate::sync::SyncResult;
 
@@ -16,6 +17,13 @@ type ImapSession = Session<TlsStream<TcpStream>>;
 
 const CHUNK_SIZE: u32 = 100;
 const WORKER_COUNT: usize = 4;
+
+#[derive(Debug, Clone)]
+struct RemoteMessage {
+    uid: u32,
+    size: u64,
+    rfc_message_id: Option<String>,
+}
 
 /// Connect and authenticate to the account's IMAP server.
 pub async fn connect(
@@ -132,11 +140,11 @@ async fn sync_folder(
 
     // Phase 2: Fetch all UIDs and sizes
     let fetches = session
-        .fetch(format!("1:{count}"), "(UID RFC822.SIZE)")
+        .fetch(format!("1:{count}"), "(UID RFC822.SIZE ENVELOPE)")
         .await
         .map_err(|e| VivariumError::Imap(format!("uid/size fetch failed: {e}")))?;
 
-    let remote_messages: Vec<(u32, u64)> = fetches
+    let remote_messages: Vec<RemoteMessage> = fetches
         .try_collect::<Vec<_>>()
         .await
         .map_err(|e| VivariumError::Imap(format!("uid/size stream failed: {e}")))?
@@ -144,7 +152,16 @@ async fn sync_folder(
         .filter_map(|f| {
             let uid = f.uid?;
             let size = u64::from(f.size?);
-            Some((uid, size))
+            let rfc_message_id = f
+                .envelope()
+                .and_then(|envelope| envelope.message_id.as_deref())
+                .and_then(|id| std::str::from_utf8(id).ok())
+                .and_then(normalize_message_id);
+            Some(RemoteMessage {
+                uid,
+                size,
+                rfc_message_id,
+            })
         })
         .collect();
 
@@ -152,16 +169,25 @@ async fn sync_folder(
 
     // Phase 3: Compare against local files
     let local_sizes = store.local_sizes(local_folder)?;
-    let missing: Vec<u32> = remote_messages
+    let missing: Vec<RemoteMessage> = remote_messages
         .iter()
-        .filter(|(uid, size)| {
-            let msg_id = format!("{local_folder}-{uid}");
+        .filter_map(|remote| {
+            if let Some(ref rfc_message_id) = remote.rfc_message_id {
+                match store.has_rfc_message_id(local_folder, rfc_message_id, remote.size) {
+                    Ok(true) => return None,
+                    Ok(false) => {}
+                    Err(err) => {
+                        tracing::warn!(error = %err, "message-id index check failed; falling back");
+                    }
+                }
+            }
+
+            let msg_id = format!("{local_folder}-{}", remote.uid);
             match local_sizes.get(&msg_id) {
-                Some(local_size) => local_size != size,
-                None => true,
+                Some(local_size) if local_size == &remote.size => None,
+                _ => Some(remote.clone()),
             }
         })
-        .map(|(uid, _)| *uid)
         .collect();
 
     if missing.is_empty() {
@@ -181,7 +207,7 @@ async fn sync_folder(
     );
 
     // Phase 4: Build UID chunks and download with worker pool
-    let chunks: Vec<Vec<u32>> = missing
+    let chunks: Vec<Vec<RemoteMessage>> = missing
         .chunks(CHUNK_SIZE as usize)
         .map(|c| c.to_vec())
         .collect();
@@ -235,7 +261,7 @@ async fn worker(
     remote_folder: &str,
     local_folder: &str,
     store: &MailStore,
-    chunks: &Mutex<std::vec::IntoIter<Vec<u32>>>,
+    chunks: &Mutex<std::vec::IntoIter<Vec<RemoteMessage>>>,
     result: &Mutex<SyncResult>,
     reject_invalid_certs: bool,
 ) -> Result<(), VivariumError> {
@@ -256,7 +282,7 @@ async fn worker(
             None => break,
         };
 
-        let uid_set = uid_set_string(&uids);
+        let uid_set = uid_set_string(&uids.iter().map(|msg| msg.uid).collect::<Vec<_>>());
         tracing::debug!(worker_id, uids = uid_set, "fetching chunk");
 
         let fetches = session
@@ -284,6 +310,10 @@ async fn worker(
                 "cur"
             };
             store.store_message_in(local_folder, subdir, &message_id, body)?;
+            if let Some(rfc_message_id) = message_id_from_bytes(body) {
+                let size = u64::try_from(body.len()).unwrap_or(u64::MAX);
+                store.write_message_index(local_folder, &rfc_message_id, uid, size)?;
+            }
             new_count += 1;
         }
 
