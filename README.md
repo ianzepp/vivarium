@@ -35,7 +35,9 @@ name = "gmail"
 email = "you@gmail.com"
 username = "you@gmail.com"
 auth = "xoauth2"
-token_cmd = "your-command-that-prints-a-gmail-access-token"
+oauth_client_id = "your-google-oauth-client-id"
+oauth_client_secret = "your-google-oauth-client-secret"
+token_cmd = "vivarium token gmail"
 imap_host = "imap.gmail.com"
 imap_security = "ssl"
 smtp_host = "smtp.gmail.com"
@@ -46,6 +48,7 @@ provider = "gmail"
 Then sync:
 
 ```
+vivarium auth gmail
 vivarium sync
 ```
 
@@ -78,6 +81,8 @@ Vivarium-generated filenames keep a `.eml` stem for non-mail tooling, while `cur
 
 ```
 vivarium init                                  # create config directory and files
+vivarium auth gmail                            # browser OAuth, store refresh token
+vivarium token gmail                           # print an access token for token_cmd
 vivarium sync                                  # sync all accounts
 vivarium sync --account proton                 # sync one account
 vivarium watch --account proton                # watch IMAP and outbox changes
@@ -115,8 +120,11 @@ Gmail syncs `[Gmail]/All Mail` into `Archive/`. Standard IMAP (Proton Bridge, Fa
 - Gmail OAuth is supported with `auth = "xoauth2"` and `token_cmd`; the command must print a current OAuth access token:
   ```toml
   auth = "xoauth2"
-  token_cmd = "your-command-that-prints-a-gmail-access-token"
+  oauth_client_id = "your-google-oauth-client-id"
+  oauth_client_secret = "your-google-oauth-client-secret"
+  token_cmd = "vivarium token gmail"
   ```
+- Run `vivarium auth gmail` once to approve access in the browser and store the refresh token in macOS Keychain
 - Self-signed certs are accepted by default for compatibility with local bridges
 - Set `reject_invalid_certs = true` under `[defaults]` or an account to require certificate validation
 - Use `--insecure` as a one-run override when a strict TLS config needs to accept invalid certificates

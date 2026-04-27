@@ -4,6 +4,7 @@ pub mod error;
 pub mod imap;
 pub mod init;
 pub mod message;
+pub mod oauth;
 pub mod outbox;
 pub mod smtp;
 pub mod store;

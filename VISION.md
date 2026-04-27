@@ -144,7 +144,9 @@ smtp_port = 587
 smtp_security = "starttls"
 username = "you@gmail.com"
 auth = "xoauth2"
-token_cmd = "your-command-that-prints-a-gmail-access-token"
+oauth_client_id = "your-google-oauth-client-id"
+oauth_client_secret = "your-google-oauth-client-secret"
+token_cmd = "vivarium token personal"
 provider = "gmail"
 ```
 

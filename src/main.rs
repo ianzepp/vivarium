@@ -59,6 +59,20 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
 
     match cli.command {
         Command::Init => unreachable!(),
+        Command::Auth {
+            account,
+            client_id,
+            client_secret,
+        } => {
+            let acct = resolve_account(account.or(cli.account))?;
+            let client = vivarium::oauth::oauth_client(&acct, client_id, client_secret)?;
+            vivarium::oauth::authorize(&acct, client).await?;
+        }
+        Command::Token { account } => {
+            let acct = resolve_account(account.or(cli.account))?;
+            let client = vivarium::oauth::oauth_client(&acct, None, None)?;
+            vivarium::oauth::print_access_token(&acct, client).await?;
+        }
         Command::Sync { account } => {
             let account_name = account.or(cli.account);
             match account_name {

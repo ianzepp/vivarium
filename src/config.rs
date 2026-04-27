@@ -47,6 +47,8 @@ pub struct Account {
     pub password: Option<String>,
     pub password_cmd: Option<String>,
     pub token_cmd: Option<String>,
+    pub oauth_client_id: Option<String>,
+    pub oauth_client_secret: Option<String>,
     /// Override mail directory for this account
     pub mail_dir: Option<String>,
     /// Provider hint: "gmail" or "standard"
@@ -423,6 +425,8 @@ mod tests {
             password: Some("secret".into()),
             password_cmd: None,
             token_cmd: None,
+            oauth_client_id: None,
+            oauth_client_secret: None,
             mail_dir: None,
             provider: Provider::Standard,
             reject_invalid_certs: Some(false),
@@ -482,6 +486,8 @@ mod tests {
             username = "ian@gmail.com"
             auth = "xoauth2"
             token_cmd = "pass gmail-token"
+            oauth_client_id = "client-id"
+            oauth_client_secret = "client-secret"
         "#,
         )
         .unwrap();
@@ -491,5 +497,6 @@ mod tests {
         let gmail = accounts.find_account("gmail").unwrap();
         assert_eq!(gmail.auth, Auth::Xoauth2);
         assert_eq!(gmail.token_cmd.as_deref(), Some("pass gmail-token"));
+        assert_eq!(gmail.oauth_client_id.as_deref(), Some("client-id"));
     }
 }

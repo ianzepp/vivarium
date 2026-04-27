@@ -34,6 +34,26 @@ pub enum Command {
     /// Initialize vivarium config directory and files
     Init,
 
+    /// Authorize an OAuth account and store its refresh token
+    Auth {
+        /// Account to authorize (overrides --account)
+        account: Option<String>,
+
+        /// OAuth client ID (overrides account config)
+        #[arg(long)]
+        client_id: Option<String>,
+
+        /// OAuth client secret (overrides account config)
+        #[arg(long)]
+        client_secret: Option<String>,
+    },
+
+    /// Print a fresh OAuth access token for token_cmd
+    Token {
+        /// Account to mint a token for (overrides --account)
+        account: Option<String>,
+    },
+
     /// Sync mail from IMAP to local store
     Sync {
         /// Account to sync (overrides --account)
