@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
@@ -84,7 +85,7 @@ impl MailStore {
                 }
             }
         }
-        entries.sort_by(|a, b| b.date.cmp(&a.date));
+        entries.sort_by_key(|entry| Reverse(entry.date));
         Ok(entries)
     }
 

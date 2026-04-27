@@ -69,7 +69,7 @@ Vivarium uses standard Maildir with one addition: the `outbox/` directory.
 
 ### Sync
 
-Pull remote IMAP state to local Maildir. Track UIDs to avoid re-fetching. Sync flags bidirectionally.
+Pull remote IMAP state to local Maildir. Vivarium uses Message-ID sidecar indexes where possible and falls back to UID plus size when a message has no Message-ID.
 
 ```
 vivarium sync                     # All accounts
@@ -99,17 +99,17 @@ Basic message listing and display for shell use.
 
 ```
 vivarium list Inbox
-vivarium list Inbox --unread
 vivarium show <message-id>
 ```
 
 ### Reply / Compose
 
-Opens `$EDITOR` with a properly formatted reply or blank composition. On save, the file is moved to `outbox/new/` for delivery.
+Opens `$VISUAL`, `$EDITOR`, or `vi` with a properly formatted reply or blank composition. Compose saves a draft; reply sends on save. `reply --body` remains available for scripted sends.
 
 ```
 vivarium reply <message-id>
-vivarium compose --to someone@example.com
+vivarium reply <message-id> --body "Thanks"
+vivarium compose --to someone@example.com --subject "Hello"
 ```
 
 ## Configuration
@@ -119,23 +119,32 @@ vivarium compose --to someone@example.com
 
 [defaults]
 mail_root = "~/.local/share/vivarium"
-editor = "$EDITOR"
+reject_invalid_certs = true
 
-[account.work]
+[[accounts]]
+name = "work"
+email = "you@example.com"
 imap_host = "imap.example.com"
 imap_port = 993
+imap_security = "ssl"
 smtp_host = "smtp.example.com"
 smtp_port = 587
-user = "you@example.com"
+smtp_security = "starttls"
+username = "you@example.com"
 password_cmd = "security find-generic-password -s vivarium-work -w"
 
-[account.personal]
+[[accounts]]
+name = "personal"
+email = "you@gmail.com"
 imap_host = "imap.gmail.com"
 imap_port = 993
+imap_security = "ssl"
 smtp_host = "smtp.gmail.com"
 smtp_port = 587
-user = "you@gmail.com"
+smtp_security = "starttls"
+username = "you@gmail.com"
 password_cmd = "security find-generic-password -s vivarium-personal -w"
+provider = "gmail"
 ```
 
 ## Non-Goals

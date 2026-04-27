@@ -27,6 +27,15 @@ struct RemoteMessage {
     rfc_message_id: Option<String>,
 }
 
+struct WorkerContext {
+    worker_id: usize,
+    account: Account,
+    remote_folder: String,
+    local_folder: String,
+    store: Arc<MailStore>,
+    reject_invalid_certs: bool,
+}
+
 /// Connect and authenticate to the account's IMAP server.
 pub async fn connect(
     account: &Account,
@@ -230,14 +239,16 @@ async fn sync_folder(
 
         let handle = tokio::spawn(async move {
             worker(
-                worker_id,
-                &account,
-                &remote_folder,
-                &local_folder,
-                &store,
+                WorkerContext {
+                    worker_id,
+                    account,
+                    remote_folder,
+                    local_folder,
+                    store,
+                    reject_invalid_certs,
+                },
                 &chunks,
                 &result,
-                reject_invalid_certs,
             )
             .await
         });
@@ -258,18 +269,13 @@ async fn sync_folder(
 
 /// Worker: grab chunks from the queue, open a connection, fetch messages.
 async fn worker(
-    worker_id: usize,
-    account: &Account,
-    remote_folder: &str,
-    local_folder: &str,
-    store: &MailStore,
+    context: WorkerContext,
     chunks: &Mutex<std::vec::IntoIter<Vec<RemoteMessage>>>,
     result: &Mutex<SyncResult>,
-    reject_invalid_certs: bool,
 ) -> Result<(), VivariumError> {
-    let mut session = connect(account, reject_invalid_certs).await?;
+    let mut session = connect(&context.account, context.reject_invalid_certs).await?;
     session
-        .select(remote_folder)
+        .select(&context.remote_folder)
         .await
         .map_err(|e| VivariumError::Imap(format!("worker select failed: {e}")))?;
 
@@ -285,7 +291,11 @@ async fn worker(
         };
 
         let uid_set = uid_set_string(&uids.iter().map(|msg| msg.uid).collect::<Vec<_>>());
-        tracing::debug!(worker_id, uids = uid_set, "fetching chunk");
+        tracing::debug!(
+            worker_id = context.worker_id,
+            uids = uid_set,
+            "fetching chunk"
+        );
 
         let fetches = session
             .uid_fetch(&uid_set, "BODY[]")
@@ -305,16 +315,23 @@ async fn worker(
                 None => continue,
             };
 
-            let message_id = format!("{local_folder}-{uid}");
-            let subdir = if local_folder == "inbox" {
+            let message_id = format!("{}-{uid}", context.local_folder);
+            let subdir = if context.local_folder == "inbox" {
                 "new"
             } else {
                 "cur"
             };
-            store.store_message_in(local_folder, subdir, &message_id, body)?;
+            context
+                .store
+                .store_message_in(&context.local_folder, subdir, &message_id, body)?;
             if let Some(rfc_message_id) = message_id_from_bytes(body) {
                 let size = u64::try_from(body.len()).unwrap_or(u64::MAX);
-                store.write_message_index(local_folder, &rfc_message_id, uid, size)?;
+                context.store.write_message_index(
+                    &context.local_folder,
+                    &rfc_message_id,
+                    uid,
+                    size,
+                )?;
             }
             new_count += 1;
         }

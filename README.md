@@ -81,15 +81,18 @@ Vivarium-generated filenames keep a `.eml` stem for non-mail tooling, while `cur
 vivarium init                                  # create config directory and files
 vivarium sync                                  # sync all accounts
 vivarium sync --account proton                 # sync one account
+vivarium watch --account proton                # watch IMAP and outbox changes
 vivarium list                                  # list inbox (default)
 vivarium list sent                             # list sent folder
 vivarium show inbox-1                          # read a message
 vivarium archive inbox-1                       # move from inbox to archive
-vivarium compose --to a@b.com --subject "Hi"   # create a draft
+vivarium compose --to a@b.com --subject "Hi"   # edit and save a draft
+vivarium reply inbox-1                         # edit a reply and send it
+vivarium reply inbox-1 --body "Thanks"         # send a scripted reply
 vivarium send ~/.local/share/vivarium/proton/Drafts/new/draft.eml   # send an .eml file
 ```
 
-All commands accept `--account <name>` to target a specific account. Without it, the first account in `accounts.toml` is used.
+All commands accept `--account <name>` to target a specific account. Without it, account-scoped commands use the first account in `accounts.toml`; `sync` and `watch` operate on all accounts.
 
 ## Providers
 
@@ -105,15 +108,18 @@ Gmail syncs `[Gmail]/All Mail` into `Archive/`. Standard IMAP (Proton Bridge, Fa
 ## Security
 
 - `accounts.toml` is created with `chmod 600` and checked on load
+- Group/world-readable `accounts.toml` is rejected unless `--ignore-permissions` is set
 - `password_cmd` is supported as an alternative to plaintext passwords:
   ```toml
   password_cmd = "security find-generic-password -s vivarium -a you@proton.me -w"
   ```
-- Self-signed certs are accepted (required for Proton Bridge)
+- Self-signed certs are accepted by default for compatibility with local bridges
+- Set `reject_invalid_certs = true` under `[defaults]` or an account to require certificate validation
+- Use `--insecure` as a one-run override when a strict TLS config needs to accept invalid certificates
 
 ## Status
 
-Early. Working: init, sync, list, show, archive, compose, send. Not yet implemented: watch (IMAP IDLE), reply.
+Early. Working: init, sync, watch, list, show, archive, editor compose, editor/scripted reply, send, Message-ID dedup, TLS and permission hardening.
 
 ## License
 
