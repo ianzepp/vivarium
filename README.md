@@ -52,10 +52,10 @@ vivarium sync
 
 ## Mail Storage
 
-Messages are stored as plain `.eml` files under `~/Mail/{account}/`:
+Messages are stored as plain `.eml` files under `~/.local/share/vivarium/{account}/`:
 
 ```
-~/Mail/proton/
+~/.local/share/vivarium/proton/
 ├── inbox/          <- messages in INBOX
 ├── archive/        <- archived messages
 ├── sent/           <- sent mail

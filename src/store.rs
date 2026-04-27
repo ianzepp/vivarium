@@ -20,6 +20,7 @@ const FOLDERS: &[&str] = &["inbox", "archive", "sent", "drafts", "outbox"];
 /// ```
 ///
 /// Each message is stored as `{message_id}.eml`.
+#[derive(Clone)]
 pub struct MailStore {
     root: PathBuf,
 }
@@ -123,6 +124,32 @@ impl MailStore {
         FOLDERS
             .iter()
             .any(|f| self.root.join(f).join(&filename).exists())
+    }
+
+    /// Get the file size of a message in a specific folder, if it exists.
+    pub fn file_size(&self, folder: &str, message_id: &str) -> Option<u64> {
+        let path = self.folder_path(folder).join(format!("{message_id}.eml"));
+        fs::metadata(&path).ok().map(|m| m.len())
+    }
+
+    /// Build a map of message_id → file_size for all .eml files in a folder.
+    pub fn local_sizes(&self, folder: &str) -> Result<std::collections::HashMap<String, u64>, VivariumError> {
+        let path = self.folder_path(folder);
+        let mut map = std::collections::HashMap::new();
+        if !path.exists() {
+            return Ok(map);
+        }
+        for entry in fs::read_dir(&path)? {
+            let entry = entry?;
+            let file_path = entry.path();
+            if file_path.extension().is_some_and(|e| e == "eml")
+                && let Some(stem) = file_path.file_stem().and_then(|s| s.to_str())
+            {
+                let size = fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
+                map.insert(stem.to_string(), size);
+            }
+        }
+        Ok(map)
     }
 }
 

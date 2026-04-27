@@ -1,8 +1,10 @@
 use std::fmt;
+use std::sync::Arc;
 
 use async_imap::Session;
 use futures::TryStreamExt;
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
 use tokio_native_tls::TlsStream;
 
 use crate::config::{Account, Provider, Security};
@@ -11,6 +13,9 @@ use crate::store::MailStore;
 use crate::sync::SyncResult;
 
 type ImapSession = Session<TlsStream<TcpStream>>;
+
+const CHUNK_SIZE: u32 = 100;
+const WORKER_COUNT: usize = 4;
 
 /// Connect and authenticate to the account's IMAP server.
 pub async fn connect(account: &Account) -> Result<ImapSession, VivariumError> {
@@ -21,7 +26,7 @@ pub async fn connect(account: &Account) -> Result<ImapSession, VivariumError> {
     });
     let password = account.resolve_password().await?;
 
-    tracing::info!(host, port, security = %account.imap_security, "connecting to IMAP");
+    tracing::debug!(host, port, security = %account.imap_security, "connecting to IMAP");
 
     let tcp = TcpStream::connect((host.as_str(), port))
         .await
@@ -63,7 +68,7 @@ pub async fn connect(account: &Account) -> Result<ImapSession, VivariumError> {
         .await
         .map_err(|(e, _)| VivariumError::Imap(format!("login failed: {e}")))?;
 
-    tracing::info!(account = account.name, "IMAP authenticated");
+    tracing::debug!(account = account.name, "IMAP authenticated");
     Ok(session)
 }
 
@@ -72,38 +77,39 @@ pub async fn sync_messages(
     account: &Account,
     store: &MailStore,
 ) -> Result<SyncResult, VivariumError> {
-    let mut session = connect(account).await?;
     let mut result = SyncResult::default();
 
     // Sync inbox
-    sync_folder(&mut session, store, "INBOX", "inbox", &mut result).await?;
+    let r = sync_folder(account, store, "INBOX", "inbox").await?;
+    result.new += r.new;
 
     // Sync sent
     let sent = account.sent_folder();
-    sync_folder(&mut session, store, sent, "sent", &mut result).await?;
+    let r = sync_folder(account, store, sent, "sent").await?;
+    result.new += r.new;
 
-    // For Gmail, sync All Mail → archive (messages not already in inbox)
+    // For Gmail, sync All Mail → archive
     if account.provider == Provider::Gmail {
         let all_mail = account.all_mail_folder();
-        sync_folder(&mut session, store, all_mail, "archive", &mut result).await?;
+        let r = sync_folder(account, store, all_mail, "archive").await?;
+        result.new += r.new;
     }
-
-    session
-        .logout()
-        .await
-        .map_err(|e| VivariumError::Imap(format!("logout failed: {e}")))?;
 
     Ok(result)
 }
 
-/// Fetch all messages from a remote IMAP folder and store new ones locally.
+/// Two-pass sync for a single folder:
+/// 1. Fetch UID + size for all messages (fast)
+/// 2. Compare against local files
+/// 3. Download missing/mismatched messages in parallel chunks
 async fn sync_folder(
-    session: &mut ImapSession,
+    account: &Account,
     store: &MailStore,
     remote_folder: &str,
     local_folder: &str,
-    result: &mut SyncResult,
-) -> Result<(), VivariumError> {
+) -> Result<SyncResult, VivariumError> {
+    // Phase 1: SELECT and get message count
+    let mut session = connect(account).await?;
     let mailbox = session
         .select(remote_folder)
         .await
@@ -111,60 +117,175 @@ async fn sync_folder(
 
     let count = mailbox.exists;
     if count == 0 {
-        tracing::info!(folder = remote_folder, "empty folder, nothing to sync");
-        return Ok(());
+        tracing::info!(folder = remote_folder, "empty folder");
+        session.logout().await.ok();
+        return Ok(SyncResult::default());
     }
 
-    tracing::info!(folder = remote_folder, count, "fetching messages");
+    tracing::info!(folder = remote_folder, count, "checking messages");
 
-    let range = format!("1:{count}");
+    // Phase 2: Fetch all UIDs and sizes
     let fetches = session
-        .fetch(&range, "(UID BODY[] ENVELOPE)")
+        .fetch(format!("1:{count}"), "(UID RFC822.SIZE)")
         .await
-        .map_err(|e| VivariumError::Imap(format!("fetch failed: {e}")))?;
+        .map_err(|e| VivariumError::Imap(format!("uid/size fetch failed: {e}")))?;
 
-    let messages: Vec<_> = fetches
-        .try_collect()
+    let remote_messages: Vec<(u32, u64)> = fetches
+        .try_collect::<Vec<_>>()
         .await
-        .map_err(|e| VivariumError::Imap(format!("fetch stream failed: {e}")))?;
+        .map_err(|e| VivariumError::Imap(format!("uid/size stream failed: {e}")))?
+        .iter()
+        .filter_map(|f| {
+            let uid = f.uid?;
+            let size = u64::from(f.size?);
+            Some((uid, size))
+        })
+        .collect();
 
-    for fetch in &messages {
-        let uid = fetch.uid.unwrap_or(0);
-        let body = match fetch.body() {
-            Some(b) => b,
-            None => {
-                tracing::warn!(uid, "message has no body, skipping");
-                continue;
+    session.logout().await.ok();
+
+    // Phase 3: Compare against local files
+    let local_sizes = store.local_sizes(local_folder)?;
+    let missing: Vec<u32> = remote_messages
+        .iter()
+        .filter(|(uid, size)| {
+            let msg_id = format!("{local_folder}-{uid}");
+            match local_sizes.get(&msg_id) {
+                Some(local_size) => local_size != size,
+                None => true,
             }
-        };
+        })
+        .map(|(uid, _)| *uid)
+        .collect();
 
-        let message_id = format!("{local_folder}-{uid}");
-        if store.contains(&message_id) {
-            continue;
-        }
-
-        store.store_message(local_folder, &message_id, body)?;
-        result.new += 1;
-
-        if let Some(envelope) = fetch.envelope() {
-            let subject = envelope
-                .subject
-                .as_ref()
-                .map(|s| String::from_utf8_lossy(s))
-                .unwrap_or_default();
-            tracing::debug!(uid, subject = %subject, folder = local_folder, "stored");
-        }
+    if missing.is_empty() {
+        tracing::info!(
+            folder = remote_folder,
+            total = remote_messages.len(),
+            "all messages up to date"
+        );
+        return Ok(SyncResult::default());
     }
 
     tracing::info!(
         folder = remote_folder,
-        local = local_folder,
-        total = messages.len(),
-        new = result.new,
-        "folder sync complete"
+        total = remote_messages.len(),
+        missing = missing.len(),
+        "downloading new messages"
     );
 
+    // Phase 4: Build UID chunks and download with worker pool
+    let chunks: Vec<Vec<u32>> = missing.chunks(CHUNK_SIZE as usize).map(|c| c.to_vec()).collect();
+    let chunks = Arc::new(Mutex::new(chunks.into_iter()));
+    let result = Arc::new(Mutex::new(SyncResult::default()));
+    let store = Arc::new(store.clone());
+
+    let mut handles = Vec::new();
+    let worker_count = WORKER_COUNT.min(missing.len().div_ceil(CHUNK_SIZE as usize));
+
+    for worker_id in 0..worker_count {
+        let chunks = Arc::clone(&chunks);
+        let result = Arc::clone(&result);
+        let store = Arc::clone(&store);
+        let account = account.clone();
+        let local_folder = local_folder.to_string();
+        let remote_folder = remote_folder.to_string();
+
+        let handle = tokio::spawn(async move {
+            if let Err(e) = worker(
+                worker_id,
+                &account,
+                &remote_folder,
+                &local_folder,
+                &store,
+                &chunks,
+                &result,
+            )
+            .await
+            {
+                tracing::error!(worker_id, error = %e, "worker failed");
+            }
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.await.ok();
+    }
+
+    let result = Arc::try_unwrap(result).unwrap().into_inner();
+    Ok(result)
+}
+
+/// Worker: grab chunks from the queue, open a connection, fetch messages.
+async fn worker(
+    worker_id: usize,
+    account: &Account,
+    remote_folder: &str,
+    local_folder: &str,
+    store: &MailStore,
+    chunks: &Mutex<std::vec::IntoIter<Vec<u32>>>,
+    result: &Mutex<SyncResult>,
+) -> Result<(), VivariumError> {
+    let mut session = connect(account).await?;
+    session
+        .select(remote_folder)
+        .await
+        .map_err(|e| VivariumError::Imap(format!("worker select failed: {e}")))?;
+
+    loop {
+        let chunk = {
+            let mut iter = chunks.lock().await;
+            iter.next()
+        };
+
+        let uids = match chunk {
+            Some(c) => c,
+            None => break,
+        };
+
+        let uid_set = uid_set_string(&uids);
+        tracing::debug!(worker_id, uids = uid_set, "fetching chunk");
+
+        let fetches = session
+            .uid_fetch(&uid_set, "BODY[]")
+            .await
+            .map_err(|e| VivariumError::Imap(format!("fetch failed: {e}")))?;
+
+        let messages: Vec<_> = fetches
+            .try_collect()
+            .await
+            .map_err(|e| VivariumError::Imap(format!("fetch stream failed: {e}")))?;
+
+        let mut new_count = 0;
+        for fetch in &messages {
+            let uid = fetch.uid.unwrap_or(0);
+            let body = match fetch.body() {
+                Some(b) => b,
+                None => continue,
+            };
+
+            let message_id = format!("{local_folder}-{uid}");
+            store.store_message(local_folder, &message_id, body)?;
+            new_count += 1;
+        }
+
+        if new_count > 0 {
+            let mut r = result.lock().await;
+            r.new += new_count;
+        }
+    }
+
+    session.logout().await.ok();
     Ok(())
+}
+
+/// Build a UID set string like "1,2,3,5,6,7" from a list of UIDs.
+fn uid_set_string(uids: &[u32]) -> String {
+    uids.iter()
+        .map(|u| u.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 pub async fn idle(_account: &Account) -> Result<(), VivariumError> {

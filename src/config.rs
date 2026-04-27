@@ -94,7 +94,9 @@ impl Config {
     pub fn default_mail_root() -> PathBuf {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("Mail")
+            .join(".local")
+            .join("share")
+            .join("vivarium")
     }
 }
 

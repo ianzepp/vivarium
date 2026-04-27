@@ -53,16 +53,20 @@ pub enum Command {
         folder: String,
     },
 
-    /// Show a message by ID
+    /// Show one or more messages by ID
     Show {
-        /// Message identifier (filename stem)
-        message_id: String,
+        /// Message identifiers (filename stems)
+        message_ids: Vec<String>,
     },
 
     /// Reply to a message
     Reply {
         /// Message identifier to reply to
         message_id: String,
+
+        /// Reply body text
+        #[arg(long)]
+        body: String,
     },
 
     /// Compose a new message
@@ -76,9 +80,9 @@ pub enum Command {
         subject: String,
     },
 
-    /// Archive a message (move from inbox to archive)
+    /// Archive one or more messages (move from inbox to archive)
     Archive {
-        /// Message identifier
-        message_id: String,
+        /// Message identifiers
+        message_ids: Vec<String>,
     },
 }

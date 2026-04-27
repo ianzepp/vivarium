@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup target add ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf vivarium-${{ matrix.target }}.tar.gz vivarium
+          mv vivarium-${{ matrix.target }}.tar.gz ../../../
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vivarium-${{ matrix.target }}
+          path: vivarium-${{ matrix.target }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vivarium-aarch64-apple-darwin/vivarium-aarch64-apple-darwin.tar.gz
+            vivarium-x86_64-apple-darwin/vivarium-x86_64-apple-darwin.tar.gz
+          generate_release_notes: true
+
+  update-tap:
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Compute SHA256 checksums
+        id: sha
+        run: |
+          echo "arm64=$(sha256sum vivarium-aarch64-apple-darwin/vivarium-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "x86_64=$(sha256sum vivarium-x86_64-apple-darwin/vivarium-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate formula
+        run: |
+          cat > vivarium.rb << 'FORMULA'
+          class Vivarium < Formula
+            desc "Local-first IMAP email sync for LLMs"
+            homepage "https://github.com/ianzepp/vivarium"
+            version "${{ steps.version.outputs.version }}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/ianzepp/vivarium/releases/download/${{ github.ref_name }}/vivarium-aarch64-apple-darwin.tar.gz"
+                sha256 "${{ steps.sha.outputs.arm64 }}"
+              else
+                url "https://github.com/ianzepp/vivarium/releases/download/${{ github.ref_name }}/vivarium-x86_64-apple-darwin.tar.gz"
+                sha256 "${{ steps.sha.outputs.x86_64 }}"
+              end
+            end
+
+            def install
+              bin.install "vivarium"
+            end
+
+            test do
+              assert_match "vivarium", shell_output("#{bin}/vivarium --help")
+            end
+          end
+          FORMULA
+
+      - name: Push formula to tap
+        uses: dmnemec/copy_file_to_another_repo_action@main
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.TAP_GITHUB_TOKEN }}
+        with:
+          source_file: vivarium.rb
+          destination_repo: ianzepp/homebrew-tap
+          destination_folder: Formula
+          user_email: github-actions[bot]@users.noreply.github.com
+          user_name: github-actions[bot]
+          commit_message: "Update vivarium to ${{ steps.version.outputs.version }}"

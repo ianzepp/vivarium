@@ -73,29 +73,43 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
             }
         }
         Command::List { folder } => {
-            let acct = resolve_account(cli.account)?;
-            let store = MailStore::new(&acct.mail_path(&config));
-            let entries = store.list_messages(&folder)?;
-            if entries.is_empty() {
-                println!("no messages in {folder}");
-            } else {
-                for entry in &entries {
-                    println!("{entry}");
+            let accounts = match cli.account {
+                Some(name) => vec![accounts_file.find_account(&name)?.clone()],
+                None => accounts_file.accounts.clone(),
+            };
+            for acct in &accounts {
+                println!("# {}", acct.name);
+                let store = MailStore::new(&acct.mail_path(&config));
+                let entries = store.list_messages(&folder)?;
+                if entries.is_empty() {
+                    println!("  no messages in {folder}");
+                } else {
+                    for entry in &entries {
+                        println!("  {entry}");
+                    }
                 }
+                println!();
             }
         }
-        Command::Show { message_id } => {
+        Command::Show { message_ids } => {
             let acct = resolve_account(cli.account)?;
             let store = MailStore::new(&acct.mail_path(&config));
-            let data = store.read_message(&message_id)?;
-            let output = message::render_message(&data)?;
-            println!("{output}");
+            for (i, message_id) in message_ids.iter().enumerate() {
+                if i > 0 {
+                    println!("\n---\n");
+                }
+                let data = store.read_message(message_id)?;
+                let output = message::render_message(&data)?;
+                println!("{output}");
+            }
         }
-        Command::Archive { message_id } => {
+        Command::Archive { message_ids } => {
             let acct = resolve_account(cli.account)?;
             let store = MailStore::new(&acct.mail_path(&config));
-            store.move_message(&message_id, "inbox", "archive")?;
-            println!("archived {message_id}");
+            for message_id in &message_ids {
+                store.move_message(message_id, "inbox", "archive")?;
+                println!("archived {message_id}");
+            }
         }
         Command::Watch { account } => {
             let _account_name = account.or(cli.account);
@@ -107,8 +121,13 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
             vivarium::smtp::send_raw(&acct, &data).await?;
             println!("sent {}", path.display());
         }
-        Command::Reply { message_id } => {
-            tracing::info!(message_id, "reply command stub");
+        Command::Reply { message_id, body } => {
+            let acct = resolve_account(cli.account)?;
+            let store = MailStore::new(&acct.mail_path(&config));
+            let original = store.read_message(&message_id)?;
+            let reply_eml = message::build_reply(&original, &body, &acct.email)?;
+            vivarium::smtp::send_raw(&acct, reply_eml.as_bytes()).await?;
+            println!("replied to {message_id}");
         }
         Command::Compose { to, subject } => {
             let acct = resolve_account(cli.account)?;
