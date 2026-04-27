@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::process;
 
 use clap::Parser;
@@ -138,7 +139,20 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
             let acct = resolve_account(cli.account)?;
             let store = MailStore::new(&acct.mail_path(&config));
             let original = store.read_message(&message_id)?;
-            let reply_eml = message::build_reply(&original, &body, &acct.email)?;
+            let reply_eml = match body {
+                Some(body) => message::build_reply(&original, &body, &acct.email)?,
+                None => {
+                    let template = message::build_reply_template(&original, &acct.email)?;
+                    let Some(edited) = edit_message("reply", template.as_bytes())? else {
+                        println!("reply cancelled");
+                        return Ok(());
+                    };
+                    message::validate_message_headers(&edited)?;
+                    String::from_utf8(edited).map_err(|e| {
+                        VivariumError::Message(format!("edited reply is not UTF-8: {e}"))
+                    })?
+                }
+            };
             let reject_invalid_certs = acct.reject_invalid_certs(&config) && !cli.insecure;
             vivarium::smtp::send_raw(&acct, reply_eml.as_bytes(), reject_invalid_certs).await?;
             println!("replied to {message_id}");
@@ -150,8 +164,13 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
                 "From: {}\r\nTo: {to}\r\nSubject: {subject}\r\n\r\n",
                 acct.email
             );
+            let Some(edited) = edit_message("compose", draft.as_bytes())? else {
+                println!("compose cancelled");
+                return Ok(());
+            };
+            message::validate_message_headers(&edited)?;
             let draft_id = format!("draft-{}", chrono::Utc::now().timestamp());
-            let path = store.store_message("drafts", &draft_id, draft.as_bytes())?;
+            let path = store.store_message("drafts", &draft_id, &edited)?;
             println!("draft created: {}", path.display());
             println!(
                 "edit the file, then send with: vivarium send {}",
@@ -161,4 +180,37 @@ async fn run(cli: Cli) -> Result<(), VivariumError> {
     }
 
     Ok(())
+}
+
+fn edit_message(prefix: &str, initial: &[u8]) -> Result<Option<Vec<u8>>, VivariumError> {
+    let path = editor_temp_path(prefix);
+    std::fs::write(&path, initial)?;
+
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+    let status = process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("{} \"$1\"", editor))
+        .arg("vivarium-editor")
+        .arg(&path)
+        .status()?;
+
+    if !status.success() {
+        std::fs::remove_file(&path).ok();
+        return Ok(None);
+    }
+
+    let edited = std::fs::read(&path)?;
+    std::fs::remove_file(&path).ok();
+    Ok(Some(edited))
+}
+
+fn editor_temp_path(prefix: &str) -> PathBuf {
+    let unique = format!(
+        "vivarium-{prefix}-{}-{}.eml",
+        process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    );
+    std::env::temp_dir().join(Path::new(&unique))
 }

@@ -74,7 +74,7 @@ pub enum Command {
 
         /// Reply body text
         #[arg(long)]
-        body: String,
+        body: Option<String>,
     },
 
     /// Compose a new message

@@ -128,6 +128,23 @@ pub fn build_reply(original: &[u8], body: &str, from: &str) -> Result<String, Vi
     Ok(eml)
 }
 
+pub fn build_reply_template(original: &[u8], from: &str) -> Result<String, VivariumError> {
+    build_reply(original, "", from)
+}
+
+pub fn validate_message_headers(data: &[u8]) -> Result<(), VivariumError> {
+    let parsed = mail_parser::MessageParser::default()
+        .parse(data)
+        .ok_or_else(|| VivariumError::Parse("failed to parse edited message".into()))?;
+    if parsed.from().and_then(|a| a.first()).is_none() {
+        return Err(VivariumError::Message("message has no From header".into()));
+    }
+    if parsed.to().and_then(|a| a.first()).is_none() {
+        return Err(VivariumError::Message("message has no To header".into()));
+    }
+    Ok(())
+}
+
 /// Render a raw .eml as readable terminal output.
 pub fn render_message(data: &[u8]) -> Result<String, VivariumError> {
     let parsed = mail_parser::MessageParser::default()
