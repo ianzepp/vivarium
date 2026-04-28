@@ -209,18 +209,16 @@ async fn sync_folder(
     let mut missing: Vec<RemoteMessage> = Vec::new();
 
     for remote in &remote_messages {
-        if let Some(ref rfc_message_id) = remote.rfc_message_id {
-            if store.rfc_index_lookup(&rfc_index, rfc_message_id, remote.size) {
+        if let Some(ref rfc_message_id) = remote.rfc_message_id
+            && store.rfc_index_lookup(&rfc_index, rfc_message_id, remote.size) {
                 continue;
             }
-        }
 
         let msg_id = format!("{local_folder}-{}", remote.uid);
-        if let Some(local_size) = local_sizes.get(&msg_id) {
-            if *local_size == remote.size {
+        if let Some(local_size) = local_sizes.get(&msg_id)
+            && *local_size == remote.size {
                 continue;
             }
-        }
         missing.push(remote.clone());
     }
 

@@ -98,31 +98,20 @@ fn authorization_url(auth_url: &str, client_id: &str, scope: &str, redirect_uri:
 async fn wait_for_code(listener: TcpListener) -> Result<String, VivariumError> {
     let (mut stream, _) = listener.accept().await?;
     let mut buffer = vec![0; 8192];
-    let mut code: Option<String> = None;
 
-    loop {
+    let code = loop {
         let n = stream.read(&mut buffer).await?;
         if n == 0 {
             return Err(VivariumError::Config("OAuth callback connection closed unexpectedly".into()));
         }
         let request = String::from_utf8_lossy(&buffer[..n]);
         match parse_callback_code(&request) {
-            Ok(c) => {
-                code = Some(c);
-                break;
-            }
-            Err(_) => {
-                // Ignore non-callback requests (e.g., favicon.ico)
-                continue;
-            }
+            Ok(c) => break c,
+            Err(_) => continue, // Ignore non-callback requests (e.g., favicon.ico)
         }
-    }
-
-    let body = if code.is_some() {
-        "Vivarium OAuth complete. You can close this tab."
-    } else {
-        "Vivarium OAuth failed. Return to the terminal for details."
     };
+
+    let body = "Vivarium OAuth complete. You can close this tab.";
     let response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(),
@@ -130,9 +119,7 @@ async fn wait_for_code(listener: TcpListener) -> Result<String, VivariumError> {
     );
     stream.write_all(response.as_bytes()).await?;
 
-    code.ok_or_else(|| {
-        VivariumError::Config("OAuth callback was closed before returning a code".into())
-    })
+    Ok(code)
 }
 
 fn parse_callback_code(request: &str) -> Result<String, VivariumError> {
