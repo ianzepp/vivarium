@@ -49,6 +49,48 @@ impl Authenticator for Xoauth2 {
     }
 }
 
+/// Build a TLS connector from the account's reject_invalid_certs setting.
+fn build_tls_connector(reject_invalid_certs: bool) -> Result<tokio_native_tls::TlsConnector, VivariumError> {
+    let mut tls_builder = native_tls::TlsConnector::builder();
+    if !reject_invalid_certs {
+        tls_builder.danger_accept_invalid_certs(true);
+    }
+    let tls_connector = tls_builder
+        .build()
+        .map_err(|e| VivariumError::Tls(format!("TLS connector build failed: {e}")))?;
+    Ok(tokio_native_tls::TlsConnector::from(tls_connector))
+}
+
+/// Establish a TLS stream for the given host and TCP connection.
+async fn establish_tls_stream(
+    tls_connector: &tokio_native_tls::TlsConnector,
+    host: &str,
+    tcp: TcpStream,
+    security: &Security,
+) -> Result<tokio_native_tls::TlsStream<TcpStream>, VivariumError> {
+    match security {
+        Security::Ssl => tls_connector
+            .connect(host, tcp)
+            .await
+            .map_err(|e| VivariumError::Tls(format!("TLS handshake failed: {e}"))),
+        Security::Starttls => {
+            let mut client = async_imap::Client::new(tcp);
+            if let Some(resp) = client.read_response().await {
+                resp.map_err(|e| VivariumError::Imap(format!("failed to read greeting: {e}")))?;
+            }
+            client
+                .run_command_and_check_ok("STARTTLS", None)
+                .await
+                .map_err(|e| VivariumError::Imap(format!("STARTTLS failed: {e}")))?;
+            let inner = client.into_inner();
+            tls_connector
+                .connect(host, inner)
+                .await
+                .map_err(|e| VivariumError::Tls(format!("STARTTLS TLS upgrade failed: {e}")))
+        }
+    }
+}
+
 /// Connect and authenticate to the account's IMAP server.
 pub async fn connect(
     account: &Account,
@@ -67,36 +109,8 @@ pub async fn connect(
         .await
         .map_err(|e| VivariumError::Imap(format!("TCP connect to {host}:{port} failed: {e}")))?;
 
-    let mut tls_builder = native_tls::TlsConnector::builder();
-    if !reject_invalid_certs {
-        tls_builder.danger_accept_invalid_certs(true);
-    }
-    let tls_connector = tls_builder
-        .build()
-        .map_err(|e| VivariumError::Tls(format!("TLS connector build failed: {e}")))?;
-    let tls_connector = tokio_native_tls::TlsConnector::from(tls_connector);
-
-    let tls_stream = match account.imap_security {
-        Security::Ssl => tls_connector
-            .connect(host, tcp)
-            .await
-            .map_err(|e| VivariumError::Tls(format!("TLS handshake failed: {e}")))?,
-        Security::Starttls => {
-            let mut client = async_imap::Client::new(tcp);
-            if let Some(resp) = client.read_response().await {
-                resp.map_err(|e| VivariumError::Imap(format!("failed to read greeting: {e}")))?;
-            }
-            client
-                .run_command_and_check_ok("STARTTLS", None)
-                .await
-                .map_err(|e| VivariumError::Imap(format!("STARTTLS failed: {e}")))?;
-            let inner = client.into_inner();
-            tls_connector
-                .connect(host, inner)
-                .await
-                .map_err(|e| VivariumError::Tls(format!("STARTTLS TLS upgrade failed: {e}")))?
-        }
-    };
+    let tls_connector = build_tls_connector(reject_invalid_certs)?;
+    let tls_stream = establish_tls_stream(&tls_connector, host, tcp, &account.imap_security).await?;
 
     let client = async_imap::Client::new(tls_stream);
     let session = match account.auth {
@@ -147,19 +161,11 @@ pub async fn sync_messages(
     Ok(result)
 }
 
-/// Two-pass sync for a single folder:
-/// 1. Fetch UID + size for all messages (fast)
-/// 2. Compare against local files
-/// 3. Download missing/mismatched messages in parallel chunks
-async fn sync_folder(
-    account: &Account,
-    store: &MailStore,
+/// Connect to a remote IMAP folder and fetch all UIDs with sizes.
+async fn fetch_remote_messages(
+    session: &mut ImapSession,
     remote_folder: &str,
-    local_folder: &str,
-    reject_invalid_certs: bool,
-) -> Result<SyncResult, VivariumError> {
-    // Phase 1: SELECT and get message count
-    let mut session = connect(account, reject_invalid_certs).await?;
+) -> Result<(u32, Vec<RemoteMessage>), VivariumError> {
     let mailbox = session
         .select(remote_folder)
         .await
@@ -167,20 +173,15 @@ async fn sync_folder(
 
     let count = mailbox.exists;
     if count == 0 {
-        tracing::info!(folder = remote_folder, "empty folder");
-        session.logout().await.ok();
-        return Ok(SyncResult::default());
+        return Ok((0, Vec::new()));
     }
 
-    tracing::info!(folder = remote_folder, count, "checking messages");
-
-    // Phase 2: Fetch all UIDs and sizes
     let fetches = session
         .fetch(format!("1:{count}"), "(UID RFC822.SIZE ENVELOPE)")
         .await
         .map_err(|e| VivariumError::Imap(format!("uid/size fetch failed: {e}")))?;
 
-    let remote_messages: Vec<RemoteMessage> = fetches
+    let messages: Vec<RemoteMessage> = fetches
         .try_collect::<Vec<_>>()
         .await
         .map_err(|e| VivariumError::Imap(format!("uid/size stream failed: {e}")))?
@@ -201,14 +202,20 @@ async fn sync_folder(
         })
         .collect();
 
-    session.logout().await.ok();
+    Ok((count, messages))
+}
 
-    // Phase 3: Compare against local files
+/// Compare remote messages against local files and return missing ones.
+fn find_missing(
+    remote_messages: &[RemoteMessage],
+    store: &MailStore,
+    local_folder: &str,
+) -> Result<Vec<RemoteMessage>, VivariumError> {
     let local_sizes = store.local_sizes(local_folder)?;
     let rfc_index = store.build_rfc_index(local_folder)?;
     let mut missing: Vec<RemoteMessage> = Vec::new();
 
-    for remote in &remote_messages {
+    for remote in remote_messages {
         if let Some(ref rfc_message_id) = remote.rfc_message_id
             && store.rfc_index_lookup(&rfc_index, rfc_message_id, remote.size) {
                 continue;
@@ -222,23 +229,18 @@ async fn sync_folder(
         missing.push(remote.clone());
     }
 
-    if missing.is_empty() {
-        tracing::info!(
-            folder = remote_folder,
-            total = remote_messages.len(),
-            "all messages up to date"
-        );
-        return Ok(SyncResult::default());
-    }
+    Ok(missing)
+}
 
-    tracing::info!(
-        folder = remote_folder,
-        total = remote_messages.len(),
-        missing = missing.len(),
-        "downloading new messages"
-    );
-
-    // Phase 4: Build UID chunks and download with worker pool
+/// Download missing messages using a chunked worker pool.
+async fn download_missing(
+    account: &Account,
+    store: &MailStore,
+    remote_folder: &str,
+    local_folder: &str,
+    missing: Vec<RemoteMessage>,
+    reject_invalid_certs: bool,
+) -> Result<SyncResult, VivariumError> {
     let chunks: Vec<Vec<RemoteMessage>> = missing
         .chunks(CHUNK_SIZE as usize)
         .map(|c| c.to_vec())
@@ -288,6 +290,64 @@ async fn sync_folder(
     Ok(result)
 }
 
+/// Sync messages from the account's IMAP server into the local store.
+async fn sync_folder(
+    account: &Account,
+    store: &MailStore,
+    remote_folder: &str,
+    local_folder: &str,
+    reject_invalid_certs: bool,
+) -> Result<SyncResult, VivariumError> {
+    let mut session = connect(account, reject_invalid_certs).await?;
+
+    let (count, remote_messages) = fetch_remote_messages(&mut session, remote_folder).await?;
+    if count == 0 {
+        tracing::info!(folder = remote_folder, "empty folder");
+        session.logout().await.ok();
+        return Ok(SyncResult::default());
+    }
+
+    tracing::info!(folder = remote_folder, count, "checking messages");
+    session.logout().await.ok();
+
+    let missing = find_missing(&remote_messages, store, local_folder)?;
+    if missing.is_empty() {
+        tracing::info!(
+            folder = remote_folder,
+            total = remote_messages.len(),
+            "all messages up to date"
+        );
+        return Ok(SyncResult::default());
+    }
+
+    tracing::info!(
+        folder = remote_folder,
+        total = remote_messages.len(),
+        missing = missing.len(),
+        "downloading new messages"
+    );
+
+    download_missing(account, store, remote_folder, local_folder, missing, reject_invalid_certs).await
+}
+
+/// Worker: grab chunks from the queue, open a connection, fetch messages.
+/// Store a single parsed message in the local Maildir and update the index.
+fn store_message(
+    store: &MailStore,
+    local_folder: &str,
+    body: &[u8],
+    uid: u32,
+) -> Result<(), VivariumError> {
+    let message_id = format!("{local_folder}-{uid}");
+    let subdir = if local_folder == "inbox" { "new" } else { "cur" };
+    store.store_message_in(local_folder, subdir, &message_id, body)?;
+    if let Some(rfc_message_id) = message_id_from_bytes(body) {
+        let size = u64::try_from(body.len()).unwrap_or(u64::MAX);
+        store.write_message_index(local_folder, &rfc_message_id, uid, size)?;
+    }
+    Ok(())
+}
+
 /// Worker: grab chunks from the queue, open a connection, fetch messages.
 async fn worker(
     context: WorkerContext,
@@ -301,14 +361,12 @@ async fn worker(
         .map_err(|e| VivariumError::Imap(format!("worker select failed: {e}")))?;
 
     loop {
-        let chunk = {
+        let uids = {
             let mut iter = chunks.lock().await;
-            iter.next()
-        };
-
-        let uids = match chunk {
-            Some(c) => c,
-            None => break,
+            match iter.next() {
+                Some(c) => c,
+                None => break,
+            }
         };
 
         let uid_set = uid_set_string(&uids.iter().map(|msg| msg.uid).collect::<Vec<_>>());
@@ -318,45 +376,8 @@ async fn worker(
             "fetching chunk"
         );
 
-        let fetches = session
-            .uid_fetch(&uid_set, "BODY[]")
-            .await
-            .map_err(|e| VivariumError::Imap(format!("fetch failed: {e}")))?;
-
-        let messages: Vec<_> = fetches
-            .try_collect()
-            .await
-            .map_err(|e| VivariumError::Imap(format!("fetch stream failed: {e}")))?;
-
-        let mut new_count = 0;
-        for fetch in &messages {
-            let uid = fetch.uid.unwrap_or(0);
-            let body = match fetch.body() {
-                Some(b) => b,
-                None => continue,
-            };
-
-            let message_id = format!("{}-{uid}", context.local_folder);
-            let subdir = if context.local_folder == "inbox" {
-                "new"
-            } else {
-                "cur"
-            };
-            context
-                .store
-                .store_message_in(&context.local_folder, subdir, &message_id, body)?;
-            if let Some(rfc_message_id) = message_id_from_bytes(body) {
-                let size = u64::try_from(body.len()).unwrap_or(u64::MAX);
-                context.store.write_message_index(
-                    &context.local_folder,
-                    &rfc_message_id,
-                    uid,
-                    size,
-                )?;
-            }
-            new_count += 1;
-        }
-
+        let messages = fetch_messages(&mut session, &uid_set).await?;
+        let new_count = process_messages(&context, &messages)?;
         if new_count > 0 {
             let mut r = result.lock().await;
             r.new += new_count;
@@ -365,6 +386,39 @@ async fn worker(
 
     session.logout().await.ok();
     Ok(())
+}
+
+/// Fetch messages by UID set from the IMAP server.
+async fn fetch_messages(
+    session: &mut ImapSession,
+    uid_set: &str,
+) -> Result<Vec<async_imap::types::Fetch>, VivariumError> {
+    let fetches = session
+        .uid_fetch(uid_set, "BODY[]")
+        .await
+        .map_err(|e| VivariumError::Imap(format!("fetch failed: {e}")))?;
+    fetches
+        .try_collect()
+        .await
+        .map_err(|e| VivariumError::Imap(format!("fetch stream failed: {e}")))
+}
+
+/// Parse and store a batch of fetched messages. Returns count of stored messages.
+fn process_messages(
+    context: &WorkerContext,
+    messages: &[async_imap::types::Fetch],
+) -> Result<usize, VivariumError> {
+    let mut new_count = 0;
+    for fetch in messages {
+        let uid = fetch.uid.unwrap_or(0);
+        let body = match fetch.body() {
+            Some(b) => b,
+            None => continue,
+        };
+        store_message(&context.store, &context.local_folder, body, uid)?;
+        new_count += 1;
+    }
+    Ok(new_count)
 }
 
 /// Build a UID set string like "1,2,3,5,6,7" from a list of UIDs.
