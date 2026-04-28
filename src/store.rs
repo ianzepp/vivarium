@@ -213,22 +213,48 @@ impl MailStore {
         Ok(map)
     }
 
-    pub fn has_rfc_message_id(
+    /// Build an in-memory map of RFC 5322 Message-ID → (uid, size) for a folder.
+    /// Scans every .eml file in new/ and cur/ once.
+    pub fn build_rfc_index(
         &self,
         folder: &str,
+    ) -> Result<HashMap<String, (u32, u64)>, VivariumError> {
+        let path = self.folder_path(folder);
+        let mut map = HashMap::new();
+        for subdir in ["new", "cur"] {
+            let dir = path.join(subdir);
+            if !dir.exists() {
+                continue;
+            }
+            for entry in fs::read_dir(&dir)? {
+                let entry = entry?;
+                let file_path = entry.path();
+                if !is_message_file(&file_path) {
+                    continue;
+                }
+                let data = fs::read(&file_path)?;
+                if let Some(rfc_id) = message_id_from_bytes(&data) {
+                    let size = fs::metadata(&file_path)?.len();
+                    let uid = message_id_from_path(&file_path)
+                        .and_then(|id| id.rsplit_once('-').and_then(|(_, uid)| uid.parse().ok()))
+                        .unwrap_or(0);
+                    map.insert(rfc_id, (uid, size));
+                }
+            }
+        }
+        Ok(map)
+    }
+
+    /// Check if an RFC 5322 Message-ID exists in the index with a matching size.
+    pub fn rfc_index_lookup(
+        &self,
+        index: &HashMap<String, (u32, u64)>,
         rfc_message_id: &str,
         size: u64,
-    ) -> Result<bool, VivariumError> {
-        if self.index_entry_matches(folder, rfc_message_id, size) {
-            return Ok(true);
-        }
-
-        let Some((uid, local_size)) = self.find_local_rfc_message_id(folder, rfc_message_id)?
-        else {
-            return Ok(false);
-        };
-        self.write_message_index(folder, rfc_message_id, uid, local_size)?;
-        Ok(local_size == size)
+    ) -> bool {
+        index
+            .get(rfc_message_id)
+            .is_some_and(|(_, indexed_size)| *indexed_size == size)
     }
 
     pub fn write_message_index(
@@ -290,51 +316,6 @@ impl MailStore {
                 let file_path = entry.path();
                 if message_id_from_path(&file_path).as_deref() == Some(wanted.as_str()) {
                     return Ok(Some(file_path));
-                }
-            }
-        }
-        Ok(None)
-    }
-
-    fn index_entry_matches(&self, folder: &str, rfc_message_id: &str, size: u64) -> bool {
-        let path = self.index_path(folder, rfc_message_id);
-        let Ok(contents) = fs::read_to_string(path) else {
-            return false;
-        };
-        let mut lines = contents.lines();
-        let Some(_) = lines.next() else {
-            return false;
-        };
-        lines
-            .next()
-            .and_then(|line| line.parse::<u64>().ok())
-            .is_some_and(|indexed_size| indexed_size == size)
-    }
-
-    fn find_local_rfc_message_id(
-        &self,
-        folder: &str,
-        rfc_message_id: &str,
-    ) -> Result<Option<(u32, u64)>, VivariumError> {
-        let path = self.folder_path(folder);
-        for subdir in ["new", "cur"] {
-            let dir = path.join(subdir);
-            if !dir.exists() {
-                continue;
-            }
-            for entry in fs::read_dir(&dir)? {
-                let entry = entry?;
-                let file_path = entry.path();
-                if !is_message_file(&file_path) {
-                    continue;
-                }
-                let data = fs::read(&file_path)?;
-                if message_id_from_bytes(&data).as_deref() == Some(rfc_message_id) {
-                    let size = fs::metadata(&file_path)?.len();
-                    let uid = message_id_from_path(&file_path)
-                        .and_then(|id| id.rsplit_once('-').and_then(|(_, uid)| uid.parse().ok()))
-                        .unwrap_or(0);
-                    return Ok(Some((uid, size)));
                 }
             }
         }
@@ -478,42 +459,44 @@ mod tests {
     }
 
     #[test]
-    fn message_id_index_matches_size() {
+    fn rfc_index_builds_from_local_files() {
         let tmp = tempfile::tempdir().unwrap();
         let store = MailStore::new(tmp.path());
+        let data1 = b"Message-ID: <ABC@example.COM>\r\nSubject: hello\r\n\r\nbody";
+        let data2 = b"Message-ID: <DEF@example.COM>\r\nSubject: world\r\n\r\nmore";
+        store.store_message("inbox", "inbox-7", data1).unwrap();
+        store.store_message("inbox", "inbox-8", data2).unwrap();
 
-        store
-            .write_message_index("inbox", "abc@example.com", 42, 99)
-            .unwrap();
-
-        assert!(
-            store
-                .has_rfc_message_id("inbox", "abc@example.com", 99)
-                .unwrap()
-        );
-        assert!(
-            !store
-                .has_rfc_message_id("inbox", "abc@example.com", 100)
-                .unwrap()
-        );
+        let index = store.build_rfc_index("inbox").unwrap();
+        assert_eq!(index.get("abc@example.com"), Some(&(7, data1.len() as u64)));
+        assert_eq!(index.get("def@example.com"), Some(&(8, data2.len() as u64)));
+        assert!(index.get("nonexistent@example.com").is_none());
     }
 
     #[test]
-    fn message_id_index_can_rebuild_from_local_files() {
+    fn rfc_index_lookup_matches_correct_size() {
         let tmp = tempfile::tempdir().unwrap();
         let store = MailStore::new(tmp.path());
-        let data = b"Message-ID: <ABC@example.COM>\r\nSubject: hello\r\n\r\nbody";
-        store.store_message("inbox", "inbox-7", data).unwrap();
+        let index = HashMap::from([
+            ("abc@example.com".to_string(), (42, 99u64)),
+        ]);
 
-        assert!(
-            store
-                .has_rfc_message_id("inbox", "abc@example.com", data.len() as u64)
-                .unwrap()
-        );
-        assert!(
-            store
-                .has_rfc_message_id("inbox", "abc@example.com", data.len() as u64)
-                .unwrap()
-        );
+        assert!(store.rfc_index_lookup(&index, "abc@example.com", 99));
+        assert!(!store.rfc_index_lookup(&index, "abc@example.com", 100));
+        assert!(!store.rfc_index_lookup(&index, "other@example.com", 99));
+    }
+
+    #[test]
+    fn rfc_index_skips_files_without_message_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        let data_with_id = b"Message-ID: <test@example.com>\r\nSubject: hi\r\n\r\n";
+        store.store_message("inbox", "inbox-1", data_with_id).unwrap();
+        let data_without_id = b"Subject: no id\r\n\r\n";
+        store.store_message("inbox", "inbox-2", data_without_id).unwrap();
+
+        let index = store.build_rfc_index("inbox").unwrap();
+        assert_eq!(index.len(), 1);
+        assert!(index.contains_key("test@example.com"));
     }
 }

@@ -205,26 +205,24 @@ async fn sync_folder(
 
     // Phase 3: Compare against local files
     let local_sizes = store.local_sizes(local_folder)?;
-    let missing: Vec<RemoteMessage> = remote_messages
-        .iter()
-        .filter_map(|remote| {
-            if let Some(ref rfc_message_id) = remote.rfc_message_id {
-                match store.has_rfc_message_id(local_folder, rfc_message_id, remote.size) {
-                    Ok(true) => return None,
-                    Ok(false) => {}
-                    Err(err) => {
-                        tracing::warn!(error = %err, "message-id index check failed; falling back");
-                    }
-                }
-            }
+    let rfc_index = store.build_rfc_index(local_folder)?;
+    let mut missing: Vec<RemoteMessage> = Vec::new();
 
-            let msg_id = format!("{local_folder}-{}", remote.uid);
-            match local_sizes.get(&msg_id) {
-                Some(local_size) if local_size == &remote.size => None,
-                _ => Some(remote.clone()),
+    for remote in &remote_messages {
+        if let Some(ref rfc_message_id) = remote.rfc_message_id {
+            if store.rfc_index_lookup(&rfc_index, rfc_message_id, remote.size) {
+                continue;
             }
-        })
-        .collect();
+        }
+
+        let msg_id = format!("{local_folder}-{}", remote.uid);
+        if let Some(local_size) = local_sizes.get(&msg_id) {
+            if *local_size == remote.size {
+                continue;
+            }
+        }
+        missing.push(remote.clone());
+    }
 
     if missing.is_empty() {
         tracing::info!(
