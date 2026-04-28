@@ -51,9 +51,15 @@ pub struct Account {
     pub oauth_client_secret: Option<String>,
     /// Override mail directory for this account
     pub mail_dir: Option<String>,
-    /// Provider hint: "gmail" or "standard"
+    /// Provider hint: "gmail", "protonmail", or "standard"
     #[serde(default)]
     pub provider: Provider,
+    /// OAuth authorization endpoint (overrides provider defaults)
+    pub oauth_authorization_url: Option<String>,
+    /// OAuth token exchange endpoint (overrides provider defaults)
+    pub oauth_token_url: Option<String>,
+    /// OAuth scope(s) (overrides provider defaults)
+    pub oauth_scope: Option<String>,
     pub reject_invalid_certs: Option<bool>,
 }
 
@@ -61,8 +67,46 @@ pub struct Account {
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
     Gmail,
+    Protonmail,
     #[default]
     Standard,
+}
+
+impl std::fmt::Display for Provider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Provider::Gmail => write!(f, "gmail"),
+            Provider::Protonmail => write!(f, "protonmail"),
+            Provider::Standard => write!(f, "standard"),
+        }
+    }
+}
+
+/// OAuth endpoints for a known provider.
+#[derive(Debug)]
+pub struct ProviderOAuthConfig {
+    pub auth_url: String,
+    pub token_url: String,
+    pub scope: String,
+}
+
+impl Provider {
+    /// Return the OAuth configuration for this provider.
+    pub fn oauth_config(&self) -> Option<ProviderOAuthConfig> {
+        match self {
+            Provider::Gmail => Some(ProviderOAuthConfig {
+                auth_url: "https://accounts.google.com/o/oauth2/v2/auth".into(),
+                token_url: "https://oauth2.googleapis.com/token".into(),
+                scope: "https://mail.google.com/".into(),
+            }),
+            Provider::Protonmail => Some(ProviderOAuthConfig {
+                auth_url: "https://account.proton.me/oauth".into(),
+                token_url: "https://account.proton.me/token".into(),
+                scope: "https://mail.protonmail.com/wildcard".into(),
+            }),
+            Provider::Standard => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
@@ -237,6 +281,32 @@ impl Account {
     }
 
     /// Resolve the mail directory for this account.
+    /// Resolve OAuth URLs: account-level overrides take priority, then provider defaults.
+    pub fn oauth_urls(&self) -> Result<ProviderOAuthConfig, VivariumError> {
+        if let (Some(auth), Some(token), Some(scope)) = (
+            &self.oauth_authorization_url,
+            &self.oauth_token_url,
+            &self.oauth_scope,
+        ) {
+            return Ok(ProviderOAuthConfig {
+                auth_url: auth.clone(),
+                token_url: token.clone(),
+                scope: scope.clone(),
+            });
+        }
+
+        if let Some(provider_config) = self.provider.oauth_config() {
+            return Ok(provider_config);
+        }
+
+        Err(VivariumError::Config(format!(
+            "account '{}' has auth=xoauth2 but provider={} has no OAuth defaults; \
+             set oauth_authorization_url, oauth_token_url, and oauth_scope \
+             in accounts.toml",
+            self.name, self.provider
+        )))
+    }
+
     pub fn mail_path(&self, config: &Config) -> PathBuf {
         if let Some(ref dir) = self.mail_dir {
             return expand_tilde(dir);
@@ -254,7 +324,7 @@ impl Account {
     pub fn all_mail_folder(&self) -> &str {
         match self.provider {
             Provider::Gmail => "[Gmail]/All Mail",
-            Provider::Standard => "INBOX",
+            Provider::Standard | Provider::Protonmail => "INBOX",
         }
     }
 
@@ -262,7 +332,7 @@ impl Account {
     pub fn sent_folder(&self) -> &str {
         match self.provider {
             Provider::Gmail => "[Gmail]/Sent Mail",
-            Provider::Standard => "Sent",
+            Provider::Standard | Provider::Protonmail => "Sent",
         }
     }
 
@@ -270,7 +340,7 @@ impl Account {
     pub fn drafts_folder(&self) -> &str {
         match self.provider {
             Provider::Gmail => "[Gmail]/Drafts",
-            Provider::Standard => "Drafts",
+            Provider::Standard | Provider::Protonmail => "Drafts",
         }
     }
 }
@@ -427,6 +497,9 @@ mod tests {
             token_cmd: None,
             oauth_client_id: None,
             oauth_client_secret: None,
+            oauth_authorization_url: None,
+            oauth_token_url: None,
+            oauth_scope: None,
             mail_dir: None,
             provider: Provider::Standard,
             reject_invalid_certs: Some(false),
@@ -485,6 +558,7 @@ mod tests {
             smtp_host = "smtp.gmail.com"
             username = "ian@gmail.com"
             auth = "xoauth2"
+            provider = "gmail"
             token_cmd = "pass gmail-token"
             oauth_client_id = "client-id"
             oauth_client_secret = "client-secret"
@@ -498,5 +572,80 @@ mod tests {
         assert_eq!(gmail.auth, Auth::Xoauth2);
         assert_eq!(gmail.token_cmd.as_deref(), Some("pass gmail-token"));
         assert_eq!(gmail.oauth_client_id.as_deref(), Some("client-id"));
+        // Gmail has built-in OAuth defaults
+        let urls = gmail.oauth_urls().unwrap();
+        assert!(urls.auth_url.contains("google"));
+        assert!(urls.token_url.contains("google"));
+        assert!(urls.scope.contains("mail.google"));
+    }
+
+    #[test]
+    fn provider_standard_has_no_oauth_defaults() {
+        assert!(Provider::Standard.oauth_config().is_none());
+    }
+
+    #[test]
+    fn provider_protonmail_has_oauth_defaults() {
+        let config = Provider::Protonmail.oauth_config().unwrap();
+        assert!(config.auth_url.contains("proton"));
+        assert!(config.token_url.contains("proton"));
+        assert!(config.scope.contains("protonmail"));
+    }
+
+    #[test]
+    fn account_oauth_urls_override_provider_defaults() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("accounts.toml");
+        fs::write(
+            &path,
+            r#"
+            [[accounts]]
+            name = "custom"
+            email = "user@example.com"
+            imap_host = "imap.example.com"
+            smtp_host = "smtp.example.com"
+            username = "user"
+            auth = "xoauth2"
+            provider = "standard"
+            oauth_authorization_url = "https://custom.auth/authorize"
+            oauth_token_url = "https://custom.auth/token"
+            oauth_scope = "https://custom.auth/mail"
+        "#,
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let accounts = AccountsFile::load(&path).unwrap();
+        let acct = accounts.find_account("custom").unwrap();
+        let urls = acct.oauth_urls().unwrap();
+        assert!(urls.auth_url.contains("custom.auth/authorize"));
+        assert!(urls.token_url.contains("custom.auth/token"));
+        assert!(urls.scope.contains("custom.auth/mail"));
+    }
+
+    #[test]
+    fn account_xoauth2_standard_provider_errors_without_urls() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("accounts.toml");
+        fs::write(
+            &path,
+            r#"
+            [[accounts]]
+            name = "no-provider"
+            email = "user@example.com"
+            imap_host = "imap.example.com"
+            smtp_host = "smtp.example.com"
+            username = "user"
+            auth = "xoauth2"
+            provider = "standard"
+        "#,
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let accounts = AccountsFile::load(&path).unwrap();
+        let acct = accounts.find_account("no-provider").unwrap();
+        let err = acct.oauth_urls().unwrap_err();
+        assert!(err.to_string().contains("no OAuth defaults"));
     }
 }

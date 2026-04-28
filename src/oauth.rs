@@ -8,9 +8,6 @@ use tokio::net::TcpListener;
 use crate::config::Account;
 use crate::error::VivariumError;
 
-const GOOGLE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
-const GMAIL_SCOPE: &str = "https://mail.google.com/";
 const KEYCHAIN_SERVICE: &str = "vivarium-oauth";
 
 #[derive(Debug, Clone)]
@@ -28,20 +25,21 @@ struct TokenResponse {
 }
 
 pub async fn authorize(account: &Account, client: OAuthClient) -> Result<(), VivariumError> {
+    let urls = account.oauth_urls()?;
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
-    let auth_url = authorization_url(&client.client_id, &redirect_uri);
+    let auth_url = authorization_url(&urls.auth_url, &client.client_id, &urls.scope, &redirect_uri);
 
     open_browser(&auth_url)?;
-    println!("opened browser for Google OAuth");
+    println!("opened browser for OAuth authorization");
     println!("waiting for callback on {redirect_uri}");
 
     let code = wait_for_code(listener).await?;
-    let response = exchange_code(&client, &redirect_uri, &code).await?;
+    let response = exchange_code(&client, &urls.token_url, &redirect_uri, &code).await?;
     let refresh_token = response.refresh_token.ok_or_else(|| {
         VivariumError::Config(
-            "Google did not return a refresh token; remove prior consent or rerun auth with a fresh consent prompt".into(),
+            "OAuth provider did not return a refresh token; remove prior consent or rerun auth with a fresh consent prompt".into(),
         )
     })?;
 
@@ -54,11 +52,12 @@ pub async fn print_access_token(
     account: &Account,
     client: OAuthClient,
 ) -> Result<(), VivariumError> {
+    let urls = account.oauth_urls()?;
     let refresh_token = load_refresh_token(&account.name)?;
-    let response = refresh_access_token(&client, &refresh_token).await?;
+    let response = refresh_access_token(&client, &urls.token_url, &refresh_token).await?;
     let access_token = response
         .access_token
-        .ok_or_else(|| VivariumError::Config("Google token response had no access_token".into()))?;
+        .ok_or_else(|| VivariumError::Config("OAuth provider token response had no access_token".into()))?;
     println!("{access_token}");
     Ok(())
 }
@@ -87,19 +86,19 @@ fn missing_client_field(account: &Account, field: &str, flag: &str) -> VivariumE
     ))
 }
 
-fn authorization_url(client_id: &str, redirect_uri: &str) -> String {
+fn authorization_url(auth_url: &str, client_id: &str, scope: &str, redirect_uri: &str) -> String {
     format!(
-        "{GOOGLE_AUTH_URL}?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt=consent",
+        "{auth_url}?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt=consent",
         percent_encode(client_id),
         percent_encode(redirect_uri),
-        percent_encode(GMAIL_SCOPE)
+        percent_encode(scope)
     )
 }
 
 async fn wait_for_code(listener: TcpListener) -> Result<String, VivariumError> {
     let (mut stream, _) = listener.accept().await?;
     let mut buffer = vec![0; 8192];
-    let mut code = None::<String>;
+    let mut code: Option<String> = None;
 
     loop {
         let n = stream.read(&mut buffer).await?;
@@ -161,10 +160,11 @@ fn parse_callback_code(request: &str) -> Result<String, VivariumError> {
 
 async fn exchange_code(
     client: &OAuthClient,
+    token_url: &str,
     redirect_uri: &str,
     code: &str,
 ) -> Result<TokenResponse, VivariumError> {
-    token_request(&[
+    token_request(token_url, &[
         ("client_id", client.client_id.as_str()),
         ("client_secret", client.client_secret.as_str()),
         ("code", code),
@@ -176,9 +176,10 @@ async fn exchange_code(
 
 async fn refresh_access_token(
     client: &OAuthClient,
+    token_url: &str,
     refresh_token: &str,
 ) -> Result<TokenResponse, VivariumError> {
-    token_request(&[
+    token_request(token_url, &[
         ("client_id", client.client_id.as_str()),
         ("client_secret", client.client_secret.as_str()),
         ("refresh_token", refresh_token),
@@ -187,9 +188,9 @@ async fn refresh_access_token(
     .await
 }
 
-async fn token_request(form: &[(&str, &str)]) -> Result<TokenResponse, VivariumError> {
+async fn token_request(token_url: &str, form: &[(&str, &str)]) -> Result<TokenResponse, VivariumError> {
     let response = reqwest::Client::new()
-        .post(GOOGLE_TOKEN_URL)
+        .post(token_url)
         .form(form)
         .send()
         .await
@@ -325,10 +326,22 @@ mod tests {
     }
 
     #[test]
-    fn encodes_google_scope() {
+    fn encodes_mail_scope() {
         assert_eq!(
             percent_encode("https://mail.google.com/"),
             "https%3A%2F%2Fmail.google.com%2F"
         );
+    }
+
+    #[test]
+    fn authorization_url_includes_provider_scope() {
+        let url = authorization_url(
+            "https://accounts.google.com/o/oauth2/v2/auth",
+            "my-client",
+            "https://mail.google.com/",
+            "http://127.0.0.1:8080/callback",
+        );
+        assert!(url.contains("https%3A%2F%2Fmail.google.com%2F"));
+        assert!(url.contains("client_id=my-client"));
     }
 }

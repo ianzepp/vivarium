@@ -18,27 +18,49 @@ const DEFAULT_ACCOUNTS: &str = r#"# Each [[accounts]] entry defines an email acc
 # email = "you@gmail.com"
 # username = "you@gmail.com"
 # auth = "xoauth2"
-# oauth_client_id = "your-google-oauth-client-id"
+# provider = "gmail"
+# oauth_client_id = "your-google-oauth-client-id.apps.googleusercontent.com"
 # oauth_client_secret = "your-google-oauth-client-secret"
 # token_cmd = "vivarium token gmail"
 # imap_host = "imap.gmail.com"
 # imap_security = "ssl"
 # smtp_host = "smtp.gmail.com"
 # smtp_security = "ssl"
-# provider = "gmail"
 
 # [[accounts]]
 # name = "proton"
 # email = "you@proton.me"
 # username = "you@proton.me"
-# password = "your-bridge-password"
-# imap_host = "127.0.0.1"
-# imap_port = 1143
-# imap_security = "starttls"
-# smtp_host = "127.0.0.1"
-# smtp_port = 1025
+# auth = "xoauth2"
+# provider = "protonmail"
+# oauth_client_id = "your-proton-oauth-client-id"
+# oauth_client_secret = "your-proton-oauth-client-secret"
+# token_cmd = "vivarium token proton"
+# imap_host = "imap.protonmail.com"
+# imap_port = 993
+# imap_security = "ssl"
+# smtp_host = "smtp.protonmail.com"
+# smtp_port = 465
 # smtp_security = "ssl"
+
+# [[accounts]]
+# name = "custom"
+# email = "you@example.com"
+# username = "you@example.com"
+# auth = "xoauth2"
 # provider = "standard"
+# oauth_authorization_url = "https://your-provider/oauth/authorize"
+# oauth_token_url = "https://your-provider/oauth/token"
+# oauth_scope = "https://your-provider/mail.readwrite"
+# oauth_client_id = "your-custom-oauth-client-id"
+# oauth_client_secret = "your-custom-oauth-client-secret"
+# token_cmd = "your-token-command"
+# imap_host = "imap.example.com"
+# imap_port = 993
+# imap_security = "ssl"
+# smtp_host = "smtp.example.com"
+# smtp_port = 465
+# smtp_security = "ssl"
 "#;
 
 pub fn run_init() -> Result<(), VivariumError> {
