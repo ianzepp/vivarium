@@ -84,6 +84,7 @@ impl Runtime {
             Command::List { folder } => self.list(&folder),
             Command::Show { message_ids } => self.show(&message_ids),
             Command::Archive { message_ids } => self.archive(&message_ids),
+            Command::Search { query, limit, offset, json } => self.search(&query, limit, offset, json),
             #[cfg(feature = "outbox")]
             Command::Watch { account } => self.watch(account).await,
             #[cfg(feature = "outbox")]
@@ -247,6 +248,38 @@ impl Runtime {
             "edit the file, then send with: vivarium send {}",
             path.display()
         );
+        Ok(())
+    }
+
+    fn search(&self, query: &str, limit: usize, offset: usize, as_json: bool) -> Result<(), VivariumError> {
+        let acct = self.resolve_account(self.account.clone())?;
+        let mail_root = acct.mail_path(&self.config);
+
+        let (results, total) = vivarium::search::keyword_search(&mail_root, query, limit, offset)?;
+
+        if as_json {
+            let output = serde_json::json!({
+                "query": query,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "results": results.into_iter()
+                    .map(|r: vivarium::search::SearchResult| vivarium::search::to_json_result(&r))
+                    .collect::<Vec<_>>(),
+            });
+            println!("{}", serde_json::to_string_pretty(&output).unwrap_or_else(|_| output.to_string()));
+        } else {
+            println!("search: {} results for '{}'", total, query);
+            if results.is_empty() {
+                return Ok(());
+            }
+            for r in &results {
+                println!("  {}  {:<16}  {}  {}", r.handle, r.date, r.from, r.subject);
+                if !r.snippet.is_empty() {
+                    println!("    snippet: {}", r.snippet);
+                }
+            }
+        }
         Ok(())
     }
 }

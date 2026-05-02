@@ -7,6 +7,7 @@ pub mod imap;
 pub mod init;
 pub mod message;
 pub mod oauth;
+pub mod search;
 
 #[cfg(feature = "outbox")]
 pub mod outbox;

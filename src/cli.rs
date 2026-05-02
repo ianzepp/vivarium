@@ -119,4 +119,22 @@ pub enum Command {
         /// Message identifiers
         message_ids: Vec<String>,
     },
+
+    /// Search messages by keyword
+    Search {
+        /// Search query (space-separated keywords)
+        query: String,
+
+        /// Maximum results to return
+        #[arg(long, default_value = "20")]
+        limit: usize,
+
+        /// Number of results to skip
+        #[arg(long, default_value = "0")]
+        offset: usize,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
