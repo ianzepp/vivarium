@@ -1,7 +1,10 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fs;
+use std::fs::OpenOptions;
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::error::VivariumError;
@@ -132,10 +135,11 @@ impl MailStore {
         let tmp_path = folder_path.join("tmp").join(&filename);
         let final_path = folder_path.join(subdir).join(&filename);
 
-        let mut file = fs::File::create(&tmp_path)?;
+        let mut file = secure_create_file(&tmp_path)?;
         file.write_all(data)?;
         file.sync_all()?;
         fs::rename(&tmp_path, &final_path)?;
+        secure_file(&final_path)?;
         tracing::debug!(path = %final_path.display(), "stored message");
         Ok(final_path)
     }
@@ -278,20 +282,22 @@ impl MailStore {
     ) -> Result<(), VivariumError> {
         let path = self.index_path(folder, rfc_message_id);
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            secure_create_dir_all(parent)?;
         }
-        fs::write(path, format!("{uid}\n{size}\n"))?;
+        let mut file = secure_create_file(&path)?;
+        file.write_all(format!("{uid}\n{size}\n").as_bytes())?;
+        file.sync_all()?;
         Ok(())
     }
 
     fn ensure_folder(&self, folder: &str) -> Result<(), VivariumError> {
+        secure_create_dir_all(&self.root)?;
         let path = self.folder_path(folder);
+        secure_create_dir_all(&path)?;
         for dir in MAILDIR_DIRS {
             let subdir = path.join(dir);
-            if !subdir.exists() {
-                fs::create_dir_all(&subdir)?;
-                tracing::debug!(path = %subdir.display(), "created maildir subdir");
-            }
+            secure_create_dir_all(&subdir)?;
+            tracing::debug!(path = %subdir.display(), "ensured private maildir subdir");
         }
         Ok(())
     }
@@ -398,4 +404,41 @@ fn stable_hash(value: &str) -> u64 {
     value.bytes().fold(0xcbf29ce484222325, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
     })
+}
+
+pub(crate) fn secure_create_dir_all(path: &Path) -> Result<(), VivariumError> {
+    fs::create_dir_all(path)?;
+    secure_dir(path)
+}
+
+pub(crate) fn secure_write(path: &Path, data: &[u8]) -> Result<(), VivariumError> {
+    if let Some(parent) = path.parent() {
+        secure_create_dir_all(parent)?;
+    }
+    let mut file = secure_create_file(path)?;
+    file.write_all(data)?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn secure_create_file(path: &Path) -> Result<fs::File, VivariumError> {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let file = options.open(path)?;
+    secure_file(path)?;
+    Ok(file)
+}
+
+fn secure_dir(path: &Path) -> Result<(), VivariumError> {
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    Ok(())
+}
+
+fn secure_file(path: &Path) -> Result<(), VivariumError> {
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    Ok(())
 }

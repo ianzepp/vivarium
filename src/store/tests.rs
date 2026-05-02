@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use super::*;
@@ -16,6 +18,18 @@ fn ensure_folders_creates_maildirs() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn ensure_folders_creates_private_maildirs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = MailStore::new(tmp.path());
+    store.ensure_folders().unwrap();
+
+    assert_eq!(mode(tmp.path()), 0o700);
+    assert_eq!(mode(&tmp.path().join("INBOX")), 0o700);
+    assert_eq!(mode(&tmp.path().join("INBOX/new")), 0o700);
+}
+
 #[test]
 fn store_message_writes_via_maildir() {
     let tmp = tempfile::tempdir().unwrap();
@@ -30,6 +44,19 @@ fn store_message_writes_via_maildir() {
         store.read_message("inbox-1").unwrap(),
         b"Subject: hello\r\n\r\nbody"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn store_message_writes_private_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = MailStore::new(tmp.path());
+
+    let path = store
+        .store_message("inbox", "inbox-1", b"Subject: hello\r\n\r\nbody")
+        .unwrap();
+
+    assert_eq!(mode(&path), 0o600);
 }
 
 #[test]
@@ -112,4 +139,9 @@ fn rfc_index_skips_files_without_message_id() {
     let index = store.build_rfc_index("inbox").unwrap();
     assert_eq!(index.len(), 1);
     assert!(index.contains_key("test@example.com"));
+}
+
+#[cfg(unix)]
+fn mode(path: &std::path::Path) -> u32 {
+    fs::metadata(path).unwrap().permissions().mode() & 0o777
 }

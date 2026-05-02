@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::VivariumError;
 use crate::message::MessageEntry;
+use crate::store::{secure_create_dir_all, secure_write};
 
 /// Catalog directory inside the mail root.
 const CATALOG_DIR: &str = ".vivarium";
@@ -47,11 +48,9 @@ impl Catalog {
     /// Open or create the catalog at the given mail root.
     pub fn open(mail_root: &Path) -> Result<Self, VivariumError> {
         let catalog_dir = mail_root.join(CATALOG_DIR);
-        if !catalog_dir.exists() {
-            fs::create_dir_all(&catalog_dir).map_err(|e| {
-                VivariumError::Other(format!("failed to create catalog dir: {e}"))
-            })?;
-        }
+        secure_create_dir_all(&catalog_dir).map_err(|e| {
+            VivariumError::Other(format!("failed to create catalog dir: {e}"))
+        })?;
         let catalog_path = catalog_dir.join(CATALOG_FILENAME);
 
         let mut entries = HashMap::new();
@@ -81,7 +80,7 @@ impl Catalog {
         let json = serde_json::to_string_pretty(&entries).map_err(|e| {
             VivariumError::Other(format!("catalog serialization failed: {e}"))
         })?;
-        fs::write(&catalog_path, json)?;
+        secure_write(Path::new(&catalog_path), json.as_bytes())?;
         Ok(())
     }
 
@@ -261,6 +260,8 @@ fn canonical_folder(folder: &str) -> &'static str {
 mod tests {
     use super::*;
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn handle_is_stable_for_same_content() {
@@ -283,6 +284,35 @@ mod tests {
         let store = crate::store::MailStore::new(tmp.path());
         let catalog = Catalog::open(store.root()).unwrap();
         assert_eq!(catalog.count_messages("test").unwrap(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn catalog_uses_private_permissions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = crate::store::MailStore::new(tmp.path());
+        let mut catalog = Catalog::open(store.root()).unwrap();
+        let entry = CatalogEntry {
+            handle: "abc123".into(),
+            raw_path: "/test.msg".into(),
+            fingerprint: "f1".into(),
+            account: "acct".into(),
+            folder: "INBOX".into(),
+            maildir_subdir: "new".into(),
+            date: "2025-01-01 00:00".into(),
+            from: "a@b".into(),
+            to: "c@d".into(),
+            cc: String::new(),
+            bcc: String::new(),
+            subject: "hi".into(),
+            rfc_message_id: String::new(),
+            is_duplicate: false,
+        };
+
+        catalog.upsert(&entry).unwrap();
+
+        assert_eq!(mode(&store.root().join(".vivarium")), 0o700);
+        assert_eq!(mode(&store.root().join(".vivarium/catalog.json")), 0o600);
     }
 
     #[test]
@@ -390,5 +420,10 @@ mod tests {
         assert_eq!(entries.len(), 1);
         // The raw_path should be updated to the last upsert
         assert_eq!(entries[0].raw_path, "Archive/cur/dup.eml");
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &std::path::Path) -> u32 {
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 }
