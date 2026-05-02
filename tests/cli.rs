@@ -173,3 +173,44 @@ fn parses_agent_reply_body_plan() {
         other => panic!("unexpected command: {other:?}"),
     }
 }
+
+#[test]
+fn parses_labels_json() {
+    let cli = Cli::try_parse_from(["vivi", "labels", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Labels { json } => assert!(json),
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_label_add_dry_run_json() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "label",
+        "handle-1",
+        "--add",
+        "Work",
+        "--dry-run",
+        "--json",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Label {
+            handle,
+            add,
+            remove,
+            dry_run,
+            json,
+        } => {
+            assert_eq!(handle, "handle-1");
+            assert_eq!(add.as_deref(), Some("Work"));
+            assert!(remove.is_none());
+            assert!(dry_run);
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}

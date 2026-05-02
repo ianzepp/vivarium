@@ -6,6 +6,7 @@ pub mod error;
 pub mod extract;
 pub mod imap;
 pub mod init;
+pub mod labels;
 pub mod list;
 pub mod message;
 pub mod mutation_command;

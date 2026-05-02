@@ -12,11 +12,13 @@ use vivarium::store::MailStore;
 mod agent_runner;
 mod draft_runner;
 mod folders_command;
+mod label_runner;
 mod mutation_runner;
 mod sync_command;
 
 use agent_runner::AgentDispatch;
 use draft_runner::DraftDispatch;
+use label_runner::LabelDispatch;
 use mutation_runner::MutationDispatch;
 
 #[tokio::main]
@@ -123,6 +125,7 @@ impl Runtime {
                 unreachable!()
             }
             Command::Agent { .. } => unreachable!(),
+            Command::Labels { .. } | Command::Label { .. } => unreachable!(),
         }
     }
 
@@ -133,6 +136,10 @@ impl Runtime {
         let command = match self.run_agent_command(command).await? {
             AgentDispatch::Handled => return Ok(None),
             AgentDispatch::Unhandled(command) => command,
+        };
+        let command = match self.run_label_command(command).await? {
+            LabelDispatch::Handled => return Ok(None),
+            LabelDispatch::Unhandled(command) => command,
         };
         let command = match self.run_mutation_command(command).await? {
             MutationDispatch::Handled => return Ok(None),

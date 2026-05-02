@@ -2,6 +2,9 @@ use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser, Subcommand};
 
+mod agent_command;
+pub use agent_command::AgentCommand;
+
 #[derive(Debug, Parser)]
 #[command(name = "vivi", version, about = "Local-first IMAP email sync for LLMs")]
 pub struct Cli {
@@ -317,70 +320,39 @@ pub enum Command {
         #[command(subcommand)]
         command: AgentCommand,
     },
-}
 
-#[derive(Debug, Subcommand)]
-pub enum AgentCommand {
-    /// Plan or execute an archive mutation
-    Archive {
-        handle: String,
+    /// Show provider label support for the selected account
+    Labels {
+        /// Output as JSON
         #[arg(long)]
-        execute: bool,
+        json: bool,
     },
 
-    /// Plan or execute a delete mutation
-    Delete {
-        handle: String,
-        #[arg(long)]
-        expunge: bool,
-        #[arg(long)]
-        confirm: bool,
-        #[arg(long)]
-        execute: bool,
-    },
-
-    /// Plan or execute a move mutation
-    Move {
-        handle: String,
-        folder: String,
-        #[arg(long)]
-        execute: bool,
-    },
-
-    /// Plan or execute a flag mutation
+    /// Plan or apply a provider label operation
     #[command(group(
-        ArgGroup::new("agent_flag_mode")
-            .args(["read", "unread", "star", "unstar"])
+        ArgGroup::new("label_mode")
+            .args(["add", "remove"])
             .required(true)
             .multiple(false)
     ))]
-    Flag {
+    Label {
+        /// Message handle or local message identifier
         handle: String,
-        #[arg(long)]
-        read: bool,
-        #[arg(long)]
-        unread: bool,
-        #[arg(long)]
-        star: bool,
-        #[arg(long)]
-        unstar: bool,
-        #[arg(long)]
-        execute: bool,
-    },
 
-    /// Plan or execute sending an explicit .eml file
-    Send {
-        path: PathBuf,
+        /// Label to apply
         #[arg(long)]
-        execute: bool,
-    },
+        add: Option<String>,
 
-    /// Plan or execute local reply draft creation
-    Reply {
-        handle: String,
+        /// Label to remove
         #[arg(long)]
-        body: String,
+        remove: Option<String>,
+
+        /// Preview without changing mailbox state
         #[arg(long)]
-        execute: bool,
+        dry_run: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 }
