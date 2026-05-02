@@ -1,4 +1,4 @@
-use chrono::{Local, Months, NaiveDate};
+use chrono::{DateTime, Local, Months, NaiveDate, Utc};
 
 use crate::config::{Account, Config};
 use crate::error::VivariumError;
@@ -26,6 +26,12 @@ impl SyncWindow {
 
     pub fn is_empty(&self) -> bool {
         self.since.is_none() && self.before.is_none()
+    }
+
+    pub fn contains_datetime(&self, date: DateTime<Utc>) -> bool {
+        let date = date.date_naive();
+        self.since.is_none_or(|since| date >= since)
+            && self.before.is_none_or(|before| date < before)
     }
 }
 
@@ -107,6 +113,7 @@ fn parse_suffix(value: &str, suffix: &str) -> Result<Option<u32>, VivariumError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     #[test]
     fn sync_window_parses_absolute_dates() {
@@ -135,5 +142,17 @@ mod tests {
     fn sync_window_rejects_invalid_dates() {
         let err = SyncWindow::parse(Some("three months"), None).unwrap_err();
         assert!(err.to_string().contains("invalid relative date"));
+    }
+
+    #[test]
+    fn sync_window_matches_datetimes() {
+        let window = SyncWindow::parse(Some("2026-02-01"), Some("2026-03-01")).unwrap();
+        let inside = Utc.with_ymd_and_hms(2026, 2, 12, 12, 0, 0).unwrap();
+        let before = Utc.with_ymd_and_hms(2026, 1, 31, 12, 0, 0).unwrap();
+        let after = Utc.with_ymd_and_hms(2026, 3, 1, 12, 0, 0).unwrap();
+
+        assert!(window.contains_datetime(inside));
+        assert!(!window.contains_datetime(before));
+        assert!(!window.contains_datetime(after));
     }
 }

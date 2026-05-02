@@ -6,7 +6,7 @@ use tracing_subscriber::EnvFilter;
 use vivarium::VivariumError;
 use vivarium::cli::{Cli, Command};
 use vivarium::config::{Account, AccountsFile, Config};
-use vivarium::message::{self, MessageEntry};
+use vivarium::message;
 use vivarium::store::MailStore;
 
 #[cfg(feature = "outbox")]
@@ -86,7 +86,12 @@ impl Runtime {
                 since,
                 before,
             } => self.sync(account, limit, since, before).await,
-            Command::List { folder } => self.list(&folder),
+            Command::List {
+                folder,
+                limit,
+                since,
+                before,
+            } => self.list(&folder, limit, since, before),
             Command::Show { message_ids } => self.show(&message_ids),
             Command::Archive { message_ids } => self.archive(&message_ids),
             Command::Search {
@@ -176,7 +181,14 @@ impl Runtime {
         Ok(())
     }
 
-    fn list(&self, folder: &str) -> Result<(), VivariumError> {
+    fn list(
+        &self,
+        folder: &str,
+        limit: Option<usize>,
+        since: Option<String>,
+        before: Option<String>,
+    ) -> Result<(), VivariumError> {
+        let window = vivarium::sync::SyncWindow::parse(since.as_deref(), before.as_deref())?;
         let accounts = match &self.account {
             Some(name) => vec![self.accounts.find_account(name)?.clone()],
             None => self.accounts.accounts.clone(),
@@ -185,7 +197,8 @@ impl Runtime {
             println!("# {}", acct.name);
             let store = MailStore::new(&acct.mail_path(&self.config));
             let entries = store.list_messages(folder)?;
-            print_entries(folder, &entries);
+            let entries = vivarium::list::filter_entries(entries, window, limit);
+            vivarium::list::print_entries(folder, &entries);
         }
         Ok(())
     }
@@ -315,17 +328,6 @@ impl Runtime {
         }
         Ok(())
     }
-}
-
-fn print_entries(folder: &str, entries: &[MessageEntry]) {
-    if entries.is_empty() {
-        println!("  no messages in {folder}");
-    } else {
-        for entry in entries {
-            println!("  {entry}");
-        }
-    }
-    println!();
 }
 
 #[cfg(feature = "outbox")]

@@ -87,6 +87,9 @@ vivi sync --account proton --since 3mo         # sync messages from the last 3 m
 vivi sync --account proton --since 2025-05-02 --before 2026-05-02
 vivi list                                      # list inbox (default)
 vivi list sent                                 # list sent folder
+vivi list -n 25                                # list the 25 newest inbox messages
+vivi list --since 3mo                          # list inbox messages from the last 3 months
+vivi list --since 2025-05-02 --before 2026-05-02
 vivi show inbox-1                              # read a message
 vivi archive inbox-1                           # move from inbox to archive
 vivi search "invoice"                          # keyword search

@@ -95,6 +95,18 @@ pub enum Command {
         /// Folder name
         #[arg(default_value = "inbox")]
         folder: String,
+
+        /// Maximum messages to display per account
+        #[arg(short = 'n', long)]
+        limit: Option<usize>,
+
+        /// List messages on or after this date (YYYY-MM-DD, or relative like 30d, 3mo, 1y)
+        #[arg(long)]
+        since: Option<String>,
+
+        /// List messages before this date (YYYY-MM-DD)
+        #[arg(long)]
+        before: Option<String>,
     },
 
     /// Show one or more messages by ID

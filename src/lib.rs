@@ -5,6 +5,7 @@ pub mod error;
 pub mod extract;
 pub mod imap;
 pub mod init;
+pub mod list;
 pub mod message;
 pub mod oauth;
 pub mod search;
