@@ -14,6 +14,7 @@ fn find_missing_skips_remote_uid_remap_when_message_id_matches() {
 
     let remote = RemoteMessage {
         uid: 9001,
+        uidvalidity: Some(123),
         size: 999,
         rfc_message_id: Some("stable@example.com".to_string()),
     };
@@ -36,6 +37,7 @@ fn find_missing_can_dedupe_all_mail_against_inbox() {
 
     let remote = RemoteMessage {
         uid: 9001,
+        uidvalidity: Some(123),
         size: 999,
         rfc_message_id: Some("stable@example.com".to_string()),
     };
@@ -62,6 +64,7 @@ fn find_missing_falls_back_to_uid_and_size_without_message_id() {
 
     let remote = RemoteMessage {
         uid: 7,
+        uidvalidity: Some(123),
         size: body.len() as u64,
         rfc_message_id: None,
     };
@@ -80,6 +83,27 @@ fn protonmail_syncs_all_mail_into_archive() {
             .iter()
             .any(|folder| folder.remote_folder == "All Mail" && folder.local_folder == "archive")
     );
+}
+
+#[test]
+fn remote_identity_candidates_preserve_uidvalidity() {
+    let account = account_with_provider(Provider::Protonmail);
+    let remote = RemoteMessage {
+        uid: 42,
+        uidvalidity: Some(77),
+        size: 100,
+        rfc_message_id: Some("m@example.com".to_string()),
+    };
+
+    let candidates = remote_identity_candidates(&account, "INBOX", "inbox", &[remote]);
+
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].account, "test");
+    assert_eq!(candidates[0].provider, "protonmail");
+    assert_eq!(candidates[0].remote_mailbox, "INBOX");
+    assert_eq!(candidates[0].local_folder, "inbox");
+    assert_eq!(candidates[0].uid, 42);
+    assert_eq!(candidates[0].uidvalidity, Some(77));
 }
 
 fn account_with_provider(provider: Provider) -> Account {

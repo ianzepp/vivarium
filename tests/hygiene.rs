@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 fn src_files() -> Vec<String> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -24,7 +24,7 @@ fn collect_src_files(dir: &Path, files: &mut Vec<String>) {
     }
 }
 
-fn is_checked_rust_file(path: &PathBuf) -> bool {
+fn is_checked_rust_file(path: &Path) -> bool {
     path.is_file()
         && path.extension().is_some_and(|e| e == "rs")
         && path.file_name().is_none_or(|n| n != "lib.rs")

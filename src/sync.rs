@@ -2,6 +2,7 @@ use std::fs;
 
 use chrono::{DateTime, Local, Months, NaiveDate, Utc};
 
+use crate::catalog::RemoteIdentityCandidate;
 use crate::config::{Account, Config};
 use crate::error::VivariumError;
 use crate::store::MailStore;
@@ -13,6 +14,7 @@ pub struct SyncResult {
     pub cataloged: usize,
     pub extracted: usize,
     pub extraction_errors: usize,
+    pub remote_identities: Vec<RemoteIdentityCandidate>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -56,8 +58,20 @@ pub async fn sync_account(
         let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
         crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window).await?
     };
-    let catalog_update =
-        crate::catalog::update_maildir(&account.mail_path(config), &account.name, &store)?;
+    let mail_path = account.mail_path(config);
+    let catalog_update = crate::catalog::update_maildir(&mail_path, &account.name, &store)?;
+    if !result.remote_identities.is_empty() {
+        let identity_result =
+            crate::catalog::attach_remote_identities(&mail_path, &result.remote_identities)?;
+        tracing::info!(
+            account = account.name,
+            matched = identity_result.matched,
+            missing_uidvalidity = identity_result.missing_uidvalidity,
+            missing_local = identity_result.missing_local,
+            ambiguous = identity_result.ambiguous,
+            "remote identity reconciliation complete"
+        );
+    }
     let (extracted, extraction_errors) =
         crate::extract::extract_catalog_entries(&catalog_update.entries)?;
     result.cataloged = catalog_update.cataloged;

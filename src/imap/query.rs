@@ -29,15 +29,16 @@ pub(super) async fn fetch_remote_messages(
     }
 
     tracing::info!(folder = remote_folder, count, "checking messages");
+    let uidvalidity = mailbox.uid_validity;
     let messages = if window.is_empty() {
-        fetch_remote_metadata(&mut session, format!("1:{count}")).await?
+        fetch_remote_metadata(&mut session, format!("1:{count}"), uidvalidity).await?
     } else {
         let uid_set = remote_uid_set(&mut session, window).await?;
         if uid_set.is_empty() {
             session.logout().await.ok();
             return Ok(Vec::new());
         }
-        uid_fetch_remote_metadata(&mut session, uid_set).await?
+        uid_fetch_remote_metadata(&mut session, uid_set, uidvalidity).await?
     };
 
     session.logout().await.ok();
@@ -47,27 +48,30 @@ pub(super) async fn fetch_remote_messages(
 async fn fetch_remote_metadata(
     session: &mut ImapSession,
     sequence_set: String,
+    uidvalidity: Option<u32>,
 ) -> Result<Vec<RemoteMessage>, VivariumError> {
     let fetches = session
         .fetch(sequence_set, METADATA_FETCH_ITEMS)
         .await
         .map_err(|e| VivariumError::Imap(format!("uid/size fetch failed: {e}")))?;
-    collect_remote_metadata(fetches).await
+    collect_remote_metadata(fetches, uidvalidity).await
 }
 
 async fn uid_fetch_remote_metadata(
     session: &mut ImapSession,
     uid_set: String,
+    uidvalidity: Option<u32>,
 ) -> Result<Vec<RemoteMessage>, VivariumError> {
     let fetches = session
         .uid_fetch(uid_set, METADATA_FETCH_ITEMS)
         .await
         .map_err(|e| VivariumError::Imap(format!("uid/size fetch failed: {e}")))?;
-    collect_remote_metadata(fetches).await
+    collect_remote_metadata(fetches, uidvalidity).await
 }
 
 async fn collect_remote_metadata(
     fetches: impl TryStream<Ok = async_imap::types::Fetch, Error = async_imap::error::Error>,
+    uidvalidity: Option<u32>,
 ) -> Result<Vec<RemoteMessage>, VivariumError> {
     Ok(fetches
         .try_collect::<Vec<_>>()
@@ -79,6 +83,7 @@ async fn collect_remote_metadata(
             let size = u64::from(f.size?);
             Some(RemoteMessage {
                 uid,
+                uidvalidity,
                 size,
                 rfc_message_id: f.header().and_then(message_id_from_bytes),
             })

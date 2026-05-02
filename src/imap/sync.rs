@@ -1,10 +1,8 @@
-use std::sync::Arc;
-use std::time::Duration;
-
-use async_imap::extensions::idle::IdleResponse;
 use futures::TryStreamExt;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use super::identity::{remote_identity_candidates, remote_identity_result};
 use super::query::fetch_remote_messages;
 use super::transport::{CHUNK_SIZE, ImapSession, RemoteMessage, WORKER_COUNT, connect};
 use crate::config::{Account, Provider};
@@ -29,6 +27,15 @@ struct FolderPlan<'a> {
     dedupe_scope: DedupeScope,
 }
 
+struct SyncFolderRequest<'a> {
+    account: &'a Account,
+    store: &'a MailStore,
+    plan: FolderPlan<'a>,
+    reject_invalid_certs: bool,
+    limit: Option<usize>,
+    window: SyncWindow,
+}
+
 #[derive(Clone, Copy)]
 enum DedupeScope {
     LocalFolder,
@@ -47,18 +54,17 @@ pub async fn sync_messages(
     let mut remaining = limit;
 
     for plan in sync_folders(account) {
-        let r = sync_folder(
+        let r = sync_folder(SyncFolderRequest {
             account,
             store,
-            plan.remote_folder,
-            plan.local_folder,
-            plan.dedupe_scope,
+            plan,
             reject_invalid_certs,
-            remaining,
+            limit: remaining,
             window,
-        )
+        })
         .await?;
         result.new += r.new;
+        result.remote_identities.extend(r.remote_identities);
         if let Some(value) = remaining.as_mut() {
             *value = value.saturating_sub(r.new);
             if *value == 0 {
@@ -193,37 +199,44 @@ async fn download_missing(
 }
 
 /// Sync messages from the account's IMAP server into the local store.
-async fn sync_folder(
-    account: &Account,
-    store: &MailStore,
-    remote_folder: &str,
-    local_folder: &str,
-    dedupe_scope: DedupeScope,
-    reject_invalid_certs: bool,
-    limit: Option<usize>,
-    window: SyncWindow,
-) -> Result<SyncResult, VivariumError> {
-    let remote_messages =
-        fetch_remote_messages(account, remote_folder, reject_invalid_certs, window).await?;
+async fn sync_folder(request: SyncFolderRequest<'_>) -> Result<SyncResult, VivariumError> {
+    let remote_folder = request.plan.remote_folder;
+    let local_folder = request.plan.local_folder;
+    let remote_messages = fetch_remote_messages(
+        request.account,
+        remote_folder,
+        request.reject_invalid_certs,
+        request.window,
+    )
+    .await?;
     if remote_messages.is_empty() {
         return Ok(SyncResult::default());
     }
+    let remote_identities = remote_identity_candidates(
+        request.account,
+        remote_folder,
+        local_folder,
+        &remote_messages,
+    );
 
-    let mut missing = find_missing(&remote_messages, store, local_folder, dedupe_scope)?;
+    let mut missing = find_missing(
+        &remote_messages,
+        request.store,
+        local_folder,
+        request.plan.dedupe_scope,
+    )?;
     if missing.is_empty() {
         tracing::info!(
             folder = remote_folder,
             total = remote_messages.len(),
             "all messages up to date"
         );
-        return Ok(SyncResult::default());
+        return Ok(remote_identity_result(remote_identities));
     }
     let total_missing = missing.len();
-    if let Some(limit) = limit {
-        missing.truncate(limit);
-        if missing.is_empty() {
-            return Ok(SyncResult::default());
-        }
+    truncate_missing(&mut missing, request.limit);
+    if missing.is_empty() {
+        return Ok(remote_identity_result(remote_identities));
     }
 
     tracing::info!(
@@ -234,15 +247,23 @@ async fn sync_folder(
         "downloading new messages"
     );
 
-    download_missing(
-        account,
-        store,
+    let mut result = download_missing(
+        request.account,
+        request.store,
         remote_folder,
         local_folder,
         missing,
-        reject_invalid_certs,
+        request.reject_invalid_certs,
     )
-    .await
+    .await?;
+    result.remote_identities = remote_identities;
+    Ok(result)
+}
+
+fn truncate_missing(missing: &mut Vec<RemoteMessage>, limit: Option<usize>) {
+    if let Some(limit) = limit {
+        missing.truncate(limit);
+    }
 }
 
 /// Store a single parsed message in the local Maildir and update the index.
@@ -339,49 +360,11 @@ fn process_messages(
     Ok(new_count)
 }
 
-/// Build a UID set string like "1,2,3,5,6,7" from a list of UIDs.
 fn uid_set_string(uids: &[u32]) -> String {
     uids.iter()
         .map(|u| u.to_string())
         .collect::<Vec<_>>()
         .join(",")
-}
-
-pub async fn idle(account: &Account, reject_invalid_certs: bool) -> Result<(), VivariumError> {
-    let mut session = connect(account, reject_invalid_certs).await?;
-    session
-        .select("INBOX")
-        .await
-        .map_err(|e| VivariumError::Imap(format!("idle select INBOX failed: {e}")))?;
-
-    let mut handle = session.idle();
-    handle
-        .init()
-        .await
-        .map_err(|e| VivariumError::Imap(format!("IDLE init failed: {e}")))?;
-
-    let (wait, _interrupt) = handle.wait_with_timeout(Duration::from_secs(29 * 60));
-    match wait
-        .await
-        .map_err(|e| VivariumError::Imap(format!("IDLE wait failed: {e}")))?
-    {
-        IdleResponse::NewData(response) => {
-            tracing::debug!(response = ?response.parsed(), "IMAP IDLE notification");
-        }
-        IdleResponse::Timeout => {
-            tracing::debug!("IMAP IDLE timed out; refreshing connection");
-        }
-        IdleResponse::ManualInterrupt => {
-            tracing::debug!("IMAP IDLE interrupted");
-        }
-    }
-
-    let mut session = handle
-        .done()
-        .await
-        .map_err(|e| VivariumError::Imap(format!("IDLE done failed: {e}")))?;
-    session.logout().await.ok();
-    Ok(())
 }
 
 #[cfg(test)]

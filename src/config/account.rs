@@ -67,11 +67,10 @@ impl Account {
     }
 
     pub fn reject_invalid_certs(&self, config: &Config) -> bool {
-        self.reject_invalid_certs
-            .unwrap_or_else(|| match self.provider {
-                Provider::Protonmail => true,
-                _ => config.defaults.reject_invalid_certs,
-            })
+        self.reject_invalid_certs.unwrap_or(match self.provider {
+            Provider::Protonmail => true,
+            _ => config.defaults.reject_invalid_certs,
+        })
     }
 
     /// Resolve OAuth URLs: account-level overrides take priority, then provider defaults.
@@ -192,9 +191,6 @@ impl Account {
 
     /// Whether this account should accept self-signed certificates by default.
     pub fn defaults_to_accept_invalid_certs(&self) -> bool {
-        match self.provider {
-            crate::config::types::Provider::Protonmail => true,
-            _ => false,
-        }
+        matches!(self.provider, crate::config::types::Provider::Protonmail)
     }
 }

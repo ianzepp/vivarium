@@ -83,6 +83,39 @@ fn catalog_rebuild_stable_handles() {
 }
 
 #[test]
+fn catalog_loads_entries_without_remote_identity_field() {
+    let tmp = tempfile::tempdir().unwrap();
+    let catalog_dir = tmp.path().join(".vivarium");
+    fs::create_dir_all(&catalog_dir).unwrap();
+    fs::write(
+        catalog_dir.join("catalog.json"),
+        r#"[{
+          "handle": "abc123",
+          "raw_path": "/tmp/inbox-1.eml",
+          "fingerprint": "f1",
+          "account": "acct",
+          "folder": "INBOX",
+          "maildir_subdir": "new",
+          "date": "2025-01-01 00:00",
+          "from": "a@b",
+          "to": "c@d",
+          "cc": "",
+          "bcc": "",
+          "subject": "hi",
+          "rfc_message_id": "one@example.com",
+          "is_duplicate": false
+        }]"#,
+    )
+    .unwrap();
+
+    let catalog = Catalog::open(tmp.path()).unwrap();
+    let entries = catalog.list_messages("acct").unwrap();
+
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].remote.is_none());
+}
+
+#[test]
 fn catalog_duplicate_same_handle_replaces() {
     let tmp = tempfile::tempdir().unwrap();
     let mail_root = tmp.path().join("mail");
@@ -102,6 +135,157 @@ fn catalog_duplicate_same_handle_replaces() {
     let entries = catalog.list_messages("test").unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].raw_path, "Archive/cur/dup.eml");
+}
+
+#[test]
+fn attach_remote_identity_matches_by_rfc_message_id() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut catalog = Catalog::open(tmp.path()).unwrap();
+    let mut existing = entry(
+        "abc123",
+        "/mail/INBOX/new/inbox-42.eml",
+        "acct",
+        "INBOX",
+        "new",
+    );
+    existing.rfc_message_id = "one@example.com".into();
+    existing.fingerprint = "fingerprint".into();
+    catalog.upsert(&existing).unwrap();
+
+    let result = catalog
+        .attach_remote_identities(&[candidate("acct", "INBOX", "inbox", 42, Some(9))])
+        .unwrap();
+    let remote = catalog.remote_reference("acct", "abc123").unwrap();
+
+    assert_eq!(result.matched, 1);
+    assert_eq!(remote.account, "acct");
+    assert_eq!(remote.provider, "protonmail");
+    assert_eq!(remote.remote_mailbox, "INBOX");
+    assert_eq!(remote.local_folder, "inbox");
+    assert_eq!(remote.uid, 42);
+    assert_eq!(remote.uidvalidity, 9);
+    assert_eq!(remote.content_fingerprint, "fingerprint");
+}
+
+#[test]
+fn attach_remote_identity_falls_back_to_local_uid_filename() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut catalog = Catalog::open(tmp.path()).unwrap();
+    let existing = entry(
+        "abc123",
+        "/mail/INBOX/new/inbox-7.eml",
+        "acct",
+        "INBOX",
+        "new",
+    );
+    catalog.upsert(&existing).unwrap();
+
+    let result = catalog
+        .attach_remote_identities(&[RemoteIdentityCandidate {
+            rfc_message_id: None,
+            ..candidate("acct", "INBOX", "inbox", 7, Some(11))
+        }])
+        .unwrap();
+
+    assert_eq!(result.matched, 1);
+    assert_eq!(
+        catalog
+            .remote_reference("acct", "abc123")
+            .unwrap()
+            .uidvalidity,
+        11
+    );
+}
+
+#[test]
+fn remote_reference_status_reports_missing_and_stale_states() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut catalog = Catalog::open(tmp.path()).unwrap();
+    let existing = entry(
+        "abc123",
+        "/mail/INBOX/new/inbox-42.eml",
+        "acct",
+        "INBOX",
+        "new",
+    );
+    catalog.upsert(&existing).unwrap();
+
+    assert!(matches!(
+        catalog.remote_reference_status("acct", "missing", None),
+        RemoteReferenceStatus::MissingHandle { .. }
+    ));
+    assert!(matches!(
+        catalog.remote_reference_status("acct", "abc123", None),
+        RemoteReferenceStatus::MissingRemoteIdentity { .. }
+    ));
+
+    catalog
+        .attach_remote_identities(&[candidate("acct", "INBOX", "inbox", 42, Some(9))])
+        .unwrap();
+
+    assert!(matches!(
+        catalog.remote_reference_status("acct", "abc123", Some(10)),
+        RemoteReferenceStatus::StaleUidValidity {
+            stored_uidvalidity: 9,
+            current_uidvalidity: 10,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn attach_remote_identity_reports_ambiguous_duplicate_matches() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut catalog = Catalog::open(tmp.path()).unwrap();
+    let mut first = entry(
+        "first",
+        "/mail/INBOX/new/inbox-1.eml",
+        "acct",
+        "INBOX",
+        "new",
+    );
+    first.rfc_message_id = "same@example.com".into();
+    let mut second = entry(
+        "second",
+        "/mail/INBOX/new/inbox-2.eml",
+        "acct",
+        "INBOX",
+        "new",
+    );
+    second.rfc_message_id = "same@example.com".into();
+    catalog.upsert(&first).unwrap();
+    catalog.upsert(&second).unwrap();
+
+    let result = catalog
+        .attach_remote_identities(&[RemoteIdentityCandidate {
+            rfc_message_id: Some("same@example.com".into()),
+            ..candidate("acct", "INBOX", "inbox", 1, Some(9))
+        }])
+        .unwrap();
+
+    assert_eq!(result.matched, 0);
+    assert_eq!(result.ambiguous, 1);
+}
+
+#[test]
+fn attach_remote_identity_skips_missing_uidvalidity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut catalog = Catalog::open(tmp.path()).unwrap();
+    let existing = entry(
+        "abc123",
+        "/mail/INBOX/new/inbox-42.eml",
+        "acct",
+        "INBOX",
+        "new",
+    );
+    catalog.upsert(&existing).unwrap();
+
+    let result = catalog
+        .attach_remote_identities(&[candidate("acct", "INBOX", "inbox", 42, None)])
+        .unwrap();
+
+    assert_eq!(result.matched, 0);
+    assert_eq!(result.missing_uidvalidity, 1);
 }
 
 #[test]
@@ -148,7 +332,27 @@ fn entry(
         bcc: String::new(),
         subject: "hi".into(),
         rfc_message_id: String::new(),
+        remote: None,
         is_duplicate: false,
+    }
+}
+
+fn candidate(
+    account: &str,
+    remote_mailbox: &str,
+    local_folder: &str,
+    uid: u32,
+    uidvalidity: Option<u32>,
+) -> RemoteIdentityCandidate {
+    RemoteIdentityCandidate {
+        account: account.into(),
+        provider: "protonmail".into(),
+        remote_mailbox: remote_mailbox.into(),
+        local_folder: local_folder.into(),
+        uid,
+        uidvalidity,
+        rfc_message_id: Some("one@example.com".into()),
+        size: 123,
     }
 }
 

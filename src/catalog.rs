@@ -7,11 +7,17 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::VivariumError;
-use crate::message::MessageEntry;
+use crate::message::{MessageEntry, message_id_from_bytes};
 use crate::store::{secure_create_dir_all, secure_write};
 
+mod remote;
 #[cfg(test)]
 mod tests;
+
+pub use remote::{
+    RemoteIdentity, RemoteIdentityAttachResult, RemoteIdentityCandidate, RemoteReferenceStatus,
+    attach_remote_identities,
+};
 
 /// Catalog directory inside the mail root.
 const CATALOG_DIR: &str = ".vivarium";
@@ -38,6 +44,8 @@ pub struct CatalogEntry {
     pub bcc: String,
     pub subject: String,
     pub rfc_message_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<RemoteIdentity>,
     pub is_duplicate: bool,
 }
 
@@ -65,15 +73,15 @@ impl Catalog {
         let catalog_path = catalog_dir.join(CATALOG_FILENAME);
 
         let mut entries = HashMap::new();
-        if catalog_path.exists() {
-            if let Ok(data) = fs::read_to_string(&catalog_path) {
-                if let Ok(loaded) = serde_json::from_str::<Vec<CatalogEntry>>(&data) {
-                    for e in loaded {
-                        entries.insert(e.handle.clone(), e);
-                    }
-                } else {
-                    tracing::warn!("failed to load catalog");
+        if catalog_path.exists()
+            && let Ok(data) = fs::read_to_string(&catalog_path)
+        {
+            if let Ok(loaded) = serde_json::from_str::<Vec<CatalogEntry>>(&data) {
+                for e in loaded {
+                    entries.insert(e.handle.clone(), e);
                 }
+            } else {
+                tracing::warn!("failed to load catalog");
             }
         }
 
@@ -186,7 +194,7 @@ pub fn handle_from_bytes(data: &[u8]) -> String {
 /// Compute SHA-256 fingerprint of raw bytes.
 pub fn fingerprint(data: &[u8]) -> String {
     let hash = Sha256::digest(data);
-    hex::encode(&hash)
+    hex::encode(hash)
 }
 
 /// Scan raw Maildir files for an account and build catalog entries.
@@ -333,6 +341,7 @@ fn catalog_entry_for_file(
         .as_ref()
         .map(|m| m.subject.clone())
         .unwrap_or_default();
+    let rfc_message_id = message_id_from_bytes(&data).unwrap_or_default();
 
     CatalogEntry {
         handle,
@@ -347,7 +356,8 @@ fn catalog_entry_for_file(
         cc: String::new(),
         bcc: String::new(),
         subject,
-        rfc_message_id: String::new(),
+        rfc_message_id,
+        remote: None,
         is_duplicate: is_dup,
     }
 }

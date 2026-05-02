@@ -280,6 +280,7 @@ mod tests {
             bcc: String::new(),
             subject: String::new(),
             rfc_message_id: String::new(),
+            remote: None,
             is_duplicate: false,
         };
 

@@ -119,7 +119,7 @@ fn rfc_index_builds_from_local_files() {
     let index = store.build_rfc_index("inbox").unwrap();
     assert_eq!(index.get("abc@example.com"), Some(&(7, data1.len() as u64)));
     assert_eq!(index.get("def@example.com"), Some(&(8, data2.len() as u64)));
-    assert!(index.get("nonexistent@example.com").is_none());
+    assert!(!index.contains_key("nonexistent@example.com"));
 }
 
 #[test]

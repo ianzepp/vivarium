@@ -14,6 +14,7 @@ pub(super) const WORKER_COUNT: usize = 4;
 #[derive(Debug, Clone)]
 pub(super) struct RemoteMessage {
     pub(super) uid: u32,
+    pub(super) uidvalidity: Option<u32>,
     pub(super) size: u64,
     pub(super) rfc_message_id: Option<String>,
 }
@@ -65,7 +66,7 @@ pub async fn connect(
         Ok(session) => {
             let authenticated = authenticate(account, secret, session).await;
             tracing::debug!(account = account.name, "IMAP authenticated");
-            return authenticated;
+            authenticated
         }
         Err(e) => {
             if account.provider == Provider::Protonmail {
@@ -75,7 +76,7 @@ pub async fn connect(
                      in config.toml or add the cert to your keychain. Details: {e}"
                 )));
             }
-            return Err(e);
+            Err(e)
         }
     }
 }
