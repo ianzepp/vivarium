@@ -3,6 +3,7 @@ use std::path::Path;
 
 use mail_parser::MessageParser;
 
+use crate::catalog::CatalogEntry;
 use crate::error::VivariumError;
 
 /// Extracted text from an email message.
@@ -183,6 +184,23 @@ pub fn rebuild_extractions(
     Ok((extracted, 0, errors))
 }
 
+pub fn extract_catalog_entries(entries: &[CatalogEntry]) -> Result<(usize, usize), VivariumError> {
+    let mut extracted = 0;
+    let mut errors = 0;
+
+    for entry in entries {
+        match fs::read(&entry.raw_path)
+            .map_err(VivariumError::from)
+            .and_then(|data| extract_text(&data).map(|_| ()))
+        {
+            Ok(()) => extracted += 1,
+            Err(_) => errors += 1,
+        }
+    }
+
+    Ok((extracted, errors))
+}
+
 fn canonical_folder(folder: &str) -> &'static str {
     match folder.to_ascii_lowercase().as_str() {
         "inbox" | "new" => "INBOX",
@@ -237,5 +255,37 @@ mod tests {
                     .iter()
                     .all(|a| a.size > 0 || !a.filename.is_empty())
         );
+    }
+
+    #[test]
+    fn extracts_catalog_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("message.eml");
+        fs::write(
+            &path,
+            b"From: a@b\r\nTo: c@d\r\nSubject: test\r\n\r\nHello world",
+        )
+        .unwrap();
+        let entry = CatalogEntry {
+            handle: "h1".into(),
+            raw_path: path.to_string_lossy().to_string(),
+            fingerprint: "f1".into(),
+            account: "acct".into(),
+            folder: "INBOX".into(),
+            maildir_subdir: "new".into(),
+            date: String::new(),
+            from: String::new(),
+            to: String::new(),
+            cc: String::new(),
+            bcc: String::new(),
+            subject: String::new(),
+            rfc_message_id: String::new(),
+            is_duplicate: false,
+        };
+
+        let (extracted, errors) = extract_catalog_entries(&[entry]).unwrap();
+
+        assert_eq!(extracted, 1);
+        assert_eq!(errors, 0);
     }
 }

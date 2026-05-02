@@ -104,6 +104,29 @@ fn catalog_duplicate_same_handle_replaces() {
     assert_eq!(entries[0].raw_path, "Archive/cur/dup.eml");
 }
 
+#[test]
+fn update_maildir_catalogs_only_uncataloged_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = crate::store::MailStore::new(tmp.path());
+    store
+        .store_message(
+            "inbox",
+            "inbox-1",
+            b"Message-ID: <one@example.com>\r\nFrom: a@b\r\nTo: c@d\r\nSubject: one\r\n\r\nbody one",
+        )
+        .unwrap();
+
+    let first = update_maildir(tmp.path(), "acct", &store).unwrap();
+    let second = update_maildir(tmp.path(), "acct", &store).unwrap();
+
+    assert_eq!(first.scanned, 1);
+    assert_eq!(first.cataloged, 1);
+    assert_eq!(first.skipped, 0);
+    assert_eq!(second.scanned, 1);
+    assert_eq!(second.cataloged, 0);
+    assert_eq!(second.skipped, 1);
+}
+
 fn entry(
     handle: &str,
     raw_path: &str,

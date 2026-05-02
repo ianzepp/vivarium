@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use hex;
 use serde::{Deserialize, Serialize};
@@ -39,6 +39,15 @@ pub struct CatalogEntry {
     pub subject: String,
     pub rfc_message_id: String,
     pub is_duplicate: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct CatalogUpdateResult {
+    pub scanned: usize,
+    pub cataloged: usize,
+    pub skipped: usize,
+    pub duplicates: usize,
+    pub entries: Vec<CatalogEntry>,
 }
 
 /// The mail catalog backed by a JSON index.
@@ -125,6 +134,47 @@ impl Catalog {
             .filter(|e| e.account == account)
             .count())
     }
+}
+
+/// Incrementally catalog local Maildir files that do not already have entries.
+pub fn update_maildir(
+    mail_root: &Path,
+    account: &str,
+    store: &crate::store::MailStore,
+) -> Result<CatalogUpdateResult, VivariumError> {
+    let mut catalog = Catalog::open(mail_root)?;
+    let existing = catalog.list_messages(account)?;
+    let mut existing_paths: HashMap<String, String> = existing
+        .iter()
+        .map(|entry| (entry.raw_path.clone(), entry.handle.clone()))
+        .collect();
+    let mut existing_handles: HashMap<String, CatalogEntry> = existing
+        .into_iter()
+        .map(|entry| (entry.handle.clone(), entry))
+        .collect();
+    let mut result = CatalogUpdateResult::default();
+
+    for (folder, subdir, path) in message_paths(store)? {
+        result.scanned += 1;
+        let raw_path = path.to_string_lossy().to_string();
+        if existing_paths.contains_key(&raw_path) {
+            result.skipped += 1;
+            continue;
+        }
+
+        let entry =
+            catalog_entry_for_file(&path, account, &folder, &subdir, existing_handles.clone());
+        if entry.is_duplicate {
+            result.duplicates += 1;
+        }
+        catalog.upsert(&entry)?;
+        existing_paths.insert(entry.raw_path.clone(), entry.handle.clone());
+        existing_handles.insert(entry.handle.clone(), entry.clone());
+        result.cataloged += 1;
+        result.entries.push(entry);
+    }
+
+    Ok(result)
 }
 
 /// Build a stable handle from raw message bytes.
@@ -223,6 +273,39 @@ fn scan_subdir(
     }
 
     Ok(entries)
+}
+
+fn message_paths(
+    store: &crate::store::MailStore,
+) -> Result<Vec<(String, String, PathBuf)>, VivariumError> {
+    let mut paths = Vec::new();
+    for folder in ["INBOX", "Archive", "Sent", "Drafts"] {
+        for subdir in ["new", "cur"] {
+            let dir = store.folder_path(folder).join(subdir);
+            if !dir.exists() {
+                continue;
+            }
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if is_message_file(&path) {
+                    paths.push((folder.to_string(), subdir.to_string(), path));
+                }
+            }
+        }
+    }
+    Ok(paths)
+}
+
+fn is_message_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|name| {
+            name.split_once(":2,")
+                .map_or(name, |(id, _)| id)
+                .ends_with(".eml")
+        })
+        .unwrap_or(false)
 }
 
 fn catalog_entry_for_file(

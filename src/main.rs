@@ -163,7 +163,7 @@ impl Runtime {
                 let result =
                     vivarium::sync::sync_account(acct, &self.config, self.insecure, limit, window)
                         .await?;
-                println!("synced {}: {} new messages", name, result.new);
+                print_sync_result(&name, &result);
             }
             None => {
                 for acct in &self.accounts.accounts {
@@ -175,7 +175,7 @@ impl Runtime {
                         window,
                     )
                     .await?;
-                    println!("synced {}: {} new messages", acct.name, result.new);
+                    print_sync_result(&acct.name, &result);
                 }
             }
         }
@@ -328,6 +328,13 @@ impl Runtime {
         vivarium::search::print_results(query, limit, offset, results, total, as_json);
         Ok(())
     }
+}
+
+fn print_sync_result(account: &str, result: &vivarium::sync::SyncResult) {
+    println!(
+        "synced {account}: {} new messages, {} cataloged, {} extracted, {} extraction errors",
+        result.new, result.cataloged, result.extracted, result.extraction_errors
+    );
 }
 
 #[cfg(feature = "outbox")]

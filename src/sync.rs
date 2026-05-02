@@ -8,6 +8,9 @@ use crate::store::MailStore;
 pub struct SyncResult {
     pub new: usize,
     pub archived: usize,
+    pub cataloged: usize,
+    pub extracted: usize,
+    pub extraction_errors: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -48,8 +51,23 @@ pub async fn sync_account(
     let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
     let result =
         crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window).await?;
+    let mut result = result;
+    let catalog_update =
+        crate::catalog::update_maildir(&account.mail_path(config), &account.name, &store)?;
+    let (extracted, extraction_errors) =
+        crate::extract::extract_catalog_entries(&catalog_update.entries)?;
+    result.cataloged = catalog_update.cataloged;
+    result.extracted = extracted;
+    result.extraction_errors = extraction_errors;
 
-    tracing::info!(account = account.name, new = result.new, "sync complete");
+    tracing::info!(
+        account = account.name,
+        new = result.new,
+        cataloged = result.cataloged,
+        extracted = result.extracted,
+        extraction_errors = result.extraction_errors,
+        "sync complete"
+    );
     Ok(result)
 }
 

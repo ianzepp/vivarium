@@ -56,6 +56,9 @@ Then sync:
 vivi sync
 ```
 
+`vivi sync` is incremental. It downloads only missing IMAP messages, then updates
+the local catalog and extraction state for newly cataloged files.
+
 ## Mail Storage
 
 Messages are stored as Maildir folders under `~/.local/share/vivarium/{account}/`:
@@ -138,6 +141,28 @@ Gmail syncs `[Gmail]/All Mail` into `Archive/`. ProtonMail and standard IMAP acc
   ```
 - Certificate validation is enabled for `provider = "protonmail"` by default
 - Set `reject_invalid_certs = false` on an account, or use `--insecure` as a one-run override, when a local bridge uses an untrusted certificate
+
+## Local Operations
+
+For a scheduled local refresh, run a bounded sync from launchd, cron, or a
+similar user-level scheduler:
+
+```
+vivi sync --account proton --since 3mo
+```
+
+For a lightweight maintenance pass that refreshes derived local state without
+downloading a batch, use:
+
+```
+vivi sync --account proton --limit 0
+```
+
+Raw `.eml` files are the source of truth. If the derived catalog is corrupted,
+stop Vivi, remove `{mail_root}/{account}/.vivarium/catalog.json`, and run
+`vivi sync --account <name> --limit 0` to rebuild local catalog entries from
+the preserved Maildir files. Parse or extraction errors should be investigated
+against the raw path reported in JSON citation fields.
 
 ## Architecture
 
