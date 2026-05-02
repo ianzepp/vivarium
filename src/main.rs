@@ -1,6 +1,3 @@
-use std::path::Path;
-#[cfg(feature = "outbox")]
-use std::path::PathBuf;
 use std::process;
 
 use clap::Parser;
@@ -12,10 +9,12 @@ use vivarium::config::{Account, AccountsFile, Config};
 use vivarium::message;
 use vivarium::store::MailStore;
 
+mod draft_runner;
 mod folders_command;
 mod mutation_runner;
 mod sync_command;
 
+use draft_runner::DraftDispatch;
 use mutation_runner::MutationDispatch;
 
 #[tokio::main]
@@ -76,6 +75,10 @@ impl Runtime {
             MutationDispatch::Handled => return Ok(()),
             MutationDispatch::Unhandled(command) => command,
         };
+        let command = match self.run_draft_command(command).await? {
+            DraftDispatch::Handled => return Ok(()),
+            DraftDispatch::Unhandled(command) => command,
+        };
         match command {
             Command::Init => unreachable!(),
             #[cfg(feature = "outbox")]
@@ -119,11 +122,9 @@ impl Runtime {
             } => self.search(&query, limit, offset, json),
             #[cfg(feature = "outbox")]
             Command::Watch { account } => self.watch(account).await,
-            Command::Send { path } => self.send(&path).await,
-            #[cfg(feature = "outbox")]
-            Command::Reply { message_id, body } => self.reply(&message_id, body).await,
-            #[cfg(feature = "outbox")]
-            Command::Compose { to, subject } => self.compose(&to, &subject),
+            Command::Send { .. } | Command::Reply { .. } | Command::Compose { .. } => {
+                unreachable!()
+            }
         }
     }
 
@@ -238,53 +239,6 @@ impl Runtime {
         }
     }
 
-    async fn send(&self, path: &Path) -> Result<(), VivariumError> {
-        require_eml_path(path)?;
-        let acct = self.resolve_account(self.account.clone())?;
-        let data = std::fs::read(path)?;
-        let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
-        vivarium::smtp::send_raw(&acct, &data, reject_invalid_certs).await?;
-        println!("sent {}", path.display());
-        Ok(())
-    }
-
-    #[cfg(feature = "outbox")]
-    async fn reply(&self, message_id: &str, body: Option<String>) -> Result<(), VivariumError> {
-        let acct = self.resolve_account(self.account.clone())?;
-        let store = MailStore::new(&acct.mail_path(&self.config));
-        let original = store.read_message(message_id)?;
-        let Some(reply_eml) = reply_message(&original, body, &acct.email)? else {
-            return Ok(());
-        };
-        let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
-        vivarium::smtp::send_raw(&acct, reply_eml.as_bytes(), reject_invalid_certs).await?;
-        println!("replied to {message_id}");
-        Ok(())
-    }
-
-    #[cfg(feature = "outbox")]
-    fn compose(&self, to: &str, subject: &str) -> Result<(), VivariumError> {
-        let acct = self.resolve_account(self.account.clone())?;
-        let store = MailStore::new(&acct.mail_path(&self.config));
-        let draft = format!(
-            "From: {}\r\nTo: {to}\r\nSubject: {subject}\r\n\r\n",
-            acct.email
-        );
-        let Some(edited) = edit_message("compose", draft.as_bytes())? else {
-            println!("compose cancelled");
-            return Ok(());
-        };
-        message::validate_message_headers(&edited)?;
-        let draft_id = format!("draft-{}", chrono::Utc::now().timestamp());
-        let path = store.store_message("drafts", &draft_id, &edited)?;
-        println!("draft created: {}", path.display());
-        println!(
-            "edit the file, then send with: vivi send {}",
-            path.display()
-        );
-        Ok(())
-    }
-
     fn search(
         &self,
         query: &str,
@@ -302,80 +256,9 @@ impl Runtime {
     }
 }
 
-fn require_eml_path(path: &Path) -> Result<(), VivariumError> {
-    if path.extension().and_then(|ext| ext.to_str()) == Some("eml") {
-        Ok(())
-    } else {
-        Err(VivariumError::Message(format!(
-            "send requires an explicit .eml file: {}",
-            path.display()
-        )))
-    }
-}
-
 fn print_sync_result(account: &str, result: &vivarium::sync::SyncResult) {
     println!(
         "synced {account}: {} new messages, {} cataloged, {} extracted, {} extraction errors",
         result.new, result.cataloged, result.extracted, result.extraction_errors
     );
-}
-
-#[cfg(feature = "outbox")]
-fn reply_message(
-    original: &[u8],
-    body: Option<String>,
-    from: &str,
-) -> Result<Option<String>, VivariumError> {
-    match body {
-        Some(body) => message::build_reply(original, &body, from).map(Some),
-        None => edit_reply(original, from),
-    }
-}
-
-#[cfg(feature = "outbox")]
-fn edit_reply(original: &[u8], from: &str) -> Result<Option<String>, VivariumError> {
-    let template = message::build_reply_template(original, from)?;
-    let Some(edited) = edit_message("reply", template.as_bytes())? else {
-        println!("reply cancelled");
-        return Ok(None);
-    };
-    message::validate_message_headers(&edited)?;
-    String::from_utf8(edited)
-        .map(Some)
-        .map_err(|e| VivariumError::Message(format!("edited reply is not UTF-8: {e}")))
-}
-
-#[cfg(feature = "outbox")]
-fn edit_message(prefix: &str, initial: &[u8]) -> Result<Option<Vec<u8>>, VivariumError> {
-    let path = editor_temp_path(prefix);
-    std::fs::write(&path, initial)?;
-
-    let editor = std::env::var("VISUAL")
-        .or_else(|_| std::env::var("EDITOR"))
-        .unwrap_or_else(|_| "vi".to_string());
-    let status = process::Command::new("sh")
-        .arg("-c")
-        .arg(format!("{} \"$1\"", editor))
-        .arg("vivarium-editor")
-        .arg(&path)
-        .status()?;
-
-    if !status.success() {
-        std::fs::remove_file(&path).ok();
-        return Ok(None);
-    }
-
-    let edited = std::fs::read(&path)?;
-    std::fs::remove_file(&path).ok();
-    Ok(Some(edited))
-}
-
-#[cfg(feature = "outbox")]
-fn editor_temp_path(prefix: &str) -> PathBuf {
-    let unique = format!(
-        "vivarium-{prefix}-{}-{}.eml",
-        process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
-    std::env::temp_dir().join(Path::new(&unique))
 }

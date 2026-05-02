@@ -29,70 +29,6 @@ pub struct Cli {
     pub command: Command,
 }
 
-#[cfg(test)]
-mod tests {
-    use clap::Parser;
-
-    use super::*;
-
-    #[test]
-    fn parses_archive_dry_run_json() {
-        let cli =
-            Cli::try_parse_from(["vivi", "archive", "abc123", "--dry-run", "--json"]).unwrap();
-
-        match cli.command {
-            Command::Archive {
-                handles,
-                dry_run,
-                json,
-            } => {
-                assert_eq!(handles, vec!["abc123"]);
-                assert!(dry_run);
-                assert!(json);
-            }
-            other => panic!("unexpected command: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_delete_expunge_confirm() {
-        let cli =
-            Cli::try_parse_from(["vivi", "delete", "abc123", "--expunge", "--confirm"]).unwrap();
-
-        match cli.command {
-            Command::Delete {
-                handle,
-                expunge,
-                confirm,
-                ..
-            } => {
-                assert_eq!(handle, "abc123");
-                assert!(expunge);
-                assert!(confirm);
-            }
-            other => panic!("unexpected command: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_default_send_command() {
-        let cli = Cli::try_parse_from(["vivi", "send", "message.eml"]).unwrap();
-
-        match cli.command {
-            Command::Send { path } => assert_eq!(path, PathBuf::from("message.eml")),
-            other => panic!("unexpected command: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn rejects_multiple_flag_modes() {
-        let err =
-            Cli::try_parse_from(["vivi", "flag", "abc123", "--read", "--unread"]).unwrap_err();
-
-        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
-    }
-}
-
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Initialize vivarium config directory and files
@@ -212,27 +148,45 @@ pub enum Command {
         limit: usize,
     },
 
-    /// Reply to a message
-    #[cfg(feature = "outbox")]
+    /// Create a reply draft for a message
     Reply {
-        /// Message identifier to reply to
-        message_id: String,
+        /// Message handle or local message identifier to reply to
+        handle: String,
 
         /// Reply body text
         #[arg(long)]
         body: Option<String>,
+
+        /// Append the created draft to the remote Drafts folder
+        #[arg(long)]
+        append_remote: bool,
     },
 
-    /// Compose a new message
-    #[cfg(feature = "outbox")]
+    /// Compose a new local draft
     Compose {
         /// Recipient address
         #[arg(long)]
-        to: String,
+        to: Vec<String>,
+
+        /// Cc recipient address
+        #[arg(long)]
+        cc: Vec<String>,
+
+        /// Bcc recipient address
+        #[arg(long)]
+        bcc: Vec<String>,
 
         /// Subject line
         #[arg(long)]
         subject: String,
+
+        /// Plain-text body
+        #[arg(long)]
+        body: Option<String>,
+
+        /// Append the created draft to the remote Drafts folder
+        #[arg(long)]
+        append_remote: bool,
     },
 
     /// Archive one or more messages remotely, then update the local mirror

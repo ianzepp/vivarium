@@ -6,6 +6,12 @@ use chrono::{DateTime, Utc};
 use crate::error::VivariumError;
 use crate::store::message_id_from_path;
 
+mod compose;
+pub use compose::{
+    ComposeDraft, ReplyDraft, build_compose_draft, build_reply, build_reply_template,
+    validate_message_headers,
+};
+
 #[derive(Debug)]
 pub struct MessageEntry {
     pub message_id: String,
@@ -78,74 +84,6 @@ pub fn normalize_message_id(message_id: &str) -> Option<String> {
     } else {
         Some(trimmed.to_ascii_lowercase())
     }
-}
-
-/// Build a reply .eml from an original message.
-#[cfg(feature = "outbox")]
-pub fn build_reply(original: &[u8], body: &str, from: &str) -> Result<String, VivariumError> {
-    let parsed = mail_parser::MessageParser::default()
-        .parse(original)
-        .ok_or_else(|| VivariumError::Parse("failed to parse original message".into()))?;
-
-    let reply_to = parsed
-        .from()
-        .and_then(|a| a.first())
-        .and_then(|a| a.address())
-        .ok_or_else(|| VivariumError::Message("original has no From address".into()))?;
-
-    let subject = parsed.subject().unwrap_or("(no subject)");
-    let reply_subject = if subject.starts_with("Re:") {
-        subject.to_string()
-    } else {
-        format!("Re: {subject}")
-    };
-
-    let message_id = parsed
-        .message_id()
-        .map(|id| format!("<{id}>"))
-        .unwrap_or_default();
-
-    let quoted = parsed
-        .body_text(0)
-        .map(|t| {
-            t.lines()
-                .map(|line| format!("> {line}"))
-                .collect::<Vec<_>>()
-                .join("\r\n")
-        })
-        .unwrap_or_default();
-
-    let date = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S %z");
-
-    let mut eml =
-        format!("From: {from}\r\nTo: {reply_to}\r\nSubject: {reply_subject}\r\nDate: {date}\r\n");
-    if !message_id.is_empty() {
-        eml.push_str(&format!(
-            "In-Reply-To: {message_id}\r\nReferences: {message_id}\r\n"
-        ));
-    }
-    eml.push_str(&format!("\r\n{body}\r\n\r\n{quoted}\r\n"));
-
-    Ok(eml)
-}
-
-#[cfg(feature = "outbox")]
-pub fn build_reply_template(original: &[u8], from: &str) -> Result<String, VivariumError> {
-    build_reply(original, "", from)
-}
-
-#[cfg(feature = "outbox")]
-pub fn validate_message_headers(data: &[u8]) -> Result<(), VivariumError> {
-    let parsed = mail_parser::MessageParser::default()
-        .parse(data)
-        .ok_or_else(|| VivariumError::Parse("failed to parse edited message".into()))?;
-    if parsed.from().and_then(|a| a.first()).is_none() {
-        return Err(VivariumError::Message("message has no From header".into()));
-    }
-    if parsed.to().and_then(|a| a.first()).is_none() {
-        return Err(VivariumError::Message("message has no To header".into()));
-    }
-    Ok(())
 }
 
 /// Render a raw .eml as readable terminal output.

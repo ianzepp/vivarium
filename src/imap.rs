@@ -1,3 +1,4 @@
+mod append;
 mod folders;
 mod identity;
 mod idle;
@@ -6,6 +7,7 @@ mod query;
 mod sync;
 mod transport;
 
+pub use append::*;
 pub use folders::*;
 pub use idle::*;
 pub use mutate::*;

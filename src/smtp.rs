@@ -90,7 +90,7 @@ fn envelope_from_raw(data: &[u8]) -> Result<Envelope, VivariumError> {
     collect_addresses("Bcc", parsed.bcc(), &mut to_addrs)?;
 
     if to_addrs.is_empty() {
-        return Err(VivariumError::Smtp("message has no To addresses".into()));
+        return Err(VivariumError::Smtp("message has no recipients".into()));
     }
 
     Envelope::new(Some(from), to_addrs)
@@ -142,6 +142,6 @@ mod tests {
 
         let err = envelope_from_raw(data).unwrap_err();
 
-        assert!(err.to_string().contains("no To addresses"));
+        assert!(err.to_string().contains("no recipients"));
     }
 }

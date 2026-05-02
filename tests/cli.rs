@@ -1,0 +1,123 @@
+use std::path::PathBuf;
+
+use clap::Parser;
+use vivarium::cli::{Cli, Command};
+
+#[test]
+fn parses_archive_dry_run_json() {
+    let cli = Cli::try_parse_from(["vivi", "archive", "abc123", "--dry-run", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Archive {
+            handles,
+            dry_run,
+            json,
+        } => {
+            assert_eq!(handles, vec!["abc123"]);
+            assert!(dry_run);
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_delete_expunge_confirm() {
+    let cli = Cli::try_parse_from(["vivi", "delete", "abc123", "--expunge", "--confirm"]).unwrap();
+
+    match cli.command {
+        Command::Delete {
+            handle,
+            expunge,
+            confirm,
+            ..
+        } => {
+            assert_eq!(handle, "abc123");
+            assert!(expunge);
+            assert!(confirm);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_default_send_command() {
+    let cli = Cli::try_parse_from(["vivi", "send", "message.eml"]).unwrap();
+
+    match cli.command {
+        Command::Send { path } => assert_eq!(path, PathBuf::from("message.eml")),
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_default_compose_command() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "compose",
+        "--to",
+        "a@example.com",
+        "--cc",
+        "b@example.com",
+        "--bcc",
+        "c@example.com",
+        "--subject",
+        "hello",
+        "--body",
+        "body",
+        "--append-remote",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Compose {
+            to,
+            cc,
+            bcc,
+            subject,
+            body,
+            append_remote,
+        } => {
+            assert_eq!(to, vec!["a@example.com"]);
+            assert_eq!(cc, vec!["b@example.com"]);
+            assert_eq!(bcc, vec!["c@example.com"]);
+            assert_eq!(subject, "hello");
+            assert_eq!(body.as_deref(), Some("body"));
+            assert!(append_remote);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_default_reply_command() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "reply",
+        "handle-1",
+        "--body",
+        "thanks",
+        "--append-remote",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Reply {
+            handle,
+            body,
+            append_remote,
+        } => {
+            assert_eq!(handle, "handle-1");
+            assert_eq!(body.as_deref(), Some("thanks"));
+            assert!(append_remote);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_multiple_flag_modes() {
+    let err = Cli::try_parse_from(["vivi", "flag", "abc123", "--read", "--unread"]).unwrap_err();
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+}
