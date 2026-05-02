@@ -1,5 +1,5 @@
-use std::path::Path;
 use std::fs;
+use std::path::Path;
 
 use mail_parser::MessageParser;
 
@@ -31,9 +31,9 @@ pub enum ExtractionQuality {
 
 /// Extract text from raw .eml bytes.
 pub fn extract_text(data: &[u8]) -> Result<ExtractedText, VivariumError> {
-    let parsed = MessageParser::default().parse(data).ok_or_else(|| {
-        VivariumError::Parse("failed to parse email for extraction".into())
-    })?;
+    let parsed = MessageParser::default()
+        .parse(data)
+        .ok_or_else(|| VivariumError::Parse("failed to parse email for extraction".into()))?;
 
     // Try plain text body first
     if let Some(body) = parsed.body_text(0) {
@@ -119,16 +119,18 @@ pub struct AttachmentInfo {
 
 /// Extract attachment inventory from raw .eml bytes.
 pub fn extract_attachments(data: &[u8]) -> Result<Vec<AttachmentInfo>, VivariumError> {
-    let _parsed = MessageParser::default().parse(data).ok_or_else(|| {
-        VivariumError::Parse("failed to parse email for attachment scan".into())
-    })?;
+    let _parsed = MessageParser::default()
+        .parse(data)
+        .ok_or_else(|| VivariumError::Parse("failed to parse email for attachment scan".into()))?;
     // mail_parser v0.9 does not expose parts() directly.
     // Return empty list; attachments can be found by scanning raw MIME parts.
     Ok(Vec::new())
 }
 
 /// Extract text and attachments from a raw .eml file.
-pub fn extract_from_file(path: &Path) -> Result<(ExtractedText, Vec<AttachmentInfo>), VivariumError> {
+pub fn extract_from_file(
+    path: &Path,
+) -> Result<(ExtractedText, Vec<AttachmentInfo>), VivariumError> {
     let data = fs::read(path)?;
     let text = extract_text(&data)?;
     let attachments = extract_attachments(&data)?;
@@ -161,7 +163,10 @@ pub fn rebuild_extractions(
                         continue;
                     }
                     let path_val = path.unwrap();
-                    let stem = path_val.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+                    let stem = path_val
+                        .file_stem()
+                        .map(|s| s.to_string_lossy())
+                        .unwrap_or_default();
                     if !stem.ends_with(".eml") {
                         continue;
                     }
@@ -205,7 +210,8 @@ mod tests {
     #[test]
     fn strips_html_to_text() {
         // Use plain text with html-like markers to test the text path
-        let eml = b"From: a@b\r\nTo: c@d\r\nSubject: test\r\nContent-Type: text/plain\r\n\r\nHello world";
+        let eml =
+            b"From: a@b\r\nTo: c@d\r\nSubject: test\r\nContent-Type: text/plain\r\n\r\nHello world";
         let result = extract_text(eml).unwrap();
         assert_eq!(result.body_text, "Hello world");
         assert_eq!(result.format, ExtractionFormat::Plain);
@@ -225,6 +231,11 @@ mod tests {
         // Note: mail_parser may or may not parse this depending on format
         let eml = b"From: a@b\r\nTo: c@d\r\nSubject: test\r\n\r\nno attachment here";
         let attachments = extract_attachments(eml).unwrap();
-        assert!(attachments.is_empty() || attachments.iter().all(|a| a.size > 0 || !a.filename.is_empty()));
+        assert!(
+            attachments.is_empty()
+                || attachments
+                    .iter()
+                    .all(|a| a.size > 0 || !a.filename.is_empty())
+        );
     }
 }

@@ -1,17 +1,21 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fs;
-use std::fs::OpenOptions;
 use std::io::Write;
-#[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::error::VivariumError;
 use crate::message::{MessageEntry, message_id_from_bytes};
 
+mod path;
+mod secure;
 #[cfg(test)]
 mod tests;
+
+pub use path::message_id_from_path;
+use path::{canonical_folder, display_message_id, is_message_file, maildir_filename, stable_hash};
+pub(crate) use secure::{secure_create_dir_all, secure_write};
+use secure::{secure_create_file, secure_file};
 
 /// Local Maildir folders.
 const FOLDERS: &[&str] = &["INBOX", "Archive", "Sent", "Drafts", "outbox"];
@@ -346,99 +350,4 @@ impl MailStore {
             .join(canonical_folder(folder))
             .join(format!("{:016x}", stable_hash(rfc_message_id)))
     }
-}
-
-pub fn message_id_from_path(path: &Path) -> Option<String> {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .map(display_message_id)
-}
-
-fn canonical_folder(folder: &str) -> &'static str {
-    match folder.to_ascii_lowercase().as_str() {
-        "inbox" | "new" => "INBOX",
-        "archive" | "archives" | "all" => "Archive",
-        "sent" => "Sent",
-        "draft" | "drafts" => "Drafts",
-        "outbox" => "outbox",
-        _ => "INBOX",
-    }
-}
-
-fn is_message_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .map(|name| {
-            name.split_once(":2,")
-                .map_or(name, |(id, _)| id)
-                .ends_with(".eml")
-        })
-        .unwrap_or(false)
-}
-
-fn maildir_filename(message_id: &str, subdir: &str) -> String {
-    let base = storage_message_id(message_id);
-    if subdir == "cur" {
-        format!("{base}:2,S")
-    } else {
-        base
-    }
-}
-
-fn storage_message_id(message_id: &str) -> String {
-    let display = display_message_id(message_id);
-    format!("{display}.eml")
-}
-
-fn display_message_id(message_id: &str) -> String {
-    let before_flags = message_id
-        .split_once(":2,")
-        .map_or(message_id, |(id, _)| id);
-    before_flags
-        .strip_suffix(".eml")
-        .unwrap_or(before_flags)
-        .to_string()
-}
-
-fn stable_hash(value: &str) -> u64 {
-    value.bytes().fold(0xcbf29ce484222325, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-    })
-}
-
-pub(crate) fn secure_create_dir_all(path: &Path) -> Result<(), VivariumError> {
-    fs::create_dir_all(path)?;
-    secure_dir(path)
-}
-
-pub(crate) fn secure_write(path: &Path, data: &[u8]) -> Result<(), VivariumError> {
-    if let Some(parent) = path.parent() {
-        secure_create_dir_all(parent)?;
-    }
-    let mut file = secure_create_file(path)?;
-    file.write_all(data)?;
-    file.sync_all()?;
-    Ok(())
-}
-
-fn secure_create_file(path: &Path) -> Result<fs::File, VivariumError> {
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let file = options.open(path)?;
-    secure_file(path)?;
-    Ok(file)
-}
-
-fn secure_dir(path: &Path) -> Result<(), VivariumError> {
-    #[cfg(unix)]
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    Ok(())
-}
-
-fn secure_file(path: &Path) -> Result<(), VivariumError> {
-    #[cfg(unix)]
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    Ok(())
 }

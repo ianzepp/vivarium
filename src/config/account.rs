@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use super::types::{Account, Auth, Config, Provider, ProviderOAuthConfig, Security};
 use super::expand_tilde;
+use super::types::{Account, Auth, Config, Provider, ProviderOAuthConfig, Security};
 use crate::error::VivariumError;
 
 impl Account {
@@ -68,11 +68,9 @@ impl Account {
 
     pub fn reject_invalid_certs(&self, config: &Config) -> bool {
         self.reject_invalid_certs
-            .unwrap_or_else(|| {
-                match self.provider {
-                    Provider::Protonmail => true,
-                    _ => config.defaults.reject_invalid_certs,
-                }
+            .unwrap_or_else(|| match self.provider {
+                Provider::Protonmail => true,
+                _ => config.defaults.reject_invalid_certs,
             })
     }
 

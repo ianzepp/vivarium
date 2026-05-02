@@ -10,6 +10,9 @@ use crate::error::VivariumError;
 use crate::message::MessageEntry;
 use crate::store::{secure_create_dir_all, secure_write};
 
+#[cfg(test)]
+mod tests;
+
 /// Catalog directory inside the mail root.
 const CATALOG_DIR: &str = ".vivarium";
 
@@ -48,9 +51,8 @@ impl Catalog {
     /// Open or create the catalog at the given mail root.
     pub fn open(mail_root: &Path) -> Result<Self, VivariumError> {
         let catalog_dir = mail_root.join(CATALOG_DIR);
-        secure_create_dir_all(&catalog_dir).map_err(|e| {
-            VivariumError::Other(format!("failed to create catalog dir: {e}"))
-        })?;
+        secure_create_dir_all(&catalog_dir)
+            .map_err(|e| VivariumError::Other(format!("failed to create catalog dir: {e}")))?;
         let catalog_path = catalog_dir.join(CATALOG_FILENAME);
 
         let mut entries = HashMap::new();
@@ -77,9 +79,8 @@ impl Catalog {
     fn flush(&self) -> Result<(), VivariumError> {
         let catalog_path = format!("{}/{}/{}", self.root, CATALOG_DIR, CATALOG_FILENAME);
         let entries: Vec<CatalogEntry> = self.entries.values().cloned().collect();
-        let json = serde_json::to_string_pretty(&entries).map_err(|e| {
-            VivariumError::Other(format!("catalog serialization failed: {e}"))
-        })?;
+        let json = serde_json::to_string_pretty(&entries)
+            .map_err(|e| VivariumError::Other(format!("catalog serialization failed: {e}")))?;
         secure_write(Path::new(&catalog_path), json.as_bytes())?;
         Ok(())
     }
@@ -93,7 +94,9 @@ impl Catalog {
 
     /// List all catalog entries for an account.
     pub fn list_messages(&self, account: &str) -> Result<Vec<CatalogEntry>, VivariumError> {
-        let mut entries: Vec<CatalogEntry> = self.entries.values()
+        let mut entries: Vec<CatalogEntry> = self
+            .entries
+            .values()
             .filter(|e| e.account == account)
             .cloned()
             .collect();
@@ -116,7 +119,11 @@ impl Catalog {
 
     /// Count entries for an account.
     pub fn count_messages(&self, account: &str) -> Result<usize, VivariumError> {
-        Ok(self.entries.values().filter(|e| e.account == account).count())
+        Ok(self
+            .entries
+            .values()
+            .filter(|e| e.account == account)
+            .count())
     }
 }
 
@@ -143,8 +150,11 @@ pub fn scan_maildir(
     let mut all_entries = Vec::new();
 
     // Load existing catalog entries for dedup
-    let existing: HashMap<String, CatalogEntry> = catalog.list_messages(account)?
-        .into_iter().map(|e| (e.handle.clone(), e)).collect();
+    let existing: HashMap<String, CatalogEntry> = catalog
+        .list_messages(account)?
+        .into_iter()
+        .map(|e| (e.handle.clone(), e))
+        .collect();
 
     for folder in folders {
         let entries_for_folder = scan_folder_with(existing.clone(), folder, account, store)?;
@@ -191,18 +201,23 @@ fn scan_subdir(
         for entry_result in read_dir {
             let entry = entry_result.ok();
             let path = entry.as_ref().map(|e| e.path());
-            let is_file = entry.as_ref().map(|e| {
-                e.file_type().ok().map(|ft| ft.is_file()).unwrap_or(false)
-            }).unwrap_or(false);
+            let is_file = entry
+                .as_ref()
+                .map(|e| e.file_type().ok().map(|ft| ft.is_file()).unwrap_or(false))
+                .unwrap_or(false);
             if !is_file || path.is_none() {
                 continue;
             }
             let path_val = path.unwrap();
-            let stem = path_val.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+            let stem = path_val
+                .file_stem()
+                .map(|s| s.to_string_lossy())
+                .unwrap_or_default();
             if !stem.ends_with(".eml") {
                 continue;
             }
-            let entry = catalog_entry_for_file(&path_val, account, folder, subdir, existing.clone());
+            let entry =
+                catalog_entry_for_file(&path_val, account, folder, subdir, existing.clone());
             entries.push(entry);
         }
     }
@@ -223,9 +238,18 @@ fn catalog_entry_for_file(
     let is_dup = existing.contains_key(&handle);
 
     let msg_entry = MessageEntry::from_path(path_val).ok();
-    let date = msg_entry.as_ref().map(|m| m.date.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default();
-    let from = msg_entry.as_ref().map(|m| m.from.clone()).unwrap_or_default();
-    let subject = msg_entry.as_ref().map(|m| m.subject.clone()).unwrap_or_default();
+    let date = msg_entry
+        .as_ref()
+        .map(|m| m.date.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_default();
+    let from = msg_entry
+        .as_ref()
+        .map(|m| m.from.clone())
+        .unwrap_or_default();
+    let subject = msg_entry
+        .as_ref()
+        .map(|m| m.subject.clone())
+        .unwrap_or_default();
 
     CatalogEntry {
         handle,
@@ -253,177 +277,5 @@ fn canonical_folder(folder: &str) -> &'static str {
         "draft" | "drafts" => "Drafts",
         "outbox" => "outbox",
         _ => "INBOX",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
-
-    #[test]
-    fn handle_is_stable_for_same_content() {
-        let data = b"Subject: test\r\nFrom: a@b\r\nTo: c@d\r\n\r\nhello";
-        let h1 = handle_from_bytes(data);
-        let h2 = handle_from_bytes(data);
-        assert_eq!(h1, h2);
-    }
-
-    #[test]
-    fn handle_differs_for_different_content() {
-        let data1 = b"Subject: test1\r\n\r\na";
-        let data2 = b"Subject: test2\r\n\r\na";
-        assert_ne!(handle_from_bytes(data1), handle_from_bytes(data2));
-    }
-
-    #[test]
-    fn catalog_opens_and_closes() {
-        let tmp = tempfile::tempdir().unwrap();
-        let store = crate::store::MailStore::new(tmp.path());
-        let catalog = Catalog::open(store.root()).unwrap();
-        assert_eq!(catalog.count_messages("test").unwrap(), 0);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn catalog_uses_private_permissions() {
-        let tmp = tempfile::tempdir().unwrap();
-        let store = crate::store::MailStore::new(tmp.path());
-        let mut catalog = Catalog::open(store.root()).unwrap();
-        let entry = CatalogEntry {
-            handle: "abc123".into(),
-            raw_path: "/test.msg".into(),
-            fingerprint: "f1".into(),
-            account: "acct".into(),
-            folder: "INBOX".into(),
-            maildir_subdir: "new".into(),
-            date: "2025-01-01 00:00".into(),
-            from: "a@b".into(),
-            to: "c@d".into(),
-            cc: String::new(),
-            bcc: String::new(),
-            subject: "hi".into(),
-            rfc_message_id: String::new(),
-            is_duplicate: false,
-        };
-
-        catalog.upsert(&entry).unwrap();
-
-        assert_eq!(mode(&store.root().join(".vivarium")), 0o700);
-        assert_eq!(mode(&store.root().join(".vivarium/catalog.json")), 0o600);
-    }
-
-    #[test]
-    fn catalog_upsert_and_list() {
-        let tmp = tempfile::tempdir().unwrap();
-        let store = crate::store::MailStore::new(tmp.path());
-        let mut catalog = Catalog::open(store.root()).unwrap();
-
-        let entry = CatalogEntry {
-            handle: "abc123".into(),
-            raw_path: "/test.msg".into(),
-            fingerprint: "f1".into(),
-            account: "acct".into(),
-            folder: "INBOX".into(),
-            maildir_subdir: "new".into(),
-            date: "2025-01-01 00:00".into(),
-            from: "a@b".into(),
-            to: "c@d".into(),
-            cc: String::new(),
-            bcc: String::new(),
-            subject: "hi".into(),
-            rfc_message_id: String::new(),
-            is_duplicate: false,
-        };
-
-        catalog.upsert(&entry).unwrap();
-        assert_eq!(catalog.count_messages("acct").unwrap(), 1);
-
-        let entries = catalog.list_messages("acct").unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].handle, "abc123");
-        assert!(!entries[0].is_duplicate);
-    }
-
-    #[test]
-    fn catalog_rebuild_stable_handles() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mail_root = tmp.path().join("mail");
-        fs::create_dir_all(&mail_root).unwrap();
-
-        // Create a test .eml file
-        let msg_data = b"Subject: stable\r\nFrom: a@b\r\nTo: c@d\r\nMessage-ID: <test@example.com>\r\n\r\nbody";
-        fs::write(&mail_root.join("inbox-1.eml"), msg_data).unwrap();
-
-        // Handle from first call
-        let handle1 = handle_from_bytes(msg_data);
-        let fp1 = fingerprint(msg_data);
-
-        // Write to catalog
-        let catalog = Catalog::open(&mail_root).unwrap();
-        let entry = CatalogEntry {
-            handle: handle1.clone(),
-            raw_path: "inbox-1.eml".into(),
-            fingerprint: fp1.clone(),
-            account: "test".into(), folder: "INBOX".into(), maildir_subdir: "new".into(),
-            date: "2025".into(), from: "a@b".into(), to: "c@d".into(),
-            cc: String::new(), bcc: String::new(), subject: "stable".into(),
-            rfc_message_id: "test@example.com".into(), is_duplicate: false,
-        };
-        let mut catalog = Catalog::open(&mail_root).unwrap();
-        catalog.upsert(&entry).unwrap();
-
-        // Re-open and verify handle stability
-        let catalog2 = Catalog::open(&mail_root).unwrap();
-        let handles = catalog2.list_messages("test").unwrap();
-        assert_eq!(handles.len(), 1);
-        assert_eq!(handles[0].handle, handle1);
-        assert_eq!(handles[0].fingerprint, fp1);
-    }
-
-    #[test]
-    fn catalog_duplicate_same_handle_replaces() {
-        let tmp = tempfile::tempdir().unwrap();
-        let mail_root = tmp.path().join("mail");
-        fs::create_dir_all(&mail_root).unwrap();
-
-        let msg_data = b"Subject: dup\r\nFrom: a@b\r\nTo: c@d\r\n\r\ndup content";
-        let handle = handle_from_bytes(msg_data);
-
-        // Upsert entry to catalog
-        let entry = CatalogEntry {
-            handle: handle.clone(), raw_path: "INBOX/inbox.eml".into(),
-            fingerprint: fingerprint(msg_data),
-            account: "test".into(), folder: "INBOX".into(), maildir_subdir: "new".into(),
-            date: "2025".into(), from: "a@b".into(), to: "c@d".into(),
-            cc: String::new(), bcc: String::new(), subject: "dup".into(),
-            rfc_message_id: String::new(), is_duplicate: false,
-        };
-        let mut catalog = Catalog::open(&mail_root).unwrap();
-        catalog.upsert(&entry).unwrap();
-
-        // Second entry with same handle replaces the first
-        let dup_entry = CatalogEntry {
-            handle: handle.clone(), raw_path: "Archive/cur/dup.eml".into(),
-            fingerprint: fingerprint(msg_data),
-            account: "test".into(), folder: "Archive".into(), maildir_subdir: "cur".into(),
-            date: "2025".into(), from: "a@b".into(), to: "c@d".into(),
-            cc: String::new(), bcc: String::new(), subject: "dup".into(),
-            rfc_message_id: String::new(), is_duplicate: false,
-        };
-        catalog.upsert(&dup_entry).unwrap();
-
-        // Same handle means same message: only one entry in catalog
-        let entries = catalog.list_messages("test").unwrap();
-        assert_eq!(entries.len(), 1);
-        // The raw_path should be updated to the last upsert
-        assert_eq!(entries[0].raw_path, "Archive/cur/dup.eml");
-    }
-
-    #[cfg(unix)]
-    fn mode(path: &std::path::Path) -> u32 {
-        fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 }

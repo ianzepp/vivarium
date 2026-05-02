@@ -1,10 +1,8 @@
 use std::cmp::min;
 use std::path::Path;
-use std::collections::HashMap;
 
-use crate::catalog::{Catalog, CatalogEntry, handle_from_bytes};
+use crate::catalog::{Catalog, handle_from_bytes};
 use crate::error::VivariumError;
-use crate::extract::extract_text;
 use crate::store::MailStore;
 
 /// A search result with handle and citation metadata.
@@ -29,12 +27,11 @@ pub fn keyword_search(
     offset: usize,
 ) -> Result<(Vec<SearchResult>, usize), VivariumError> {
     let query_lower = query.to_ascii_lowercase();
-    let catalog = Catalog::open(mail_root)?;
+    let _catalog = Catalog::open(mail_root)?;
     let store = MailStore::new(mail_root);
 
     // Get all catalog entries for a reasonable scope
     let mut all_results: Vec<SearchResult> = Vec::new();
-    let folder_map: HashMap<String, String> = HashMap::new();
 
     for folder in &["INBOX", "Archive", "Sent", "Drafts"] {
         let canonical = canonical_folder(folder);
@@ -49,7 +46,11 @@ pub fn keyword_search(
     }
 
     // Sort by score descending
-    all_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    all_results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Apply pagination
     let total = all_results.len();
@@ -123,10 +124,7 @@ pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
     })
 }
 
-fn search_folder(
-    dir: &std::path::Path,
-    query: &str,
-) -> Result<Vec<SearchResult>, VivariumError> {
+fn search_folder(dir: &std::path::Path, query: &str) -> Result<Vec<SearchResult>, VivariumError> {
     let mut results = Vec::new();
 
     if let Ok(read_dir) = std::fs::read_dir(dir) {
@@ -137,7 +135,10 @@ fn search_folder(
                 continue;
             }
             let path_val = path.unwrap();
-            let stem = path_val.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+            let stem = path_val
+                .file_stem()
+                .map(|s| s.to_string_lossy())
+                .unwrap_or_default();
             if !stem.ends_with(".eml") {
                 continue;
             }
