@@ -51,6 +51,32 @@ fn parses_default_send_command() {
 }
 
 #[test]
+fn parses_sync_index_and_embed() {
+    let cli = Cli::try_parse_from(["vivi", "sync", "--index", "--embed"]).unwrap();
+
+    match cli.command {
+        Command::Sync { index, embed, .. } => {
+            assert!(index);
+            assert!(embed);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_sync_embed_without_index() {
+    let cli = Cli::try_parse_from(["vivi", "sync", "--embed"]).unwrap();
+
+    match cli.command {
+        Command::Sync { index, embed, .. } => {
+            assert!(!index);
+            assert!(embed);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_default_compose_command() {
     let cli = Cli::try_parse_from([
         "vivi",

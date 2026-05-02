@@ -82,6 +82,14 @@ pub enum Command {
         /// Delete the local account cache before syncing
         #[arg(long)]
         reset: bool,
+
+        /// Rebuild the deterministic metadata index after sync succeeds
+        #[arg(long)]
+        index: bool,
+
+        /// Build local embeddings after sync succeeds; implies --index
+        #[arg(long)]
+        embed: bool,
     },
 
     /// List remote IMAP folders and capabilities

@@ -4,7 +4,7 @@ use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
 use vivarium::VivariumError;
-use vivarium::cli::{Cli, Command, IndexCommand};
+use vivarium::cli::{Cli, Command};
 use vivarium::config::{Account, AccountsFile, Config};
 use vivarium::message;
 use vivarium::store::MailStore;
@@ -12,6 +12,7 @@ use vivarium::store::MailStore;
 mod agent_runner;
 mod draft_runner;
 mod folders_command;
+mod index_runner;
 mod label_runner;
 mod mutation_runner;
 mod sync_command;
@@ -88,13 +89,7 @@ impl Runtime {
             } => self.auth(account, client_id, client_secret).await,
             #[cfg(feature = "outbox")]
             Command::Token { account } => self.token(account).await,
-            Command::Sync {
-                account,
-                limit,
-                since,
-                before,
-                reset,
-            } => self.sync(account, limit, since, before, reset).await,
+            command @ Command::Sync { .. } => self.run_sync_command(command).await,
             Command::Folders { account, json } => self.folders(account, json).await,
             Command::List {
                 folder,
@@ -113,17 +108,7 @@ impl Runtime {
             | Command::Move { .. }
             | Command::Flag { .. } => unreachable!(),
             Command::Export { message_id, text } => self.export(&message_id, text),
-            Command::Search {
-                query,
-                limit,
-                offset,
-                json,
-                semantic,
-                hybrid,
-            } => {
-                self.search(&query, limit, offset, json, semantic, hybrid)
-                    .await
-            }
+            command @ Command::Search { .. } => self.run_search_command(command).await,
             Command::Index { command } => self.index(command).await,
             #[cfg(feature = "outbox")]
             Command::Watch { account } => self.watch(account).await,
@@ -173,6 +158,47 @@ impl Runtime {
 
     fn selected_account_name(&self, name: Option<String>) -> Option<String> {
         name.or_else(|| self.account.clone())
+    }
+
+    async fn run_sync_command(&self, command: Command) -> Result<(), VivariumError> {
+        let Command::Sync {
+            account,
+            limit,
+            since,
+            before,
+            reset,
+            index,
+            embed,
+        } = command
+        else {
+            unreachable!();
+        };
+        self.sync(sync_command::SyncOptions {
+            account,
+            limit,
+            since,
+            before,
+            reset,
+            index,
+            embed,
+        })
+        .await
+    }
+
+    async fn run_search_command(&self, command: Command) -> Result<(), VivariumError> {
+        let Command::Search {
+            query,
+            limit,
+            offset,
+            json,
+            semantic,
+            hybrid,
+        } = command
+        else {
+            unreachable!();
+        };
+        self.search(&query, limit, offset, json, semantic, hybrid)
+            .await
     }
 
     #[cfg(feature = "outbox")]
@@ -293,88 +319,6 @@ impl Runtime {
         vivarium::search::print_results(query, limit, offset, results, total, as_json);
         Ok(())
     }
-
-    async fn index(&self, command: IndexCommand) -> Result<(), VivariumError> {
-        let acct = self.resolve_account(self.account.clone())?;
-        let mail_root = acct.mail_path(&self.config);
-        match command {
-            IndexCommand::Rebuild => run_index_rebuild(&mail_root, &acct.name),
-            IndexCommand::Status => run_index_status(&mail_root, &acct.name),
-            IndexCommand::Pending => run_index_pending(&mail_root, &acct.name),
-            IndexCommand::Embeddings {
-                pending: _,
-                rebuild,
-                limit,
-                provider,
-                model,
-                endpoint,
-            } => {
-                run_index_embeddings(
-                    &mail_root,
-                    &acct.name,
-                    vivarium::embeddings::EmbeddingOptions {
-                        provider,
-                        model,
-                        endpoint,
-                        rebuild,
-                        limit,
-                    },
-                )
-                .await
-            }
-        }
-    }
-}
-
-fn run_index_rebuild(mail_root: &std::path::Path, account: &str) -> Result<(), VivariumError> {
-    let stats = vivarium::email_index::rebuild(mail_root, account)?;
-    println!(
-        "indexed {account}: scanned={} updated={} reused={} stale={} errors={}",
-        stats.scanned, stats.updated, stats.reused, stats.stale, stats.errors
-    );
-    Ok(())
-}
-
-fn index_counts(
-    mail_root: &std::path::Path,
-    account: &str,
-) -> Result<(usize, usize), VivariumError> {
-    let catalog = vivarium::catalog::Catalog::open(mail_root)?;
-    let catalog_count = catalog.count_messages(account)?;
-    let index = vivarium::email_index::EmailIndex::open(mail_root)?;
-    let indexed_count = index.count_messages(account)?;
-    Ok((catalog_count, indexed_count))
-}
-
-fn run_index_status(mail_root: &std::path::Path, account: &str) -> Result<(), VivariumError> {
-    let (catalog_count, indexed_count) = index_counts(mail_root, account)?;
-    println!(
-        "index {account}: catalog={catalog_count} indexed={indexed_count} pending={}",
-        catalog_count.saturating_sub(indexed_count)
-    );
-    Ok(())
-}
-
-fn run_index_pending(mail_root: &std::path::Path, account: &str) -> Result<(), VivariumError> {
-    let (catalog_count, indexed_count) = index_counts(mail_root, account)?;
-    println!(
-        "pending {account}: {}",
-        catalog_count.saturating_sub(indexed_count)
-    );
-    Ok(())
-}
-
-async fn run_index_embeddings(
-    mail_root: &std::path::Path,
-    account: &str,
-    options: vivarium::embeddings::EmbeddingOptions,
-) -> Result<(), VivariumError> {
-    let stats = vivarium::embeddings::index_embeddings(mail_root, account, options).await?;
-    println!(
-        "embedded {account}: scanned={} reused={} embedded={} stale={} errors={}",
-        stats.scanned, stats.reused, stats.embedded, stats.stale, stats.errors
-    );
-    Ok(())
 }
 
 fn print_sync_result(account: &str, result: &vivarium::sync::SyncResult) {
