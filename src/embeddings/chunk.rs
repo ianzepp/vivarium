@@ -9,7 +9,7 @@ pub(crate) const CHUNKER_VERSION: &str = "email-chunker-v1";
 const MESSAGE_PREFIX_CHARS: usize = 2048;
 const BODY_CHUNK_WORDS: usize = 600;
 const BODY_CHUNK_OVERLAP: usize = 75;
-pub(crate) const MAX_EMBED_INPUT_CHARS: usize = 3500;
+pub(crate) const MAX_EMBED_INPUT_CHARS: usize = 1000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EmailChunk {

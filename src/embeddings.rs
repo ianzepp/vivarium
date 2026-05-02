@@ -4,8 +4,10 @@ use std::path::Path;
 use crate::email_index::{EmailIndex, IndexedMessage};
 use crate::error::VivariumError;
 use chunk::EmailChunk;
+use progress::EmbeddingProgress;
 
 mod chunk;
+mod progress;
 mod provider;
 mod store;
 #[cfg(test)]
@@ -91,9 +93,20 @@ async fn index_embeddings_with_provider<P: provider::EmbeddingProvider + Sync>(
     let index = EmailIndex::open(mail_root)?;
     let mut store = store::EmbeddingStore::open(mail_root, provider.provider(), provider.model())?;
     let messages = index.list_messages(account)?;
+    let total_messages = options
+        .limit
+        .map(|limit| usize::min(limit, messages.len()))
+        .unwrap_or(messages.len());
     let mut stats = EmbeddingStats::default();
     let mut retained_chunks = Vec::new();
     let mut staged_embeddings = Vec::new();
+    let mut progress = EmbeddingProgress::start(
+        account,
+        provider.provider(),
+        provider.model(),
+        &options,
+        total_messages,
+    );
 
     for message in limited(messages, options.limit) {
         stats.scanned += 1;
@@ -101,8 +114,10 @@ async fn index_embeddings_with_provider<P: provider::EmbeddingProvider + Sync>(
             index_message(&mut store, provider, &message, options.rebuild, &mut stats).await?;
         retained_chunks.extend(indexed.retained);
         staged_embeddings.extend(indexed.embeddings);
+        progress.maybe_log(&stats, staged_embeddings.len());
     }
     if options.rebuild && options.limit.is_none() && stats.errors == 0 && stats.stale == 0 {
+        progress.log_replacing(retained_chunks.len(), staged_embeddings.len());
         store.replace_account_embeddings(
             account,
             &retained_chunks,
@@ -111,8 +126,10 @@ async fn index_embeddings_with_provider<P: provider::EmbeddingProvider + Sync>(
             provider.model(),
         )?;
     } else if options.rebuild && !staged_embeddings.is_empty() {
+        progress.log_partial_store(staged_embeddings.len());
         store.store_embedding_batch(&staged_embeddings, provider.provider(), provider.model())?;
     }
+    progress.finish(&stats);
     Ok(stats)
 }
 
