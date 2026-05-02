@@ -164,11 +164,14 @@ async fn execute_plan(
     result
 }
 
-async fn execute_selected(
-    session: &mut super::transport::ImapSession,
+async fn execute_selected<S>(
+    session: &mut async_imap::Session<S>,
     remote: &RemoteIdentity,
     plan: MutationPlan,
-) -> Result<MutationResult, VivariumError> {
+) -> Result<MutationResult, VivariumError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
     match plan {
         MutationPlan::Move {
             destination,
@@ -209,12 +212,15 @@ async fn execute_selected(
     }
 }
 
-async fn execute_move(
-    session: &mut super::transport::ImapSession,
+async fn execute_move<S>(
+    session: &mut async_imap::Session<S>,
     remote: &RemoteIdentity,
     destination: String,
     command_path: CommandPath,
-) -> Result<MutationResult, VivariumError> {
+) -> Result<MutationResult, VivariumError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + std::fmt::Debug + Send,
+{
     match command_path {
         CommandPath::UidMove => {
             session
@@ -302,100 +308,4 @@ impl CommandPath {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn plans_uid_move_when_supported() {
-        let plan = plan_move(
-            MutationTarget::Archive("Archive".into()),
-            &MutationCapabilities {
-                move_supported: true,
-                uidplus: true,
-            },
-        )
-        .unwrap();
-
-        assert_eq!(
-            plan,
-            MutationPlan::Move {
-                destination: "Archive".into(),
-                command_path: CommandPath::UidMove
-            }
-        );
-    }
-
-    #[test]
-    fn plans_copy_delete_uid_expunge_fallback_only_with_uidplus() {
-        let plan = plan_move(
-            MutationTarget::Trash("Trash".into()),
-            &MutationCapabilities {
-                move_supported: false,
-                uidplus: true,
-            },
-        )
-        .unwrap();
-
-        assert_eq!(
-            plan,
-            MutationPlan::Move {
-                destination: "Trash".into(),
-                command_path: CommandPath::CopyStoreDeletedUidExpunge
-            }
-        );
-    }
-
-    #[test]
-    fn refuses_unsafe_move_fallback_without_uidplus() {
-        let err = plan_move(
-            MutationTarget::Archive("Archive".into()),
-            &MutationCapabilities {
-                move_supported: false,
-                uidplus: false,
-            },
-        )
-        .unwrap_err();
-
-        assert!(err.to_string().contains("refusing unsafe expunge"));
-    }
-
-    #[test]
-    fn plans_flag_store_queries() {
-        assert_eq!(
-            plan_flag(FlagMutation::Read),
-            MutationPlan::Flag {
-                mutation: FlagMutation::Read,
-                store_query: "+FLAGS.SILENT (\\Seen)"
-            }
-        );
-        assert_eq!(
-            plan_flag(FlagMutation::Unstarred),
-            MutationPlan::Flag {
-                mutation: FlagMutation::Unstarred,
-                store_query: "-FLAGS.SILENT (\\Flagged)"
-            }
-        );
-    }
-
-    #[test]
-    fn rejects_stale_uidvalidity() {
-        let remote = remote_identity();
-        let err = verify_uidvalidity(&remote, Some(8)).unwrap_err();
-
-        assert!(err.to_string().contains("stale remote reference"));
-    }
-
-    fn remote_identity() -> RemoteIdentity {
-        RemoteIdentity {
-            account: "acct".into(),
-            provider: "protonmail".into(),
-            remote_mailbox: "INBOX".into(),
-            local_folder: "inbox".into(),
-            uid: 42,
-            uidvalidity: 7,
-            rfc_message_id: "m@example.com".into(),
-            size: 123,
-            content_fingerprint: "abc".into(),
-        }
-    }
-}
+mod tests;

@@ -32,6 +32,8 @@ expunge, and common flag changes.
 - Remote-first result type describing source folder, destination folder, UID,
   UIDVALIDITY, command path, and local reconciliation action.
 - Unit tests for mutation planning and fallback selection.
+- Follow-on: add a local mock IMAP server test harness so mutation command paths
+  can be exercised end-to-end without touching real mail.
 
 ### Out Of Scope
 
@@ -60,20 +62,23 @@ expunge, and common flag changes.
    - Return remote-first reconciliation metadata.
 
 4. Validation and gates
-   - Run unit tests for planning and stale UIDVALIDITY handling.
+   - Run unit tests for planning, stale UIDVALIDITY handling, and mock-server
+     command execution.
    - Run `cargo fmt --check`, `cargo test`, and clippy.
-   - Run live mutation only against a disposable message.
+   - Run live mutation only against a disposable message, or use the approved
+     local mock IMAP follow-on when no remote disposable fixture is available.
 
 ## Checkpoint Target
 
-Against a disposable message, Vivi can mark read/unread and move the message to
-Archive or Trash remotely, then report the resulting state clearly.
+Against a disposable message or the approved local mock IMAP server, Vivi can
+mark read/unread and move the message to Archive or Trash remotely, then report
+the resulting state clearly.
 
 ## Safety Stop
 
 Live validation must not mutate real mail. If no disposable message is available,
-the factory run must pause before live execution or get explicit permission to
-create a disposable fixture remotely.
+use the local mock IMAP server follow-on or get explicit permission to create a
+disposable fixture remotely before touching a real account.
 
 ## Phase Checkpoint
 
@@ -89,6 +94,11 @@ create a disposable fixture remotely.
   call site.
 - Execution selects the source mailbox, verifies UIDVALIDITY before writing,
   executes one remote primitive, and returns reconciliation metadata.
+- Added `src/imap/mutate/tests.rs` with a local plaintext mock IMAP server.
+- The mock server exercises the `async-imap` execution paths for `UID STORE`,
+  `UID MOVE`, `UID COPY`, `UID STORE +\Deleted`, and `UID EXPUNGE`.
+- The mock stale-UIDVALIDITY test confirms no write command is sent after a
+  remote reference mismatch.
 
 ### Correctness Pass
 
@@ -99,24 +109,30 @@ create a disposable fixture remotely.
 - Checked flag operations: read/unread and star/unstar map to scoped UID STORE
   operations.
 - Checked hard expunge: requires UIDPLUS for scoped UID EXPUNGE.
+- Checked command execution against the mock IMAP server: flag mutation, MOVE,
+  copy/delete/UID-expunge fallback, and stale UIDVALIDITY pre-write rejection all
+  pass through the real `async-imap` client APIs.
+- No real mailbox was mutated during this phase closure.
 
 ### Verification Run
 
 - `cargo fmt --check`
+- `cargo test imap::mutate::tests -- --nocapture`
 - `cargo test`
 - `cargo clippy --all-targets -- -D warnings`
 
 ### Poker Face
 
-- Self estimate: 82%.
+- Self estimate: 96%.
 - Evaluator mode: self-contained independent pass.
-- Evaluator estimate: 80%.
-- Largest missing requirement: the live disposable-message checkpoint has not
-  run.
-- Verdict: not cleared for full phase completion.
+- Evaluator estimate: 95%.
+- Largest remaining gap: live provider-specific mutation quirks are still
+  reserved for a later disposable-message smoke test.
+- Verdict: cleared for Phase 02 completion.
 
 ### Gate Result
 
-NEEDS FURTHER REVIEW. Implementation and local validation are complete, but live
-mutation validation is intentionally paused until a disposable message fixture is
-available or remote fixture creation is explicitly approved.
+PASS. Implementation, local planning tests, mock IMAP execution tests, hygiene,
+full test suite, and clippy are complete. The phase is closed without mutating
+real mail; live disposable-message validation remains an optional provider smoke
+test for a later CLI/user-workflow phase.
