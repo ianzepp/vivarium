@@ -11,6 +11,7 @@ use vivarium::config::{Account, AccountsFile, Config};
 use vivarium::message;
 use vivarium::store::MailStore;
 
+mod folders_command;
 mod sync_command;
 
 #[tokio::main]
@@ -84,6 +85,7 @@ impl Runtime {
                 before,
                 reset,
             } => self.sync(account, limit, since, before, reset).await,
+            Command::Folders { account, json } => self.folders(account, json).await,
             Command::List {
                 folder,
                 limit,

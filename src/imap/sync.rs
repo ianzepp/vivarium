@@ -20,9 +20,8 @@ struct WorkerContext {
     reject_invalid_certs: bool,
 }
 
-#[derive(Clone, Copy)]
-struct FolderPlan<'a> {
-    remote_folder: &'a str,
+struct FolderPlan {
+    remote_folder: String,
     local_folder: &'static str,
     dedupe_scope: DedupeScope,
 }
@@ -30,7 +29,7 @@ struct FolderPlan<'a> {
 struct SyncFolderRequest<'a> {
     account: &'a Account,
     store: &'a MailStore,
-    plan: FolderPlan<'a>,
+    plan: FolderPlan,
     reject_invalid_certs: bool,
     limit: Option<usize>,
     window: SyncWindow,
@@ -76,10 +75,10 @@ pub async fn sync_messages(
     Ok(result)
 }
 
-fn sync_folders(account: &Account) -> Vec<FolderPlan<'_>> {
+fn sync_folders(account: &Account) -> Vec<FolderPlan> {
     let mut folders = vec![
         FolderPlan {
-            remote_folder: "INBOX",
+            remote_folder: account.inbox_folder(),
             local_folder: "inbox",
             dedupe_scope: DedupeScope::LocalFolder,
         },
@@ -92,7 +91,7 @@ fn sync_folders(account: &Account) -> Vec<FolderPlan<'_>> {
 
     if matches!(account.provider, Provider::Gmail | Provider::Protonmail) {
         folders.push(FolderPlan {
-            remote_folder: account.all_mail_folder(),
+            remote_folder: account.archive_folder(),
             local_folder: "archive",
             dedupe_scope: DedupeScope::AllFolders,
         });
@@ -200,7 +199,7 @@ async fn download_missing(
 
 /// Sync messages from the account's IMAP server into the local store.
 async fn sync_folder(request: SyncFolderRequest<'_>) -> Result<SyncResult, VivariumError> {
-    let remote_folder = request.plan.remote_folder;
+    let remote_folder = request.plan.remote_folder.as_str();
     let local_folder = request.plan.local_folder;
     let remote_messages = fetch_remote_messages(
         request.account,

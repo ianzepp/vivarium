@@ -45,6 +45,12 @@ pub struct Account {
     pub oauth_client_secret: Option<String>,
     /// Override mail directory for this account
     pub mail_dir: Option<String>,
+    pub inbox_folder: Option<String>,
+    pub archive_folder: Option<String>,
+    pub trash_folder: Option<String>,
+    pub sent_folder: Option<String>,
+    pub drafts_folder: Option<String>,
+    pub label_roots: Option<Vec<String>>,
     /// Provider hint: "gmail", "protonmail", or "standard"
     #[serde(default)]
     pub provider: Provider,

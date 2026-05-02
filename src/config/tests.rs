@@ -248,6 +248,12 @@ fn account_with_provider(provider: types::Provider) -> types::Account {
         oauth_token_url: None,
         oauth_scope: None,
         mail_dir: None,
+        inbox_folder: None,
+        archive_folder: None,
+        trash_folder: None,
+        sent_folder: None,
+        drafts_folder: None,
+        label_roots: None,
         provider,
         reject_invalid_certs: None,
     }

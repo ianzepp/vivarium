@@ -121,22 +121,50 @@ impl Account {
         }
     }
 
-    /// Which IMAP folder name means "sent" for this provider.
-    pub fn sent_folder(&self) -> &str {
-        match self.provider {
-            crate::config::types::Provider::Gmail => "[Gmail]/Sent Mail",
-            crate::config::types::Provider::Standard
-            | crate::config::types::Provider::Protonmail => "Sent",
-        }
+    pub fn inbox_folder(&self) -> String {
+        self.inbox_folder.clone().unwrap_or_else(|| "INBOX".into())
     }
 
-    /// Which IMAP folder name means "drafts" for this provider.
-    pub fn drafts_folder(&self) -> &str {
-        match self.provider {
-            crate::config::types::Provider::Gmail => "[Gmail]/Drafts",
-            crate::config::types::Provider::Standard
-            | crate::config::types::Provider::Protonmail => "Drafts",
-        }
+    pub fn archive_folder(&self) -> String {
+        self.archive_folder
+            .clone()
+            .unwrap_or_else(|| self.all_mail_folder().into())
+    }
+
+    pub fn trash_folder(&self) -> String {
+        self.trash_folder
+            .clone()
+            .unwrap_or_else(|| match self.provider {
+                crate::config::types::Provider::Gmail => "[Gmail]/Trash".into(),
+                crate::config::types::Provider::Standard
+                | crate::config::types::Provider::Protonmail => "Trash".into(),
+            })
+    }
+
+    pub fn sent_folder(&self) -> String {
+        self.sent_folder.clone().unwrap_or_else(|| {
+            match self.provider {
+                crate::config::types::Provider::Gmail => "[Gmail]/Sent Mail",
+                crate::config::types::Provider::Standard
+                | crate::config::types::Provider::Protonmail => "Sent",
+            }
+            .into()
+        })
+    }
+
+    pub fn drafts_folder(&self) -> String {
+        self.drafts_folder.clone().unwrap_or_else(|| {
+            match self.provider {
+                crate::config::types::Provider::Gmail => "[Gmail]/Drafts",
+                crate::config::types::Provider::Standard
+                | crate::config::types::Provider::Protonmail => "Drafts",
+            }
+            .into()
+        })
+    }
+
+    pub fn label_roots(&self) -> Vec<String> {
+        self.label_roots.clone().unwrap_or_default()
     }
 
     /// Resolved IMAP host, with provider defaults applied.

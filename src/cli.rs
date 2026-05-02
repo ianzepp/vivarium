@@ -79,6 +79,17 @@ pub enum Command {
         reset: bool,
     },
 
+    /// List remote IMAP folders and capabilities
+    Folders {
+        /// Account to inspect (overrides --account)
+        #[arg(long)]
+        account: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Watch for new mail via IMAP IDLE and outbox changes
     #[cfg(feature = "outbox")]
     Watch {
