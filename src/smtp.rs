@@ -6,16 +6,14 @@ use crate::config::{Account, Auth, Security};
 use crate::error::VivariumError;
 
 /// Send raw .eml bytes via the account's SMTP server.
+#[cfg(feature = "outbox")]
 pub async fn send_raw(
     account: &Account,
     data: &[u8],
     reject_invalid_certs: bool,
 ) -> Result<(), VivariumError> {
-    let host = &account.smtp_host;
-    let port = account.smtp_port.unwrap_or(match account.smtp_security {
-        Security::Ssl => 465,
-        Security::Starttls => 587,
-    });
+    let host = account.resolved_smtp_host();
+    let port = account.resolved_smtp_port();
     let secret = account.resolve_secret().await?;
 
     tracing::info!(host, port, security = %account.smtp_security, "connecting to SMTP");

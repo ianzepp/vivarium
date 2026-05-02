@@ -3,7 +3,7 @@ use std::fmt;
 use tokio::net::TcpStream;
 use tokio_native_tls::TlsStream;
 
-use crate::config::{Account, Auth, Security};
+use crate::config::{Account, Auth, Provider, Security};
 use crate::error::VivariumError;
 
 pub(super) type ImapSession = Session<TlsStream<TcpStream>>;
@@ -40,25 +40,44 @@ pub async fn connect(
     account: &Account,
     reject_invalid_certs: bool,
 ) -> Result<ImapSession, VivariumError> {
-    let host = &account.imap_host;
-    let port = account.imap_port.unwrap_or(match account.imap_security {
-        Security::Ssl => 993,
-        Security::Starttls => 143,
-    });
+    let host = account.resolved_imap_host();
+    let port = account.resolved_imap_port();
     let secret = account.resolve_secret().await?;
 
     tracing::debug!(host, port, security = %account.imap_security, "connecting to IMAP");
 
     let tcp = TcpStream::connect((host.as_str(), port))
         .await
-        .map_err(|e| VivariumError::Imap(format!("TCP connect to {host}:{port} failed: {e}")))?;
+        .map_err(|e| {
+            if account.provider == Provider::Protonmail {
+                VivariumError::Imap(format!(
+                    "cannot reach Proton Bridge at {host}:{port} (is Bridge running?). \
+                     Details: {e}"
+                ))
+            } else {
+                VivariumError::Imap(format!("TCP connect to {host}:{port} failed: {e}"))
+            }
+        })?;
 
     let tls_connector = build_tls_connector(reject_invalid_certs)?;
-    let tls_stream = tls_stream(&tls_connector, account, tcp).await?;
-    let session = authenticate(account, secret, tls_stream).await?;
-
-    tracing::debug!(account = account.name, "IMAP authenticated");
-    Ok(session)
+    let tls_stream = tls_stream(&tls_connector, account, tcp).await;
+    match tls_stream {
+        Ok(session) => {
+            let authenticated = authenticate(account, secret, session).await;
+            tracing::debug!(account = account.name, "IMAP authenticated");
+            return authenticated;
+        }
+        Err(e) => {
+            if account.provider == Provider::Protonmail {
+                return Err(VivariumError::Imap(format!(
+                    "TLS error connecting to Proton Bridge at {host}:{port}. \
+                     If using a self-signed certificate, set reject_invalid_certs = true \
+                     in config.toml or add the cert to your keychain. Details: {e}"
+                )));
+            }
+            return Err(e);
+        }
+    }
 }
 
 fn build_tls_connector(

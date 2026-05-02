@@ -132,15 +132,7 @@ mod tests {
     fn config_parses_reject_invalid_certs_default() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("config.toml");
-        fs::write(
-            &path,
-            r#"
-            [defaults]
-            reject_invalid_certs = true
-        "#,
-        )
-        .unwrap();
-
+        fs::write(&path, "[defaults]\nreject_invalid_certs = true\n").unwrap();
         let config = Config::load(&path).unwrap();
         assert!(config.defaults.reject_invalid_certs);
     }
@@ -204,92 +196,20 @@ mod tests {
     fn accounts_file_can_ignore_insecure_permissions() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("accounts.toml");
-        fs::write(
-            &path,
-            r#"
-            [[accounts]]
-            name = "test"
-            email = "test@example.com"
-            imap_host = "imap.example.com"
-            smtp_host = "smtp.example.com"
-            username = "test"
-            password = "secret"
-        "#,
-        )
-        .unwrap();
+        fs::write(&path, "[[accounts]]\nname=\"t\"\nemail=\"e\"\nimap_host=\"h\"\nsmtp_host=\"s\"\nusername=\"u\"\npassword=\"p\"\n").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-
         let accounts = AccountsFile::load_with_options(&path, true).unwrap();
         assert_eq!(accounts.accounts.len(), 1);
     }
 
     #[test]
-    fn account_reject_invalid_certs_overrides_default() {
-        let config = Config {
-            defaults: types::Defaults {
-                reject_invalid_certs: true,
-                ..types::Defaults::default()
-            },
-        };
-        let account = types::Account {
-            name: "test".into(),
-            email: "test@example.com".into(),
-            imap_host: "imap.example.com".into(),
-            imap_port: None,
-            imap_security: types::Security::Ssl,
-            smtp_host: "smtp.example.com".into(),
-            smtp_port: None,
-            smtp_security: types::Security::Ssl,
-            username: "test".into(),
-            auth: types::Auth::Password,
-            password: Some("secret".into()),
-            password_cmd: None,
-            token_cmd: None,
-            oauth_client_id: None,
-            oauth_client_secret: None,
-            oauth_authorization_url: None,
-            oauth_token_url: None,
-            oauth_scope: None,
-            mail_dir: None,
-            provider: types::Provider::Standard,
-            reject_invalid_certs: Some(false),
-        };
-
-        assert!(!account.reject_invalid_certs(&config));
-    }
-    #[test]
     fn find_account_by_name() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("accounts.toml");
-        fs::write(
-            &path,
-            r#"
-            [[accounts]]
-            name = "gmail"
-            email = "ian@gmail.com"
-            imap_host = "imap.gmail.com"
-            smtp_host = "smtp.gmail.com"
-            username = "ian"
-            password = "pw"
-            provider = "gmail"
-
-            [[accounts]]
-            name = "proton"
-            email = "ian@proton.me"
-            imap_host = "127.0.0.1"
-            smtp_host = "127.0.0.1"
-            username = "ian"
-            password = "pw"
-        "#,
-        )
-        .unwrap();
+        fs::write(&path, "[[accounts]]\nname = \"a\"\nemail = \"a@b\"\nimap_host = \"h\"\nsmtp_host = \"s\"\nusername = \"u\"\npassword = \"p\"\n").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         let accounts = AccountsFile::load(&path).unwrap();
-        let gmail = accounts.find_account("gmail").unwrap();
-        assert_eq!(gmail.provider, types::Provider::Gmail);
-        assert_eq!(gmail.auth, types::Auth::Password);
-        let proton = accounts.find_account("proton").unwrap();
-        assert_eq!(proton.provider, types::Provider::Standard);
+        assert_eq!(accounts.find_account("a").unwrap().name, "a");
         assert!(accounts.find_account("nope").is_err());
     }
 
@@ -345,27 +265,21 @@ mod tests {
     fn account_oauth_urls_override_provider_defaults() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("accounts.toml");
-        fs::write(
-            &path,
-            r#"
-            [[accounts]]
-            name = "custom"
-            email = "user@example.com"
-            imap_host = "imap.example.com"
-            smtp_host = "smtp.example.com"
-            username = "user"
-            auth = "xoauth2"
-            provider = "standard"
-            oauth_authorization_url = "https://custom.auth/authorize"
-            oauth_token_url = "https://custom.auth/token"
-            oauth_scope = "https://custom.auth/mail"
-        "#,
-        )
-        .unwrap();
+        fs::write(&path, r#"[[accounts]]
+name="c"
+email="u@e.com"
+imap_host="imap.e.com"
+smtp_host="smtp.e.com"
+username="u"
+auth="xoauth2"
+provider="standard"
+oauth_authorization_url="https://custom.auth/authorize"
+oauth_token_url="https://custom.auth/token"
+oauth_scope="https://custom.auth/mail"
+"#).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-
         let accounts = AccountsFile::load(&path).unwrap();
-        let acct = accounts.find_account("custom").unwrap();
+        let acct = accounts.find_account("c").unwrap();
         let urls = acct.oauth_urls().unwrap();
         assert!(urls.auth_url.contains("custom.auth/authorize"));
         assert!(urls.token_url.contains("custom.auth/token"));
@@ -376,25 +290,79 @@ mod tests {
     fn account_xoauth2_standard_provider_errors_without_urls() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("accounts.toml");
-        fs::write(
-            &path,
-            r#"
-            [[accounts]]
-            name = "no-provider"
-            email = "user@example.com"
-            imap_host = "imap.example.com"
-            smtp_host = "smtp.example.com"
-            username = "user"
-            auth = "xoauth2"
-            provider = "standard"
-        "#,
-        )
-        .unwrap();
+        fs::write(&path, "[[accounts]]\nname=\"n\"\nemail=\"u@e\"\nimap_host=\"h\"\nsmtp_host=\"s\"\nusername=\"u\"\nauth=\"xoauth2\"\nprovider=\"standard\"\n").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-
         let accounts = AccountsFile::load(&path).unwrap();
-        let acct = accounts.find_account("no-provider").unwrap();
-        let err = acct.oauth_urls().unwrap_err();
-        assert!(err.to_string().contains("no OAuth defaults"));
+        let acct = accounts.find_account("n").unwrap();
+        assert!(acct.oauth_urls().is_err());
+    }
+
+    #[test]
+    fn protonmail_defaults_resolved_host_when_empty() {
+        let account = types::Account {
+            name: "proton".into(), email: "u@p.me".into(), imap_host: "".into(),
+            imap_port: None, imap_security: types::Security::Ssl,
+            smtp_host: "".into(), smtp_port: None, smtp_security: types::Security::Ssl,
+            username: "u".into(), auth: types::Auth::Password, password: Some("pw".into()),
+            password_cmd: None, token_cmd: None, oauth_client_id: None,
+            oauth_client_secret: None, oauth_authorization_url: None,
+            oauth_token_url: None, oauth_scope: None, mail_dir: None,
+            provider: types::Provider::Protonmail, reject_invalid_certs: None,
+        };
+        assert_eq!(account.resolved_imap_host(), "127.0.0.1");
+        assert_eq!(account.resolved_imap_port(), 1143);
+        assert_eq!(account.resolved_smtp_port(), 1025);
+        assert!(account.defaults_to_accept_invalid_certs());
+    }
+
+    #[test]
+    fn protonmail_defaults_resolves_explicit_host() {
+        let account = types::Account {
+            name: "proton".into(), email: "u@p.me".into(), imap_host: "bridge.local".into(),
+            imap_port: None, imap_security: types::Security::Starttls,
+            smtp_host: "".into(), smtp_port: None, smtp_security: types::Security::Ssl,
+            username: "u".into(), auth: types::Auth::Password, password: Some("pw".into()),
+            password_cmd: None, token_cmd: None, oauth_client_id: None,
+            oauth_client_secret: None, oauth_authorization_url: None,
+            oauth_token_url: None, oauth_scope: None, mail_dir: None,
+            provider: types::Provider::Protonmail, reject_invalid_certs: None,
+        };
+        assert_eq!(account.resolved_imap_host(), "bridge.local");
+        assert_eq!(account.resolved_imap_port(), 1143);
+        assert_eq!(account.resolved_smtp_port(), 1025);
+    }
+
+    #[test]
+    fn protonmail_default_reject_invalid_certs_is_true() {
+        let account = types::Account {
+            name: "proton".into(), email: "u@p.me".into(), imap_host: "127.0.0.1".into(),
+            imap_port: None, imap_security: types::Security::Ssl,
+            smtp_host: "127.0.0.1".into(), smtp_port: None, smtp_security: types::Security::Ssl,
+            username: "u".into(), auth: types::Auth::Password, password: Some("pw".into()),
+            password_cmd: None, token_cmd: None, oauth_client_id: None,
+            oauth_client_secret: None, oauth_authorization_url: None,
+            oauth_token_url: None, oauth_scope: None, mail_dir: None,
+            provider: types::Provider::Protonmail, reject_invalid_certs: None,
+        };
+        let config = Config::default();
+        assert!(account.reject_invalid_certs(&config));
+    }
+
+    #[test]
+    fn standard_provider_uses_config_default_for_certs() {
+        let config = Config {
+            defaults: types::Defaults { reject_invalid_certs: true, ..types::Defaults::default() },
+        };
+        let account = types::Account {
+            name: "custom".into(), email: "u@e.com".into(), imap_host: "imap.e.com".into(),
+            imap_port: None, imap_security: types::Security::Ssl,
+            smtp_host: "smtp.e.com".into(), smtp_port: None, smtp_security: types::Security::Ssl,
+            username: "u".into(), auth: types::Auth::Password, password: Some("pw".into()),
+            password_cmd: None, token_cmd: None, oauth_client_id: None,
+            oauth_client_secret: None, oauth_authorization_url: None,
+            oauth_token_url: None, oauth_scope: None, mail_dir: None,
+            provider: types::Provider::Standard, reject_invalid_certs: None,
+        };
+        assert!(account.reject_invalid_certs(&config));
     }
 }

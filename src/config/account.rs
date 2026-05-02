@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use super::{Account, Auth, Config, ProviderOAuthConfig, expand_tilde};
+use super::types::{Account, Auth, Config, Provider, ProviderOAuthConfig, Security};
+use super::expand_tilde;
 use crate::error::VivariumError;
 
 impl Account {
@@ -67,7 +68,12 @@ impl Account {
 
     pub fn reject_invalid_certs(&self, config: &Config) -> bool {
         self.reject_invalid_certs
-            .unwrap_or(config.defaults.reject_invalid_certs)
+            .unwrap_or_else(|| {
+                match self.provider {
+                    Provider::Protonmail => true,
+                    _ => config.defaults.reject_invalid_certs,
+                }
+            })
     }
 
     /// Resolve OAuth URLs: account-level overrides take priority, then provider defaults.
@@ -133,6 +139,64 @@ impl Account {
             crate::config::types::Provider::Gmail => "[Gmail]/Drafts",
             crate::config::types::Provider::Standard
             | crate::config::types::Provider::Protonmail => "Drafts",
+        }
+    }
+
+    /// Resolved IMAP host, with provider defaults applied.
+    pub fn resolved_imap_host(&self) -> String {
+        if !self.imap_host.is_empty() {
+            return self.imap_host.clone();
+        }
+        match self.provider {
+            crate::config::types::Provider::Protonmail => "127.0.0.1".into(),
+            _ => self.imap_host.clone(),
+        }
+    }
+
+    /// Resolved IMAP port, with provider defaults applied.
+    pub fn resolved_imap_port(&self) -> u16 {
+        if let Some(port) = self.imap_port {
+            return port;
+        }
+        match self.provider {
+            Provider::Protonmail => 1143,
+            _ => match self.imap_security {
+                Security::Ssl => 993,
+                Security::Starttls => 143,
+            },
+        }
+    }
+
+    /// Resolved SMTP host, with provider defaults applied.
+    pub fn resolved_smtp_host(&self) -> String {
+        if !self.smtp_host.is_empty() {
+            return self.smtp_host.clone();
+        }
+        match self.provider {
+            Provider::Protonmail => "127.0.0.1".into(),
+            _ => self.smtp_host.clone(),
+        }
+    }
+
+    /// Resolved SMTP port, with provider defaults applied.
+    pub fn resolved_smtp_port(&self) -> u16 {
+        if let Some(port) = self.smtp_port {
+            return port;
+        }
+        match self.provider {
+            Provider::Protonmail => 1025,
+            _ => match self.smtp_security {
+                Security::Ssl => 465,
+                Security::Starttls => 587,
+            },
+        }
+    }
+
+    /// Whether this account should accept self-signed certificates by default.
+    pub fn defaults_to_accept_invalid_certs(&self) -> bool {
+        match self.provider {
+            crate::config::types::Provider::Protonmail => true,
+            _ => false,
         }
     }
 }
