@@ -6,10 +6,10 @@ use crate::extract;
 
 pub(crate) const EXTRACTOR_VERSION: &str = "extract-v1";
 pub(crate) const CHUNKER_VERSION: &str = "email-chunker-v1";
-const MESSAGE_PREFIX_BYTES: usize = 4096;
-const BODY_CHUNK_WORDS: usize = 1200;
-const BODY_CHUNK_OVERLAP: usize = 150;
-const OVERSIZED_WORD_CHARS: usize = 8000;
+const MESSAGE_PREFIX_CHARS: usize = 2048;
+const BODY_CHUNK_WORDS: usize = 600;
+const BODY_CHUNK_OVERLAP: usize = 75;
+pub(crate) const MAX_EMBED_INPUT_CHARS: usize = 3500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct EmailChunk {
@@ -33,7 +33,7 @@ pub(crate) fn chunks_for_message(
     let extracted = extract::extract_text(data)?;
     let body = split_oversized_words(&extracted.body_text);
     let mut chunks = Vec::new();
-    let message_text = message_level_text(message, &body);
+    let message_text = truncate_to_chars(message_level_text(message, &body), MAX_EMBED_INPUT_CHARS);
     chunks.push(chunk(message, "message", 0, message_text));
 
     for (ordinal, text) in body_chunks(&body).into_iter().enumerate() {
@@ -45,7 +45,7 @@ pub(crate) fn chunks_for_message(
 }
 
 fn message_level_text(message: &IndexedMessage, body: &str) -> String {
-    let prefix = body.chars().take(MESSAGE_PREFIX_BYTES).collect::<String>();
+    let prefix = body.chars().take(MESSAGE_PREFIX_CHARS).collect::<String>();
     format!(
         "Subject: {}\nFrom: {}\nTo: {}\nCc: {}\nDate: {}\n\n{}",
         message.subject, message.from_addr, message.to_addr, message.cc_addr, message.date, prefix
@@ -57,15 +57,11 @@ fn body_chunks(body: &str) -> Vec<String> {
     if words.is_empty() {
         return Vec::new();
     }
-    if words.len() <= BODY_CHUNK_WORDS {
-        return vec![words.join(" ")];
-    }
-
     let mut chunks = Vec::new();
     let mut start = 0;
     while start < words.len() {
         let end = usize::min(start + BODY_CHUNK_WORDS, words.len());
-        chunks.push(words[start..end].join(" "));
+        chunks.extend(split_long_text(&words[start..end].join(" ")));
         if end == words.len() {
             break;
         }
@@ -82,14 +78,14 @@ fn split_oversized_words(text: &str) -> String {
 }
 
 fn split_word(word: &str) -> Vec<String> {
-    if word.chars().count() <= OVERSIZED_WORD_CHARS {
+    if word.chars().count() <= MAX_EMBED_INPUT_CHARS {
         return vec![word.to_string()];
     }
     let mut parts = Vec::new();
     let mut current = String::new();
     for ch in word.chars() {
         current.push(ch);
-        if current.chars().count() >= OVERSIZED_WORD_CHARS {
+        if current.chars().count() >= MAX_EMBED_INPUT_CHARS {
             parts.push(std::mem::take(&mut current));
         }
     }
@@ -97,6 +93,45 @@ fn split_word(word: &str) -> Vec<String> {
         parts.push(current);
     }
     parts
+}
+
+fn split_long_text(text: &str) -> Vec<String> {
+    if text.chars().count() <= MAX_EMBED_INPUT_CHARS {
+        return vec![text.to_string()];
+    }
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        let word_len = word.chars().count();
+        if word_len > MAX_EMBED_INPUT_CHARS {
+            if !current.is_empty() {
+                parts.push(std::mem::take(&mut current));
+            }
+            parts.extend(split_word(word));
+            continue;
+        }
+        let separator = usize::from(!current.is_empty());
+        if !current.is_empty()
+            && current.chars().count() + separator + word_len > MAX_EMBED_INPUT_CHARS
+        {
+            parts.push(std::mem::take(&mut current));
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts
+}
+
+fn truncate_to_chars(text: String, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text;
+    }
+    text.chars().take(max_chars).collect()
 }
 
 fn chunk(message: &IndexedMessage, kind: &str, ordinal: usize, text: String) -> EmailChunk {

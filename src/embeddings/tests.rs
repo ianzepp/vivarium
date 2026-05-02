@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use async_trait::async_trait;
 use rusqlite::Connection;
 
-use super::chunk::chunks_for_message;
+use super::chunk::{MAX_EMBED_INPUT_CHARS, chunks_for_message};
 use super::provider::EmbeddingProvider;
 use super::{EmbeddingOptions, index_embeddings_with_provider};
 use crate::catalog::{Catalog, CatalogEntry};
@@ -15,16 +15,25 @@ use crate::store::MailStore;
 
 #[test]
 fn chunk_ids_are_stable_and_oversized_words_split() {
-    let message = indexed_message("acct", "inbox-1", "f1", "Subject");
+    let message = indexed_message("acct", "inbox-1", "f1", &"Subject ".repeat(1000));
     let long_word = "a".repeat(9000);
     let eml = format!("Subject: hi\r\n\r\nhello {long_word} world");
 
     let first = chunks_for_message(&message, eml.as_bytes()).unwrap();
     let second = chunks_for_message(&message, eml.as_bytes()).unwrap();
+    let body_chunk_count = first
+        .iter()
+        .filter(|chunk| chunk.chunk_kind == "body")
+        .count();
 
     assert_eq!(first[0].chunk_id, second[0].chunk_id);
     assert!(first.iter().any(|chunk| chunk.chunk_kind == "message"));
-    assert!(first.iter().all(|chunk| chunk.text.len() < 20_000));
+    assert!(
+        first
+            .iter()
+            .all(|chunk| chunk.text.chars().count() <= MAX_EMBED_INPUT_CHARS)
+    );
+    assert!(body_chunk_count >= 3);
 }
 
 #[tokio::test]
@@ -321,9 +330,7 @@ impl EmbeddingProvider for MockProvider {
         Ok(self.vectors.iter().take(inputs.len()).cloned().collect())
     }
 }
-
 struct FailingProvider;
-
 #[async_trait]
 impl EmbeddingProvider for FailingProvider {
     fn provider(&self) -> &str {
