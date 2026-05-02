@@ -61,6 +61,10 @@ pub enum Command {
         /// Account to sync (overrides --account)
         #[arg(long)]
         account: Option<String>,
+
+        /// Maximum number of new messages to download in this run
+        #[arg(long)]
+        limit: Option<usize>,
     },
 
     /// Watch for new mail via IMAP IDLE and outbox changes

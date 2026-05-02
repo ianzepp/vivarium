@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use super::transport::{CHUNK_SIZE, ImapSession, RemoteMessage, WORKER_COUNT, connect};
 use crate::config::{Account, Provider};
 use crate::error::VivariumError;
-use crate::message::{message_id_from_bytes, normalize_message_id};
+use crate::message::message_id_from_bytes;
 use crate::store::MailStore;
 use crate::sync::SyncResult;
 
@@ -26,23 +26,32 @@ pub async fn sync_messages(
     account: &Account,
     store: &MailStore,
     reject_invalid_certs: bool,
+    limit: Option<usize>,
 ) -> Result<SyncResult, VivariumError> {
     let mut result = SyncResult::default();
-
-    // Sync inbox
-    let r = sync_folder(account, store, "INBOX", "inbox", reject_invalid_certs).await?;
-    result.new += r.new;
-
-    // Sync sent
-    let sent = account.sent_folder();
-    let r = sync_folder(account, store, sent, "sent", reject_invalid_certs).await?;
-    result.new += r.new;
-
-    // For Gmail, sync All Mail → archive
+    let mut remaining = limit;
+    let mut folders = vec![("INBOX", "inbox"), (account.sent_folder(), "sent")];
     if account.provider == Provider::Gmail {
-        let all_mail = account.all_mail_folder();
-        let r = sync_folder(account, store, all_mail, "archive", reject_invalid_certs).await?;
+        folders.push((account.all_mail_folder(), "archive"));
+    }
+
+    for (remote_folder, local_folder) in folders {
+        let r = sync_folder(
+            account,
+            store,
+            remote_folder,
+            local_folder,
+            reject_invalid_certs,
+            remaining,
+        )
+        .await?;
         result.new += r.new;
+        if let Some(value) = remaining.as_mut() {
+            *value = value.saturating_sub(r.new);
+            if *value == 0 {
+                break;
+            }
+        }
     }
 
     Ok(result)
@@ -142,6 +151,7 @@ async fn sync_folder(
     remote_folder: &str,
     local_folder: &str,
     reject_invalid_certs: bool,
+    limit: Option<usize>,
 ) -> Result<SyncResult, VivariumError> {
     let remote_messages =
         fetch_remote_messages(account, remote_folder, reject_invalid_certs).await?;
@@ -149,7 +159,7 @@ async fn sync_folder(
         return Ok(SyncResult::default());
     }
 
-    let missing = find_missing(&remote_messages, store, local_folder)?;
+    let mut missing = find_missing(&remote_messages, store, local_folder)?;
     if missing.is_empty() {
         tracing::info!(
             folder = remote_folder,
@@ -157,6 +167,12 @@ async fn sync_folder(
             "all messages up to date"
         );
         return Ok(SyncResult::default());
+    }
+    if let Some(limit) = limit {
+        missing.truncate(limit);
+        if missing.is_empty() {
+            return Ok(SyncResult::default());
+        }
     }
 
     tracing::info!(
@@ -198,7 +214,7 @@ async fn fetch_remote_messages(
     tracing::info!(folder = remote_folder, count, "checking messages");
 
     let fetches = session
-        .fetch(format!("1:{count}"), "(UID RFC822.SIZE ENVELOPE)")
+        .fetch(format!("1:{count}"), "(UID RFC822.SIZE)")
         .await
         .map_err(|e| VivariumError::Imap(format!("uid/size fetch failed: {e}")))?;
 
@@ -210,15 +226,10 @@ async fn fetch_remote_messages(
         .filter_map(|f| {
             let uid = f.uid?;
             let size = u64::from(f.size?);
-            let rfc_message_id = f
-                .envelope()
-                .and_then(|envelope| envelope.message_id.as_deref())
-                .and_then(|id| std::str::from_utf8(id).ok())
-                .and_then(normalize_message_id);
             Some(RemoteMessage {
                 uid,
                 size,
-                rfc_message_id,
+                rfc_message_id: None,
             })
         })
         .collect();

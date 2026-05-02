@@ -82,6 +82,7 @@ Vivarium-generated filenames keep a `.eml` stem for non-mail tooling, while `cur
 vivarium init                                  # create config directory and files
 vivarium sync                                  # sync all accounts
 vivarium sync --account proton                 # sync one account
+vivarium sync --account proton --limit 100     # cap new downloads for this run
 vivarium list                                  # list inbox (default)
 vivarium list sent                             # list sent folder
 vivarium show inbox-1                          # read a message

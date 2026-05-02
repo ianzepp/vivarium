@@ -10,11 +10,11 @@ use vivarium::message::{self, MessageEntry};
 use vivarium::store::MailStore;
 
 #[cfg(feature = "outbox")]
+use vivarium::outbox;
+#[cfg(feature = "outbox")]
 use vivarium::smtp;
 #[cfg(feature = "outbox")]
 use vivarium::watch;
-#[cfg(feature = "outbox")]
-use vivarium::outbox;
 
 #[tokio::main]
 async fn main() {
@@ -80,11 +80,16 @@ impl Runtime {
             } => self.auth(account, client_id, client_secret).await,
             #[cfg(feature = "outbox")]
             Command::Token { account } => self.token(account).await,
-            Command::Sync { account } => self.sync(account).await,
+            Command::Sync { account, limit } => self.sync(account, limit).await,
             Command::List { folder } => self.list(&folder),
             Command::Show { message_ids } => self.show(&message_ids),
             Command::Archive { message_ids } => self.archive(&message_ids),
-            Command::Search { query, limit, offset, json } => self.search(&query, limit, offset, json),
+            Command::Search {
+                query,
+                limit,
+                offset,
+                json,
+            } => self.search(&query, limit, offset, json),
             #[cfg(feature = "outbox")]
             Command::Watch { account } => self.watch(account).await,
             #[cfg(feature = "outbox")]
@@ -133,18 +138,23 @@ impl Runtime {
         vivarium::oauth::print_access_token(&acct, client).await
     }
 
-    async fn sync(&self, account: Option<String>) -> Result<(), VivariumError> {
+    async fn sync(
+        &self,
+        account: Option<String>,
+        limit: Option<usize>,
+    ) -> Result<(), VivariumError> {
         match self.selected_account_name(account) {
             Some(name) => {
                 let acct = self.accounts.find_account(&name)?;
                 let result =
-                    vivarium::sync::sync_account(acct, &self.config, self.insecure).await?;
+                    vivarium::sync::sync_account(acct, &self.config, self.insecure, limit).await?;
                 println!("synced {}: {} new messages", name, result.new);
             }
             None => {
                 for acct in &self.accounts.accounts {
                     let result =
-                        vivarium::sync::sync_account(acct, &self.config, self.insecure).await?;
+                        vivarium::sync::sync_account(acct, &self.config, self.insecure, limit)
+                            .await?;
                     println!("synced {}: {} new messages", acct.name, result.new);
                 }
             }
@@ -251,7 +261,13 @@ impl Runtime {
         Ok(())
     }
 
-    fn search(&self, query: &str, limit: usize, offset: usize, as_json: bool) -> Result<(), VivariumError> {
+    fn search(
+        &self,
+        query: &str,
+        limit: usize,
+        offset: usize,
+        as_json: bool,
+    ) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.account.clone())?;
         let mail_root = acct.mail_path(&self.config);
 
@@ -267,7 +283,10 @@ impl Runtime {
                     .map(|r: vivarium::search::SearchResult| vivarium::search::to_json_result(&r))
                     .collect::<Vec<_>>(),
             });
-            println!("{}", serde_json::to_string_pretty(&output).unwrap_or_else(|_| output.to_string()));
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&output).unwrap_or_else(|_| output.to_string())
+            );
         } else {
             println!("search: {} results for '{}'", total, query);
             if results.is_empty() {
