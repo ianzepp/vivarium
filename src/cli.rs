@@ -34,6 +34,7 @@ pub enum Command {
     /// Initialize vivarium config directory and files
     Init,
 
+    #[cfg(feature = "outbox")]
     /// Authorize an OAuth account and store its refresh token
     Auth {
         /// Account to authorize (overrides --account)
@@ -48,6 +49,7 @@ pub enum Command {
         client_secret: Option<String>,
     },
 
+    #[cfg(feature = "outbox")]
     /// Print a fresh OAuth access token for token_cmd
     Token {
         /// Account to mint a token for (overrides --account)
@@ -62,6 +64,7 @@ pub enum Command {
     },
 
     /// Watch for new mail via IMAP IDLE and outbox changes
+    #[cfg(feature = "outbox")]
     Watch {
         /// Account to watch (overrides --account)
         #[arg(long)]
@@ -69,6 +72,7 @@ pub enum Command {
     },
 
     /// Send a message from a file
+    #[cfg(feature = "outbox")]
     Send {
         /// Path to the .eml file
         path: PathBuf,
@@ -88,6 +92,7 @@ pub enum Command {
     },
 
     /// Reply to a message
+    #[cfg(feature = "outbox")]
     Reply {
         /// Message identifier to reply to
         message_id: String,
@@ -98,6 +103,7 @@ pub enum Command {
     },
 
     /// Compose a new message
+    #[cfg(feature = "outbox")]
     Compose {
         /// Recipient address
         #[arg(long)]

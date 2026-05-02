@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::{expand_tilde, Account, Auth, Config, ProviderOAuthConfig};
+use super::{Account, Auth, Config, ProviderOAuthConfig, expand_tilde};
 use crate::error::VivariumError;
 
 impl Account {

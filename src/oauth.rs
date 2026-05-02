@@ -29,7 +29,12 @@ pub async fn authorize(account: &Account, client: OAuthClient) -> Result<(), Viv
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     let redirect_uri = format!("http://127.0.0.1:{port}/callback");
-    let auth_url = authorization_url(&urls.auth_url, &client.client_id, &urls.scope, &redirect_uri);
+    let auth_url = authorization_url(
+        &urls.auth_url,
+        &client.client_id,
+        &urls.scope,
+        &redirect_uri,
+    );
 
     open_browser(&auth_url)?;
     println!("opened browser for OAuth authorization");
@@ -55,9 +60,9 @@ pub async fn print_access_token(
     let urls = account.oauth_urls()?;
     let refresh_token = load_refresh_token(&account.name)?;
     let response = refresh_access_token(&client, &urls.token_url, &refresh_token).await?;
-    let access_token = response
-        .access_token
-        .ok_or_else(|| VivariumError::Config("OAuth provider token response had no access_token".into()))?;
+    let access_token = response.access_token.ok_or_else(|| {
+        VivariumError::Config("OAuth provider token response had no access_token".into())
+    })?;
     println!("{access_token}");
     Ok(())
 }
@@ -102,7 +107,9 @@ async fn wait_for_code(listener: TcpListener) -> Result<String, VivariumError> {
     let code = loop {
         let n = stream.read(&mut buffer).await?;
         if n == 0 {
-            return Err(VivariumError::Config("OAuth callback connection closed unexpectedly".into()));
+            return Err(VivariumError::Config(
+                "OAuth callback connection closed unexpectedly".into(),
+            ));
         }
         let request = String::from_utf8_lossy(&buffer[..n]);
         match parse_callback_code(&request) {
@@ -151,13 +158,16 @@ async fn exchange_code(
     redirect_uri: &str,
     code: &str,
 ) -> Result<TokenResponse, VivariumError> {
-    token_request(token_url, &[
-        ("client_id", client.client_id.as_str()),
-        ("client_secret", client.client_secret.as_str()),
-        ("code", code),
-        ("grant_type", "authorization_code"),
-        ("redirect_uri", redirect_uri),
-    ])
+    token_request(
+        token_url,
+        &[
+            ("client_id", client.client_id.as_str()),
+            ("client_secret", client.client_secret.as_str()),
+            ("code", code),
+            ("grant_type", "authorization_code"),
+            ("redirect_uri", redirect_uri),
+        ],
+    )
     .await
 }
 
@@ -166,16 +176,22 @@ async fn refresh_access_token(
     token_url: &str,
     refresh_token: &str,
 ) -> Result<TokenResponse, VivariumError> {
-    token_request(token_url, &[
-        ("client_id", client.client_id.as_str()),
-        ("client_secret", client.client_secret.as_str()),
-        ("refresh_token", refresh_token),
-        ("grant_type", "refresh_token"),
-    ])
+    token_request(
+        token_url,
+        &[
+            ("client_id", client.client_id.as_str()),
+            ("client_secret", client.client_secret.as_str()),
+            ("refresh_token", refresh_token),
+            ("grant_type", "refresh_token"),
+        ],
+    )
     .await
 }
 
-async fn token_request(token_url: &str, form: &[(&str, &str)]) -> Result<TokenResponse, VivariumError> {
+async fn token_request(
+    token_url: &str,
+    form: &[(&str, &str)],
+) -> Result<TokenResponse, VivariumError> {
     let response = reqwest::Client::new()
         .post(token_url)
         .form(form)

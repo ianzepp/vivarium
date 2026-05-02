@@ -13,6 +13,19 @@ const DEFAULT_CONFIG: &str = r#"[defaults]
 const DEFAULT_ACCOUNTS: &str = r#"# Each [[accounts]] entry defines an email account.
 # Passwords are stored here — keep this file chmod 600.
 
+# Proton Bridge (recommended for local archive):
+# [[accounts]]
+# name = "proton"
+# email = "you@proton.me"
+# username = "you@proton.me"
+# auth = "password"
+# password = "your-bridge-app-password"
+# imap_host = "127.0.0.1"
+# imap_port = 1143
+# imap_security = "ssl"
+# provider = "protonmail"
+
+# Gmail:
 # [[accounts]]
 # name = "gmail"
 # email = "you@gmail.com"
@@ -24,43 +37,18 @@ const DEFAULT_ACCOUNTS: &str = r#"# Each [[accounts]] entry defines an email acc
 # token_cmd = "vivarium token gmail"
 # imap_host = "imap.gmail.com"
 # imap_security = "ssl"
-# smtp_host = "smtp.gmail.com"
-# smtp_security = "ssl"
 
-# [[accounts]]
-# name = "proton"
-# email = "you@proton.me"
-# username = "you@proton.me"
-# auth = "xoauth2"
-# provider = "protonmail"
-# oauth_client_id = "your-proton-oauth-client-id"
-# oauth_client_secret = "your-proton-oauth-client-secret"
-# token_cmd = "vivarium token proton"
-# imap_host = "imap.protonmail.com"
-# imap_port = 993
-# imap_security = "ssl"
-# smtp_host = "smtp.protonmail.com"
-# smtp_port = 465
-# smtp_security = "ssl"
-
+# Custom IMAP:
 # [[accounts]]
 # name = "custom"
 # email = "you@example.com"
 # username = "you@example.com"
-# auth = "xoauth2"
+# auth = "password"
+# password = "your-password"
 # provider = "standard"
-# oauth_authorization_url = "https://your-provider/oauth/authorize"
-# oauth_token_url = "https://your-provider/oauth/token"
-# oauth_scope = "https://your-provider/mail.readwrite"
-# oauth_client_id = "your-custom-oauth-client-id"
-# oauth_client_secret = "your-custom-oauth-client-secret"
-# token_cmd = "your-token-command"
 # imap_host = "imap.example.com"
 # imap_port = 993
 # imap_security = "ssl"
-# smtp_host = "smtp.example.com"
-# smtp_port = 465
-# smtp_security = "ssl"
 "#;
 
 pub fn run_init() -> Result<(), VivariumError> {

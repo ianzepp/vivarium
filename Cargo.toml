@@ -3,6 +3,9 @@ name = "vivarium"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+outbox = []
+
 [dependencies]
 async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
 tokio-native-tls = "0.3"

@@ -81,6 +81,7 @@ pub fn normalize_message_id(message_id: &str) -> Option<String> {
 }
 
 /// Build a reply .eml from an original message.
+#[cfg(feature = "outbox")]
 pub fn build_reply(original: &[u8], body: &str, from: &str) -> Result<String, VivariumError> {
     let parsed = mail_parser::MessageParser::default()
         .parse(original)
@@ -128,10 +129,12 @@ pub fn build_reply(original: &[u8], body: &str, from: &str) -> Result<String, Vi
     Ok(eml)
 }
 
+#[cfg(feature = "outbox")]
 pub fn build_reply_template(original: &[u8], from: &str) -> Result<String, VivariumError> {
     build_reply(original, "", from)
 }
 
+#[cfg(feature = "outbox")]
 pub fn validate_message_headers(data: &[u8]) -> Result<(), VivariumError> {
     let parsed = mail_parser::MessageParser::default()
         .parse(data)
