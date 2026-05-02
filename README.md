@@ -1,6 +1,6 @@
 # Vivarium
 
-Local-first email archive and retrieval layer for private agents. Pulls email from IMAP (via Proton Bridge or any IMAP server) into standard Maildir folders on disk. No required database or service — just RFC 5322 message files that local AI and agents can read, search, and cite.
+Local-first email archive and retrieval layer for private agents. Pulls email from IMAP (via Proton Bridge or any IMAP server) into standard Maildir folders on disk. No required database or service - just RFC 5322 message files that local AI and agents can read, search, and cite.
 
 ## Why
 
@@ -26,8 +26,8 @@ vivarium init
 
 This creates `~/.config/vivarium/` with two files:
 
-- `config.toml` — general settings (mail root directory, check intervals)
-- `accounts.toml` — account credentials (chmod 600 automatically)
+- `config.toml` - general settings such as mail root and TLS policy
+- `accounts.toml` - account credentials, created with mode `600`
 
 Edit `accounts.toml` to add a Proton Bridge account:
 
@@ -46,6 +46,9 @@ smtp_port = 1025
 smtp_security = "ssl"
 provider = "protonmail"
 ```
+
+The SMTP fields are still required by the account parser even when you only use
+the read-only sync/search commands.
 
 Then sync:
 
@@ -83,39 +86,22 @@ vivarium list                                  # list inbox (default)
 vivarium list sent                             # list sent folder
 vivarium show inbox-1                          # read a message
 vivarium archive inbox-1                       # move from inbox to archive
+vivarium search "invoice"                      # keyword search
+vivarium search "invoice" --json               # JSON search output
 ```
 
 All commands accept `--account <name>` to target a specific account. Without it, account-scoped commands use the first account in `accounts.toml`; `sync` and `list` operate on all accounts.
 
-### Future Capabilities (Planned)
+### Not Yet Supported
 
-- `vivarium search <query> --json` — local keyword and semantic search
-- `vivarium show <handle> --json` — structured message retrieval with citation fields
-- `vivarium thread <handle> --json` — thread-aware retrieval
-- `vivarium export <handle>` — local-only raw/text export
-- Catalog with stable message handles across syncs
-- Local embedding generation for semantic search
-- Incremental sync for maintenance
+These surfaces are not available in the default CLI today:
 
-### Quarantined: Send/Reply/Compose (Not Default)
-
-The `outbox` feature gates SMTP send, reply, compose, and watch surfaces. These are quarantined because **sending email is a separate risk class from reading it** and must be explicitly opted into:
-
-```
-cargo install --features outbox --path .
-```
-
-With `outbox` enabled, additional commands become available:
-
-```
-vivarium auth gmail                            # browser OAuth, store refresh token
-vivarium token gmail                           # print an access token for token_cmd
-vivarium send ~/.local/share/vivarium/proton/Drafts/new/draft.eml   # send an .eml file
-vivarium reply inbox-1                         # edit a reply and send it
-vivarium reply inbox-1 --body "Thanks"         # send a scripted reply
-vivarium compose --to a@b.com --subject "Hi"   # edit and save a draft
-vivarium watch --account proton                # watch IMAP and outbox changes
-```
+- semantic search or local embeddings
+- `vivarium show <handle> --json`
+- `vivarium thread <handle> --json`
+- `vivarium export <handle>`
+- catalog or extraction rebuild commands
+- send, reply, compose, OAuth browser auth, token minting, or watch mode
 
 ## Providers
 
@@ -127,7 +113,7 @@ Vivarium handles the differences between IMAP providers:
 | ProtonMail   | `"protonmail"` | INBOX      | Sent folder          |
 | Standard     | `"standard"` | INBOX folder | Sent folder          |
 
-Gmail syncs `[Gmail]/All Mail` into `Archive/`. Standard IMAP (Proton Bridge, Fastmail, etc.) syncs `INBOX` and `Sent` directly.
+Gmail syncs `[Gmail]/All Mail` into `Archive/`. ProtonMail and standard IMAP accounts sync `INBOX` and `Sent` directly.
 
 ## Security
 
@@ -137,23 +123,19 @@ Gmail syncs `[Gmail]/All Mail` into `Archive/`. Standard IMAP (Proton Bridge, Fa
   ```toml
   password_cmd = "security find-generic-password -s vivarium -a you@proton.me -w"
   ```
-- Gmail OAuth is supported with `auth = "xoauth2"` and `token_cmd`; the command must print a current OAuth access token:
+- XOAUTH2 is supported for IMAP sync with `auth = "xoauth2"` and `token_cmd`; the command must print a current OAuth access token:
   ```toml
   auth = "xoauth2"
-  oauth_client_id = "your-google-oauth-client-id"
-  oauth_client_secret = "your-google-oauth-client-secret"
-  token_cmd = "vivarium token gmail"
+  token_cmd = "security find-generic-password -s gmail-access-token -w"
   ```
-- Run `vivarium auth gmail` once to approve access in the browser and store the refresh token in macOS Keychain
-- Self-signed certs are accepted by default for compatibility with local bridges
-- Set `reject_invalid_certs = true` under `[defaults]` or an account to require certificate validation
-- Use `--insecure` as a one-run override when a strict TLS config needs to accept invalid certificates
+- Certificate validation is enabled for `provider = "protonmail"` by default
+- Set `reject_invalid_certs = false` on an account, or use `--insecure` as a one-run override, when a local bridge uses an untrusted certificate
 
 ## Architecture
 
 - **Raw `.eml` messages are the source of truth.** They are preserved unchanged.
 - **Derived data is disposable and rebuildable.** Metadata, indexes, and future embeddings are derived from raw files.
-- **Every search result can cite an original message file.** Citation is mandatory in agent-facing output.
+- **Search results point back to original message files.** JSON search output includes handles and raw paths for local citation workflows.
 - **Full corpus contents never leave the machine by default.** Any cloud access would be explicit, narrow, and user-approved.
 
 ## License
