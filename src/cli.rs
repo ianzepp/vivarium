@@ -65,6 +65,14 @@ pub enum Command {
         /// Maximum number of new messages to download in this run
         #[arg(long)]
         limit: Option<usize>,
+
+        /// Sync messages on or after this date (YYYY-MM-DD, or relative like 30d, 3mo, 1y)
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Sync messages before this date (YYYY-MM-DD)
+        #[arg(long)]
+        before: Option<String>,
     },
 
     /// Watch for new mail via IMAP IDLE and outbox changes

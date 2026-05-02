@@ -1,3 +1,4 @@
+mod query;
 mod sync;
 mod transport;
 

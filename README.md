@@ -83,6 +83,8 @@ vivarium init                                  # create config directory and fil
 vivarium sync                                  # sync all accounts
 vivarium sync --account proton                 # sync one account
 vivarium sync --account proton --limit 100     # cap new downloads for this run
+vivarium sync --account proton --since 3mo     # sync messages from the last 3 months
+vivarium sync --account proton --since 2025-05-02 --before 2026-05-02
 vivarium list                                  # list inbox (default)
 vivarium list sent                             # list sent folder
 vivarium show inbox-1                          # read a message

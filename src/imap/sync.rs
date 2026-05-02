@@ -5,12 +5,13 @@ use async_imap::extensions::idle::IdleResponse;
 use futures::TryStreamExt;
 use tokio::sync::Mutex;
 
+use super::query::fetch_remote_messages;
 use super::transport::{CHUNK_SIZE, ImapSession, RemoteMessage, WORKER_COUNT, connect};
 use crate::config::{Account, Provider};
 use crate::error::VivariumError;
 use crate::message::message_id_from_bytes;
 use crate::store::MailStore;
-use crate::sync::SyncResult;
+use crate::sync::{SyncResult, SyncWindow};
 
 struct WorkerContext {
     worker_id: usize,
@@ -27,6 +28,7 @@ pub async fn sync_messages(
     store: &MailStore,
     reject_invalid_certs: bool,
     limit: Option<usize>,
+    window: SyncWindow,
 ) -> Result<SyncResult, VivariumError> {
     let mut result = SyncResult::default();
     let mut remaining = limit;
@@ -43,6 +45,7 @@ pub async fn sync_messages(
             local_folder,
             reject_invalid_certs,
             remaining,
+            window,
         )
         .await?;
         result.new += r.new;
@@ -152,9 +155,10 @@ async fn sync_folder(
     local_folder: &str,
     reject_invalid_certs: bool,
     limit: Option<usize>,
+    window: SyncWindow,
 ) -> Result<SyncResult, VivariumError> {
     let remote_messages =
-        fetch_remote_messages(account, remote_folder, reject_invalid_certs).await?;
+        fetch_remote_messages(account, remote_folder, reject_invalid_certs, window).await?;
     if remote_messages.is_empty() {
         return Ok(SyncResult::default());
     }
@@ -191,51 +195,6 @@ async fn sync_folder(
         reject_invalid_certs,
     )
     .await
-}
-
-async fn fetch_remote_messages(
-    account: &Account,
-    remote_folder: &str,
-    reject_invalid_certs: bool,
-) -> Result<Vec<RemoteMessage>, VivariumError> {
-    let mut session = connect(account, reject_invalid_certs).await?;
-    let mailbox = session
-        .select(remote_folder)
-        .await
-        .map_err(|e| VivariumError::Imap(format!("select {remote_folder} failed: {e}")))?;
-
-    let count = mailbox.exists;
-    if count == 0 {
-        tracing::info!(folder = remote_folder, "empty folder");
-        session.logout().await.ok();
-        return Ok(Vec::new());
-    }
-
-    tracing::info!(folder = remote_folder, count, "checking messages");
-
-    let fetches = session
-        .fetch(format!("1:{count}"), "(UID RFC822.SIZE)")
-        .await
-        .map_err(|e| VivariumError::Imap(format!("uid/size fetch failed: {e}")))?;
-
-    let remote_messages: Vec<RemoteMessage> = fetches
-        .try_collect::<Vec<_>>()
-        .await
-        .map_err(|e| VivariumError::Imap(format!("uid/size stream failed: {e}")))?
-        .iter()
-        .filter_map(|f| {
-            let uid = f.uid?;
-            let size = u64::from(f.size?);
-            Some(RemoteMessage {
-                uid,
-                size,
-                rfc_message_id: None,
-            })
-        })
-        .collect();
-
-    session.logout().await.ok();
-    Ok(remote_messages)
 }
 
 /// Store a single parsed message in the local Maildir and update the index.

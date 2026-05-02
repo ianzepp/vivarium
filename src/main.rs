@@ -80,7 +80,12 @@ impl Runtime {
             } => self.auth(account, client_id, client_secret).await,
             #[cfg(feature = "outbox")]
             Command::Token { account } => self.token(account).await,
-            Command::Sync { account, limit } => self.sync(account, limit).await,
+            Command::Sync {
+                account,
+                limit,
+                since,
+                before,
+            } => self.sync(account, limit, since, before).await,
             Command::List { folder } => self.list(&folder),
             Command::Show { message_ids } => self.show(&message_ids),
             Command::Archive { message_ids } => self.archive(&message_ids),
@@ -142,19 +147,28 @@ impl Runtime {
         &self,
         account: Option<String>,
         limit: Option<usize>,
+        since: Option<String>,
+        before: Option<String>,
     ) -> Result<(), VivariumError> {
+        let window = vivarium::sync::SyncWindow::parse(since.as_deref(), before.as_deref())?;
         match self.selected_account_name(account) {
             Some(name) => {
                 let acct = self.accounts.find_account(&name)?;
                 let result =
-                    vivarium::sync::sync_account(acct, &self.config, self.insecure, limit).await?;
+                    vivarium::sync::sync_account(acct, &self.config, self.insecure, limit, window)
+                        .await?;
                 println!("synced {}: {} new messages", name, result.new);
             }
             None => {
                 for acct in &self.accounts.accounts {
-                    let result =
-                        vivarium::sync::sync_account(acct, &self.config, self.insecure, limit)
-                            .await?;
+                    let result = vivarium::sync::sync_account(
+                        acct,
+                        &self.config,
+                        self.insecure,
+                        limit,
+                        window,
+                    )
+                    .await?;
                     println!("synced {}: {} new messages", acct.name, result.new);
                 }
             }
