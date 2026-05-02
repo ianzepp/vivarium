@@ -6,7 +6,6 @@ use crate::config::{Account, Auth, Security};
 use crate::error::VivariumError;
 
 /// Send raw .eml bytes via the account's SMTP server.
-#[cfg(feature = "outbox")]
 pub async fn send_raw(
     account: &Account,
     data: &[u8],
@@ -23,12 +22,12 @@ pub async fn send_raw(
     let tls_parameters = tls_parameters(&host, reject_invalid_certs)?;
 
     let builder = match account.smtp_security {
-        Security::Ssl => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
+        Security::Ssl => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host.clone())
             .port(port)
             .tls(lettre::transport::smtp::client::Tls::Wrapper(
                 tls_parameters,
             )),
-        Security::Starttls => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
+        Security::Starttls => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host.clone())
             .port(port)
             .tls(lettre::transport::smtp::client::Tls::Required(
                 tls_parameters,
@@ -42,10 +41,12 @@ pub async fn send_raw(
     let transport = builder.credentials(creds).build();
     let envelope = envelope_from_raw(data)?;
 
-    transport
-        .send_raw(&envelope, data)
-        .await
-        .map_err(|e| VivariumError::Smtp(format!("send failed: {e}")))?;
+    transport.send_raw(&envelope, data).await.map_err(|e| {
+        VivariumError::Smtp(format!(
+            "send failed via {host}:{port} using {}: {e}",
+            account.smtp_security
+        ))
+    })?;
 
     tracing::info!("message sent");
     Ok(())
@@ -84,16 +85,9 @@ fn envelope_from_raw(data: &[u8]) -> Result<Envelope, VivariumError> {
         .map_err(|e| VivariumError::Smtp(format!("invalid From address: {e}")))?;
 
     let mut to_addrs = Vec::new();
-    if let Some(to_list) = parsed.to() {
-        for addr in to_list.iter() {
-            if let Some(email) = addr.address() {
-                let a: Address = email
-                    .parse()
-                    .map_err(|e| VivariumError::Smtp(format!("invalid To address: {e}")))?;
-                to_addrs.push(a);
-            }
-        }
-    }
+    collect_addresses("To", parsed.to(), &mut to_addrs)?;
+    collect_addresses("Cc", parsed.cc(), &mut to_addrs)?;
+    collect_addresses("Bcc", parsed.bcc(), &mut to_addrs)?;
 
     if to_addrs.is_empty() {
         return Err(VivariumError::Smtp("message has no To addresses".into()));
@@ -101,4 +95,53 @@ fn envelope_from_raw(data: &[u8]) -> Result<Envelope, VivariumError> {
 
     Envelope::new(Some(from), to_addrs)
         .map_err(|e| VivariumError::Smtp(format!("envelope error: {e}")))
+}
+
+fn collect_addresses(
+    label: &str,
+    list: Option<&mail_parser::Address<'_>>,
+    out: &mut Vec<Address>,
+) -> Result<(), VivariumError> {
+    if let Some(list) = list {
+        for addr in list.iter() {
+            if let Some(email) = addr.address() {
+                let parsed: Address = email
+                    .parse()
+                    .map_err(|e| VivariumError::Smtp(format!("invalid {label} address: {e}")))?;
+                out.push(parsed);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn envelope_includes_to_cc_and_bcc_recipients() {
+        let data = b"From: sender@example.com\r\nTo: a@example.com\r\nCc: b@example.com\r\nBcc: c@example.com\r\nSubject: hi\r\n\r\nbody";
+
+        let envelope = envelope_from_raw(data).unwrap();
+        let recipients = envelope
+            .to()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            recipients,
+            vec!["a@example.com", "b@example.com", "c@example.com"]
+        );
+    }
+
+    #[test]
+    fn envelope_requires_at_least_one_recipient() {
+        let data = b"From: sender@example.com\r\nSubject: hi\r\n\r\nbody";
+
+        let err = envelope_from_raw(data).unwrap_err();
+
+        assert!(err.to_string().contains("no To addresses"));
+    }
 }

@@ -75,6 +75,16 @@ mod tests {
     }
 
     #[test]
+    fn parses_default_send_command() {
+        let cli = Cli::try_parse_from(["vivi", "send", "message.eml"]).unwrap();
+
+        match cli.command {
+            Command::Send { path } => assert_eq!(path, PathBuf::from("message.eml")),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
     fn rejects_multiple_flag_modes() {
         let err =
             Cli::try_parse_from(["vivi", "flag", "abc123", "--read", "--unread"]).unwrap_err();
@@ -152,8 +162,7 @@ pub enum Command {
         account: Option<String>,
     },
 
-    /// Send a message from a file
-    #[cfg(feature = "outbox")]
+    /// Send a raw .eml message from an explicit file
     Send {
         /// Path to the .eml file
         path: PathBuf,

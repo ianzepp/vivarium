@@ -16,7 +16,6 @@ pub mod thread;
 #[cfg(feature = "outbox")]
 pub mod outbox;
 
-#[cfg(feature = "outbox")]
 pub mod smtp;
 pub mod store;
 pub mod sync;

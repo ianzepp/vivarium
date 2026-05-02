@@ -1,5 +1,6 @@
+use std::path::Path;
 #[cfg(feature = "outbox")]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process;
 
 use clap::Parser;
@@ -118,7 +119,6 @@ impl Runtime {
             } => self.search(&query, limit, offset, json),
             #[cfg(feature = "outbox")]
             Command::Watch { account } => self.watch(account).await,
-            #[cfg(feature = "outbox")]
             Command::Send { path } => self.send(&path).await,
             #[cfg(feature = "outbox")]
             Command::Reply { message_id, body } => self.reply(&message_id, body).await,
@@ -238,8 +238,8 @@ impl Runtime {
         }
     }
 
-    #[cfg(feature = "outbox")]
     async fn send(&self, path: &Path) -> Result<(), VivariumError> {
+        require_eml_path(path)?;
         let acct = self.resolve_account(self.account.clone())?;
         let data = std::fs::read(path)?;
         let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
@@ -299,6 +299,17 @@ impl Runtime {
             vivarium::search::keyword_search(&mail_root, &acct.name, query, limit, offset)?;
         vivarium::search::print_results(query, limit, offset, results, total, as_json);
         Ok(())
+    }
+}
+
+fn require_eml_path(path: &Path) -> Result<(), VivariumError> {
+    if path.extension().and_then(|ext| ext.to_str()) == Some("eml") {
+        Ok(())
+    } else {
+        Err(VivariumError::Message(format!(
+            "send requires an explicit .eml file: {}",
+            path.display()
+        )))
     }
 }
 

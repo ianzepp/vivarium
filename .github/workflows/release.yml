@@ -100,6 +100,7 @@ jobs:
 
             test do
               assert_match version.to_s, shell_output("#{bin}/vivi --version")
+              assert_match "send", shell_output("#{bin}/vivi --help")
             end
           end
           FORMULA
