@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use vivarium::cli::{Cli, Command};
+use vivarium::cli::{AgentCommand, Cli, Command};
 
 #[test]
 fn parses_archive_dry_run_json() {
@@ -120,4 +120,56 @@ fn rejects_multiple_flag_modes() {
     let err = Cli::try_parse_from(["vivi", "flag", "abc123", "--read", "--unread"]).unwrap_err();
 
     assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+}
+
+#[test]
+fn parses_agent_archive_plan_by_default() {
+    let cli = Cli::try_parse_from(["vivi", "agent", "archive", "handle-1"]).unwrap();
+
+    match cli.command {
+        Command::Agent {
+            command: AgentCommand::Archive { handle, execute },
+        } => {
+            assert_eq!(handle, "handle-1");
+            assert!(!execute);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_agent_send_execute() {
+    let cli = Cli::try_parse_from(["vivi", "agent", "send", "draft.eml", "--execute"]).unwrap();
+
+    match cli.command {
+        Command::Agent {
+            command: AgentCommand::Send { path, execute },
+        } => {
+            assert_eq!(path, PathBuf::from("draft.eml"));
+            assert!(execute);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_agent_reply_body_plan() {
+    let cli =
+        Cli::try_parse_from(["vivi", "agent", "reply", "handle-1", "--body", "thanks"]).unwrap();
+
+    match cli.command {
+        Command::Agent {
+            command:
+                AgentCommand::Reply {
+                    handle,
+                    body,
+                    execute,
+                },
+        } => {
+            assert_eq!(handle, "handle-1");
+            assert_eq!(body, "thanks");
+            assert!(!execute);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
 }

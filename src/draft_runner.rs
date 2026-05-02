@@ -148,7 +148,7 @@ fn source_is_local_draft(store: &MailStore, source_path: &Path, message_id: &str
     location.folder == "Drafts" && same_file(&location.path, source_path)
 }
 
-fn read_by_handle_or_id(
+pub(crate) fn read_by_handle_or_id(
     store: &MailStore,
     account: &str,
     handle: &str,
@@ -212,7 +212,7 @@ fn editor_temp_path(prefix: &str) -> PathBuf {
     std::env::temp_dir().join(Path::new(&unique))
 }
 
-fn require_eml_path(path: &Path) -> Result<(), VivariumError> {
+pub(crate) fn require_eml_path(path: &Path) -> Result<(), VivariumError> {
     if path.extension().and_then(|ext| ext.to_str()) == Some("eml") {
         Ok(())
     } else {

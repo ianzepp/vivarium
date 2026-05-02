@@ -166,11 +166,15 @@ impl Runtime {
             append_audit(&mail_root, prepared, "planned", true, None)?;
             return Ok(MutationOutcome::planned(&prepared.preview));
         }
+        append_audit(&mail_root, prepared, "approved", false, None)?;
         let remote = execute_remote(acct, prepared, capabilities, reject_invalid_certs).await;
         match remote {
             Ok(_) => {
-                let local = reconcile_success(&mail_root, prepared)?;
                 append_audit(&mail_root, prepared, "executed", false, None)?;
+                let local = reconcile_success(&mail_root, prepared).inspect_err(|err| {
+                    append_audit(&mail_root, prepared, "failed", false, Some(err.to_string())).ok();
+                })?;
+                append_audit(&mail_root, prepared, "reconciled", false, None)?;
                 Ok(MutationOutcome::executed(&prepared.preview, &local))
             }
             Err(err) => {

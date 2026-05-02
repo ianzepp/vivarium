@@ -14,6 +14,10 @@ pub struct Defaults {
     pub check_interval_secs: Option<u64>,
     #[serde(default)]
     pub reject_invalid_certs: bool,
+    pub agent_max_body_bytes: Option<usize>,
+    pub agent_max_results: Option<usize>,
+    #[serde(default)]
+    pub agent_allow_hard_delete: bool,
 }
 
 /// Credential and connection details from `accounts.toml`.

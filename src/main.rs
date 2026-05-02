@@ -9,11 +9,13 @@ use vivarium::config::{Account, AccountsFile, Config};
 use vivarium::message;
 use vivarium::store::MailStore;
 
+mod agent_runner;
 mod draft_runner;
 mod folders_command;
 mod mutation_runner;
 mod sync_command;
 
+use agent_runner::AgentDispatch;
 use draft_runner::DraftDispatch;
 use mutation_runner::MutationDispatch;
 
@@ -71,13 +73,8 @@ impl Runtime {
     }
 
     async fn run(&self, command: Command) -> Result<(), VivariumError> {
-        let command = match self.run_mutation_command(command).await? {
-            MutationDispatch::Handled => return Ok(()),
-            MutationDispatch::Unhandled(command) => command,
-        };
-        let command = match self.run_draft_command(command).await? {
-            DraftDispatch::Handled => return Ok(()),
-            DraftDispatch::Unhandled(command) => command,
+        let Some(command) = self.dispatch_write_command(command).await? else {
+            return Ok(());
         };
         match command {
             Command::Init => unreachable!(),
@@ -125,6 +122,25 @@ impl Runtime {
             Command::Send { .. } | Command::Reply { .. } | Command::Compose { .. } => {
                 unreachable!()
             }
+            Command::Agent { .. } => unreachable!(),
+        }
+    }
+
+    async fn dispatch_write_command(
+        &self,
+        command: Command,
+    ) -> Result<Option<Command>, VivariumError> {
+        let command = match self.run_agent_command(command).await? {
+            AgentDispatch::Handled => return Ok(None),
+            AgentDispatch::Unhandled(command) => command,
+        };
+        let command = match self.run_mutation_command(command).await? {
+            MutationDispatch::Handled => return Ok(None),
+            MutationDispatch::Unhandled(command) => command,
+        };
+        match self.run_draft_command(command).await? {
+            DraftDispatch::Handled => Ok(None),
+            DraftDispatch::Unhandled(command) => Ok(Some(command)),
         }
     }
 
