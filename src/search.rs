@@ -1,9 +1,8 @@
 use std::cmp::min;
 use std::path::Path;
 
+use crate::email_index::{EmailIndex, IndexedMessage};
 use crate::error::VivariumError;
-use crate::message::MessageEntry;
-use crate::store::MailStore;
 
 mod semantic;
 pub use semantic::semantic_or_hybrid_search;
@@ -35,13 +34,21 @@ pub fn keyword_search(
     offset: usize,
 ) -> Result<(Vec<SearchResult>, usize), VivariumError> {
     let query_lower = query.to_ascii_lowercase();
-    let store = MailStore::new(mail_root);
-
     let mut all_results: Vec<SearchResult> = Vec::new();
+    let index = EmailIndex::open(mail_root)?;
 
-    for folder in &["INBOX", "Archive", "Sent", "Drafts"] {
-        let folder_results = search_folder(&store, account, folder, &query_lower)?;
-        all_results.extend(folder_results);
+    for message in index.list_messages(account)? {
+        let score = score_query(&query_lower, indexed_lexical_text(&message).as_bytes());
+        if score <= 0.0 {
+            continue;
+        }
+        let Ok(data) = std::fs::read(&message.raw_path) else {
+            continue;
+        };
+        if crate::catalog::fingerprint(&data) != message.fingerprint {
+            continue;
+        }
+        all_results.push(search_result(message, &data, score));
     }
 
     // Sort by score descending
@@ -116,6 +123,21 @@ fn trim_snippet_line(body: &str, max_len: usize) -> String {
         .collect()
 }
 
+fn indexed_lexical_text(message: &IndexedMessage) -> String {
+    [
+        message.handle.as_str(),
+        message.folder.as_str(),
+        message.date.as_str(),
+        message.from_addr.as_str(),
+        message.to_addr.as_str(),
+        message.cc_addr.as_str(),
+        message.bcc_addr.as_str(),
+        message.subject.as_str(),
+        message.rfc_message_id.as_deref().unwrap_or(""),
+    ]
+    .join("\n")
+}
+
 /// Search result in JSON-friendly format.
 pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
     serde_json::json!({
@@ -180,49 +202,16 @@ pub fn print_results(
     }
 }
 
-fn search_folder(
-    store: &MailStore,
-    account: &str,
-    folder: &str,
-    query: &str,
-) -> Result<Vec<SearchResult>, VivariumError> {
-    let mut results = Vec::new();
-
-    for entry in store.list_messages(folder)? {
-        let data = std::fs::read(&entry.path)?;
-        let score = score_query(query, &data);
-        if score <= 0.0 {
-            continue;
-        }
-
-        results.push(search_result(account, folder, entry, &data, score));
-    }
-
-    Ok(results)
-}
-
-fn search_result(
-    account: &str,
-    folder: &str,
-    entry: MessageEntry,
-    data: &[u8],
-    score: f64,
-) -> SearchResult {
+fn search_result(message: IndexedMessage, data: &[u8], score: f64) -> SearchResult {
     SearchResult {
-        handle: entry.message_id,
-        raw_path: entry.path.to_string_lossy().to_string(),
-        account: account.to_string(),
-        folder: folder.to_string(),
-        maildir_subdir: entry
-            .path
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string(),
-        date: entry.date.format("%Y-%m-%d %H:%M").to_string(),
-        from: entry.from,
-        subject: entry.subject,
+        handle: message.handle,
+        raw_path: message.raw_path,
+        account: message.account,
+        folder: message.folder,
+        maildir_subdir: message.maildir_subdir,
+        date: message.date,
+        from: message.from_addr,
+        subject: message.subject,
         score,
         lexical_score: Some(score),
         semantic_score: None,
@@ -233,7 +222,12 @@ fn search_result(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+    use crate::catalog::{Catalog, CatalogEntry};
+    use crate::email_index;
+    use crate::store::MailStore;
 
     #[test]
     fn scores_contained_words() {
@@ -257,16 +251,18 @@ mod tests {
     }
 
     #[test]
-    fn keyword_search_matches_maildir_eml_files_with_metadata() {
+    fn keyword_search_matches_indexed_eml_files_with_metadata() {
         let tmp = tempfile::tempdir().unwrap();
         let store = MailStore::new(tmp.path());
-        store
+        let path = store
             .store_message(
                 "inbox",
                 "inbox-1",
                 b"From: Agent <agent@example.com>\r\nTo: me@example.com\r\nDate: Sat, 2 May 2026 13:35:00 +0000\r\nSubject: Release notice\r\n\r\nRelease body",
             )
             .unwrap();
+        catalog(tmp.path(), "acct", &path, "INBOX");
+        email_index::rebuild(tmp.path(), "acct").unwrap();
 
         let (results, total) = keyword_search(tmp.path(), "acct", "release", 10, 0).unwrap();
 
@@ -278,6 +274,24 @@ mod tests {
         assert_eq!(results[0].from, "Agent");
         assert_eq!(results[0].subject, "Release notice");
         assert!(results[0].raw_path.ends_with("inbox-1.eml"));
+    }
+
+    #[test]
+    fn keyword_search_ignores_unindexed_maildir_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        store
+            .store_message(
+                "inbox",
+                "inbox-1",
+                b"Subject: Release notice\r\n\r\nRelease body",
+            )
+            .unwrap();
+
+        let (results, total) = keyword_search(tmp.path(), "acct", "release", 10, 0).unwrap();
+
+        assert_eq!(total, 0);
+        assert!(results.is_empty());
     }
 
     #[test]
@@ -303,5 +317,29 @@ mod tests {
         assert_eq!(json["citation"]["handle"], "inbox-1");
         assert_eq!(json["citation"]["account"], "acct");
         assert_eq!(json["citation"]["source_type"], "rfc5322");
+    }
+
+    fn catalog(mail_root: &Path, account: &str, path: &Path, folder: &str) {
+        let data = std::fs::read(path).unwrap();
+        let mut catalog = Catalog::open(mail_root).unwrap();
+        catalog
+            .upsert(&CatalogEntry {
+                handle: "cat-1".into(),
+                raw_path: path.to_string_lossy().to_string(),
+                fingerprint: crate::catalog::fingerprint(&data),
+                account: account.into(),
+                folder: folder.into(),
+                maildir_subdir: "new".into(),
+                date: "2026-05-02 13:35".into(),
+                from: "Agent".into(),
+                to: "me@example.com".into(),
+                cc: String::new(),
+                bcc: String::new(),
+                subject: "Release notice".into(),
+                rfc_message_id: crate::message::message_id_from_bytes(&data).unwrap_or_default(),
+                remote: None,
+                is_duplicate: false,
+            })
+            .unwrap();
     }
 }
