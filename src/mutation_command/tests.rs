@@ -20,7 +20,7 @@ fn dry_run_plan_resolves_maildir_id_and_serializes_json() {
     let json = output_json(&prepared.preview, "planned", None);
     let audit = audit_record(&prepared, "planned", true, None);
 
-    assert_eq!(prepared.preview.target_mailbox.as_deref(), Some("All Mail"));
+    assert_eq!(prepared.preview.target_mailbox.as_deref(), Some("Archive"));
     assert_eq!(prepared.preview.command_path, "UID MOVE");
     assert_eq!(json["status"], "planned");
     assert_eq!(json["plan"]["local_message_id"], "inbox-42");
@@ -29,10 +29,10 @@ fn dry_run_plan_resolves_maildir_id_and_serializes_json() {
 }
 
 #[test]
-fn move_plan_accepts_exact_configured_remote_folder_name() {
+fn move_plan_rejects_internal_all_mail_folder_name() {
     let tmp = tempfile::tempdir().unwrap();
     let (_store, account, handle) = fixture(tmp.path());
-    let prepared = prepare_mutation(
+    let err = prepare_mutation(
         &account,
         tmp.path(),
         &handle,
@@ -42,13 +42,9 @@ fn move_plan_accepts_exact_configured_remote_folder_name() {
         &capabilities(true, true),
         true,
     )
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(prepared.preview.target_mailbox.as_deref(), Some("All Mail"));
-    assert_eq!(
-        prepared.preview.target_local_folder.as_deref(),
-        Some("archive")
-    );
+    assert!(err.to_string().contains("unsupported local mirror folder"));
 }
 
 #[test]

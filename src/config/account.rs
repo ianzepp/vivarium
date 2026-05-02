@@ -112,7 +112,7 @@ impl Account {
         root.join(&self.name)
     }
 
-    /// Which IMAP folder contains all messages for this provider.
+    /// Provider-specific upstream aggregate used for sync only.
     pub fn all_mail_folder(&self) -> &str {
         match self.provider {
             crate::config::types::Provider::Gmail => "[Gmail]/All Mail",
@@ -128,7 +128,7 @@ impl Account {
     pub fn archive_folder(&self) -> String {
         self.archive_folder
             .clone()
-            .unwrap_or_else(|| self.all_mail_folder().into())
+            .unwrap_or_else(|| "Archive".into())
     }
 
     pub fn trash_folder(&self) -> String {

@@ -126,9 +126,10 @@ Vivarium handles the differences between IMAP providers:
 | ProtonMail   | `"protonmail"` | INBOX      | Sent folder          |
 | Standard     | `"standard"` | INBOX folder | Sent folder          |
 
-Gmail syncs `[Gmail]/All Mail` into `Archive/`. ProtonMail syncs Bridge's
-`All Mail` into `Archive/`. Standard IMAP accounts sync `INBOX` and `Sent`
-directly.
+Gmail and ProtonMail use their provider `All Mail` views only as internal sync
+sources for the local `Archive/` corpus. User-facing archive operations target
+the provider's real `Archive` folder. Standard IMAP accounts sync `INBOX` and
+`Sent` directly.
 
 ## Security
 

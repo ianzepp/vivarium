@@ -91,7 +91,7 @@ fn sync_folders(account: &Account) -> Vec<FolderPlan> {
 
     if matches!(account.provider, Provider::Gmail | Provider::Protonmail) {
         folders.push(FolderPlan {
-            remote_folder: account.archive_folder(),
+            remote_folder: account.all_mail_folder().into(),
             local_folder: "archive",
             dedupe_scope: DedupeScope::AllFolders,
         });

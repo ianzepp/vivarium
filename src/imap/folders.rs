@@ -123,11 +123,11 @@ mod tests {
         let gmail = account(Provider::Gmail);
         let standard = account(Provider::Standard);
 
-        assert_eq!(resolved_folders(&proton).archive, "All Mail");
+        assert_eq!(resolved_folders(&proton).archive, "Archive");
         assert_eq!(resolved_folders(&proton).trash, "Trash");
-        assert_eq!(resolved_folders(&gmail).archive, "[Gmail]/All Mail");
+        assert_eq!(resolved_folders(&gmail).archive, "Archive");
         assert_eq!(resolved_folders(&gmail).sent, "[Gmail]/Sent Mail");
-        assert_eq!(resolved_folders(&standard).archive, "INBOX");
+        assert_eq!(resolved_folders(&standard).archive, "Archive");
     }
 
     #[test]
