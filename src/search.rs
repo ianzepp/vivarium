@@ -12,6 +12,7 @@ pub struct SearchResult {
     pub raw_path: String,
     pub account: String,
     pub folder: String,
+    pub maildir_subdir: String,
     pub date: String,
     pub from: String,
     pub subject: String,
@@ -116,12 +117,58 @@ pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
         "raw_path": result.raw_path,
         "account": result.account,
         "folder": result.folder,
+        "maildir_subdir": result.maildir_subdir,
         "date": result.date,
         "from": result.from,
         "subject": result.subject,
         "score": result.score,
         "snippet": result.snippet,
+        "citation": {
+            "handle": result.handle,
+            "account": result.account,
+            "folder": result.folder,
+            "maildir_subdir": result.maildir_subdir,
+            "raw_path": result.raw_path,
+            "source_type": "rfc5322",
+        },
     })
+}
+
+pub fn print_results(
+    query: &str,
+    limit: usize,
+    offset: usize,
+    results: Vec<SearchResult>,
+    total: usize,
+    as_json: bool,
+) {
+    if as_json {
+        let output = serde_json::json!({
+            "query": query,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "results": results.into_iter()
+                .map(|r| to_json_result(&r))
+                .collect::<Vec<_>>(),
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&output).unwrap_or_else(|_| output.to_string())
+        );
+        return;
+    }
+
+    println!("search: {} results for '{}'", total, query);
+    for result in &results {
+        println!(
+            "  {}  {:<16}  {}  {}",
+            result.handle, result.date, result.from, result.subject
+        );
+        if !result.snippet.is_empty() {
+            println!("    snippet: {}", result.snippet);
+        }
+    }
 }
 
 fn search_folder(
@@ -157,6 +204,13 @@ fn search_result(
         raw_path: entry.path.to_string_lossy().to_string(),
         account: account.to_string(),
         folder: folder.to_string(),
+        maildir_subdir: entry
+            .path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string(),
         date: entry.date.format("%Y-%m-%d %H:%M").to_string(),
         from: entry.from,
         subject: entry.subject,
@@ -208,8 +262,31 @@ mod tests {
         assert_eq!(results[0].handle, "inbox-1");
         assert_eq!(results[0].account, "acct");
         assert_eq!(results[0].folder, "INBOX");
+        assert_eq!(results[0].maildir_subdir, "new");
         assert_eq!(results[0].from, "Agent");
         assert_eq!(results[0].subject, "Release notice");
         assert!(results[0].raw_path.ends_with("inbox-1.eml"));
+    }
+
+    #[test]
+    fn json_result_includes_citation() {
+        let result = SearchResult {
+            handle: "inbox-1".into(),
+            raw_path: "/tmp/inbox-1.eml".into(),
+            account: "acct".into(),
+            folder: "INBOX".into(),
+            maildir_subdir: "new".into(),
+            date: "2026-05-02 12:00".into(),
+            from: "Agent".into(),
+            subject: "Subject".into(),
+            score: 1.0,
+            snippet: "body".into(),
+        };
+
+        let json = to_json_result(&result);
+
+        assert_eq!(json["citation"]["handle"], "inbox-1");
+        assert_eq!(json["citation"]["account"], "acct");
+        assert_eq!(json["citation"]["source_type"], "rfc5322");
     }
 }

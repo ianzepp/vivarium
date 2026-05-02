@@ -120,6 +120,20 @@ pub enum Command {
         json: bool,
     },
 
+    /// Show local thread context for a message
+    Thread {
+        /// Message identifier (filename stem)
+        message_id: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Maximum messages to include
+        #[arg(long, default_value = "50")]
+        limit: usize,
+    },
+
     /// Reply to a message
     #[cfg(feature = "outbox")]
     Reply {
@@ -154,6 +168,10 @@ pub enum Command {
     Export {
         /// Message identifier (filename stem)
         message_id: String,
+
+        /// Export normalized local text instead of raw RFC 5322 bytes
+        #[arg(long)]
+        text: bool,
     },
 
     /// Search messages by keyword

@@ -43,6 +43,13 @@ pub struct MailStore {
     root: PathBuf,
 }
 
+#[derive(Debug, Clone)]
+pub struct MessageLocation {
+    pub folder: String,
+    pub maildir_subdir: String,
+    pub path: PathBuf,
+}
+
 impl MailStore {
     pub fn new(root: &Path) -> Self {
         Self {
@@ -102,8 +109,31 @@ impl MailStore {
 
     /// Read raw message bytes by message ID (looks across all folders).
     pub fn read_message(&self, message_id: &str) -> Result<Vec<u8>, VivariumError> {
-        if let Some(path) = self.find_message(message_id, FOLDERS)? {
-            return Ok(fs::read(&path)?);
+        let location = self.locate_message(message_id)?;
+        Ok(fs::read(location.path)?)
+    }
+
+    /// Locate a message by handle across all user-facing folders.
+    pub fn locate_message(&self, message_id: &str) -> Result<MessageLocation, VivariumError> {
+        let wanted = display_message_id(message_id);
+        for folder in FOLDERS {
+            for subdir in ["new", "cur"] {
+                let dir = self.folder_path(folder).join(subdir);
+                if !dir.exists() {
+                    continue;
+                }
+                for entry in fs::read_dir(&dir)? {
+                    let entry = entry?;
+                    let file_path = entry.path();
+                    if message_id_from_path(&file_path).as_deref() == Some(wanted.as_str()) {
+                        return Ok(MessageLocation {
+                            folder: (*folder).to_string(),
+                            maildir_subdir: subdir.to_string(),
+                            path: file_path,
+                        });
+                    }
+                }
+            }
         }
         Err(VivariumError::Message(format!(
             "message not found: {message_id}"

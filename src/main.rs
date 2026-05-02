@@ -88,8 +88,13 @@ impl Runtime {
                 before,
             } => self.list(&folder, limit, since, before),
             Command::Show { message_ids, json } => self.show(&message_ids, json),
+            Command::Thread {
+                message_id,
+                json,
+                limit,
+            } => self.thread(&message_id, json, limit),
             Command::Archive { message_ids } => self.archive(&message_ids),
-            Command::Export { message_id } => self.export(&message_id),
+            Command::Export { message_id, text } => self.export(&message_id, text),
             Command::Search {
                 query,
                 limit,
@@ -203,7 +208,7 @@ impl Runtime {
         let acct = self.resolve_account(self.account.clone())?;
         let store = MailStore::new(&acct.mail_path(&self.config));
         if as_json {
-            return vivarium::retrieve::print_json_messages(&store, message_ids);
+            return vivarium::retrieve::print_json_messages(&store, &acct.name, message_ids);
         }
         for (i, message_id) in message_ids.iter().enumerate() {
             if i > 0 {
@@ -216,10 +221,25 @@ impl Runtime {
         Ok(())
     }
 
-    fn export(&self, message_id: &str) -> Result<(), VivariumError> {
+    fn thread(&self, message_id: &str, as_json: bool, limit: usize) -> Result<(), VivariumError> {
+        if !as_json {
+            return Err(VivariumError::Message(
+                "thread currently supports JSON output only; pass --json".into(),
+            ));
+        }
         let acct = self.resolve_account(self.account.clone())?;
         let store = MailStore::new(&acct.mail_path(&self.config));
-        vivarium::retrieve::export_raw_message(&store, message_id)
+        vivarium::thread::print_thread_json(&store, &acct.name, message_id, limit)
+    }
+
+    fn export(&self, message_id: &str, as_text: bool) -> Result<(), VivariumError> {
+        let acct = self.resolve_account(self.account.clone())?;
+        let store = MailStore::new(&acct.mail_path(&self.config));
+        if as_text {
+            vivarium::retrieve::export_text_message(&store, message_id)
+        } else {
+            vivarium::retrieve::export_raw_message(&store, message_id)
+        }
     }
 
     fn archive(&self, message_ids: &[String]) -> Result<(), VivariumError> {
@@ -305,33 +325,7 @@ impl Runtime {
 
         let (results, total) =
             vivarium::search::keyword_search(&mail_root, &acct.name, query, limit, offset)?;
-
-        if as_json {
-            let output = serde_json::json!({
-                "query": query,
-                "total": total,
-                "limit": limit,
-                "offset": offset,
-                "results": results.into_iter()
-                    .map(|r: vivarium::search::SearchResult| vivarium::search::to_json_result(&r))
-                    .collect::<Vec<_>>(),
-            });
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&output).unwrap_or_else(|_| output.to_string())
-            );
-        } else {
-            println!("search: {} results for '{}'", total, query);
-            if results.is_empty() {
-                return Ok(());
-            }
-            for r in &results {
-                println!("  {}  {:<16}  {}  {}", r.handle, r.date, r.from, r.subject);
-                if !r.snippet.is_empty() {
-                    println!("    snippet: {}", r.snippet);
-                }
-            }
-        }
+        vivarium::search::print_results(query, limit, offset, results, total, as_json);
         Ok(())
     }
 }

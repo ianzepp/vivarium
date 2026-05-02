@@ -10,6 +10,7 @@ pub mod message;
 pub mod oauth;
 pub mod retrieve;
 pub mod search;
+pub mod thread;
 
 #[cfg(feature = "outbox")]
 pub mod outbox;
