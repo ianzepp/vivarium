@@ -3,6 +3,7 @@ use std::time::Duration;
 use crate::config::{Account, Config};
 use crate::error::VivariumError;
 use crate::store::MailStore;
+use crate::sync::SyncWindow;
 
 pub async fn watch_all(
     accounts: &[Account],
@@ -52,7 +53,14 @@ async fn watch_imap(
         match crate::imap::idle(&account, reject_invalid_certs).await {
             Ok(()) => {
                 backoff = Duration::from_secs(1);
-                let result = crate::sync::sync_account(&account, &config, insecure).await?;
+                let result = crate::sync::sync_account(
+                    &account,
+                    &config,
+                    insecure,
+                    None,
+                    SyncWindow::default(),
+                )
+                .await?;
                 tracing::info!(
                     account = account.name,
                     new = result.new,

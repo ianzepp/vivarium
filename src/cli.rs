@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(name = "vivi", about = "Local-first IMAP email sync for LLMs")]
+#[command(name = "vivi", version, about = "Local-first IMAP email sync for LLMs")]
 pub struct Cli {
     /// Path to config file
     #[arg(long, global = true)]
@@ -112,7 +112,12 @@ pub enum Command {
     /// Show one or more messages by ID
     Show {
         /// Message identifiers (filename stems)
+        #[arg(required = true)]
         message_ids: Vec<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Reply to a message
@@ -141,7 +146,14 @@ pub enum Command {
     /// Archive one or more messages (move from inbox to archive)
     Archive {
         /// Message identifiers
+        #[arg(required = true)]
         message_ids: Vec<String>,
+    },
+
+    /// Export one raw .eml message by ID
+    Export {
+        /// Message identifier (filename stem)
+        message_id: String,
     },
 
     /// Search messages by keyword

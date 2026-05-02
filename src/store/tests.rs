@@ -46,6 +46,16 @@ fn store_message_writes_via_maildir() {
     );
 }
 
+#[test]
+fn list_messages_rejects_unknown_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = MailStore::new(tmp.path());
+
+    let err = store.list_messages("bogus").unwrap_err();
+
+    assert!(err.to_string().contains("invalid folder"));
+}
+
 #[cfg(unix)]
 #[test]
 fn store_message_writes_private_file() {

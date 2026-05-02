@@ -71,11 +71,12 @@ impl MailStore {
 
     /// Path to a specific folder.
     pub fn folder_path(&self, folder: &str) -> PathBuf {
-        self.root.join(canonical_folder(folder))
+        self.root.join(canonical_folder(folder).unwrap_or(folder))
     }
 
     /// List message entries in a folder.
     pub fn list_messages(&self, folder: &str) -> Result<Vec<MessageEntry>, VivariumError> {
+        let folder = resolve_folder(folder)?;
         let path = self.folder_path(folder);
         if !path.exists() {
             return Ok(vec![]);
@@ -127,6 +128,7 @@ impl MailStore {
         message_id: &str,
         data: &[u8],
     ) -> Result<PathBuf, VivariumError> {
+        let folder = resolve_folder(folder)?;
         if !matches!(subdir, "new" | "cur") {
             return Err(VivariumError::Message(format!(
                 "invalid maildir destination: {subdir}"
@@ -155,9 +157,11 @@ impl MailStore {
         from: &str,
         to: &str,
     ) -> Result<PathBuf, VivariumError> {
+        let from_folder = resolve_folder(from)?;
+        let to_folder = resolve_folder(to)?;
         self.ensure_folder(to)?;
         let src = self
-            .find_message_in_subdirs(message_id, canonical_folder(from), MAILDIR_DIRS)?
+            .find_message_in_subdirs(message_id, from_folder, MAILDIR_DIRS)?
             .ok_or_else(|| {
                 VivariumError::Message(format!("message not found in {from}: {message_id}"))
             })?;
@@ -175,7 +179,7 @@ impl MailStore {
         let filename = src
             .file_name()
             .ok_or_else(|| VivariumError::Message("message path has no filename".into()))?;
-        let dst = self.folder_path(to).join(subdir).join(filename);
+        let dst = self.folder_path(to_folder).join(subdir).join(filename);
 
         fs::rename(&src, &dst)?;
         tracing::debug!(from = %src.display(), to = %dst.display(), "moved message");
@@ -191,7 +195,8 @@ impl MailStore {
 
     /// Get the file size of a message in a specific folder, if it exists.
     pub fn file_size(&self, folder: &str, message_id: &str) -> Option<u64> {
-        self.find_message(message_id, &[canonical_folder(folder)])
+        let folder = resolve_folder(folder).ok()?;
+        self.find_message(message_id, &[folder])
             .ok()
             .flatten()
             .and_then(|path| fs::metadata(&path).ok().map(|m| m.len()))
@@ -199,6 +204,7 @@ impl MailStore {
 
     /// Build a map of message_id -> file_size for all message files in a folder.
     pub fn local_sizes(&self, folder: &str) -> Result<HashMap<String, u64>, VivariumError> {
+        let folder = resolve_folder(folder)?;
         let path = self.folder_path(folder);
         let mut map = HashMap::new();
         if !path.exists() {
@@ -230,6 +236,7 @@ impl MailStore {
         &self,
         folder: &str,
     ) -> Result<HashMap<String, (u32, u64)>, VivariumError> {
+        let folder = resolve_folder(folder)?;
         let path = self.folder_path(folder);
         let mut map = HashMap::new();
         for subdir in ["new", "cur"] {
@@ -295,6 +302,7 @@ impl MailStore {
     }
 
     fn ensure_folder(&self, folder: &str) -> Result<(), VivariumError> {
+        let folder = resolve_folder(folder)?;
         secure_create_dir_all(&self.root)?;
         let path = self.folder_path(folder);
         secure_create_dir_all(&path)?;
@@ -347,7 +355,15 @@ impl MailStore {
     fn index_path(&self, folder: &str, rfc_message_id: &str) -> PathBuf {
         self.root
             .join(".vivarium_index")
-            .join(canonical_folder(folder))
+            .join(canonical_folder(folder).unwrap_or(folder))
             .join(format!("{:016x}", stable_hash(rfc_message_id)))
     }
+}
+
+fn resolve_folder(folder: &str) -> Result<&'static str, VivariumError> {
+    canonical_folder(folder).ok_or_else(|| {
+        VivariumError::Message(format!(
+            "invalid folder '{folder}', expected inbox, archive, sent, drafts, or outbox"
+        ))
+    })
 }

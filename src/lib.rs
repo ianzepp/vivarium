@@ -8,6 +8,7 @@ pub mod init;
 pub mod list;
 pub mod message;
 pub mod oauth;
+pub mod retrieve;
 pub mod search;
 
 #[cfg(feature = "outbox")]

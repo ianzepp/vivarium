@@ -6,15 +6,15 @@ pub fn message_id_from_path(path: &Path) -> Option<String> {
         .map(display_message_id)
 }
 
-pub(super) fn canonical_folder(folder: &str) -> &'static str {
-    match folder.to_ascii_lowercase().as_str() {
+pub(super) fn canonical_folder(folder: &str) -> Option<&'static str> {
+    Some(match folder.to_ascii_lowercase().as_str() {
         "inbox" | "new" => "INBOX",
         "archive" | "archives" | "all" => "Archive",
         "sent" => "Sent",
         "draft" | "drafts" => "Drafts",
         "outbox" => "outbox",
-        _ => "INBOX",
-    }
+        _ => return None,
+    })
 }
 
 pub(super) fn is_message_file(path: &Path) -> bool {

@@ -20,7 +20,7 @@ pub async fn send_raw(
 
     let creds = Credentials::new(account.username.clone(), secret);
 
-    let tls_parameters = tls_parameters(host, reject_invalid_certs)?;
+    let tls_parameters = tls_parameters(&host, reject_invalid_certs)?;
 
     let builder = match account.smtp_security {
         Security::Ssl => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)

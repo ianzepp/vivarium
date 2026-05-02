@@ -1,8 +1,8 @@
 use std::cmp::min;
 use std::path::Path;
 
-use crate::catalog::{Catalog, handle_from_bytes};
 use crate::error::VivariumError;
+use crate::message::MessageEntry;
 use crate::store::MailStore;
 
 /// A search result with handle and citation metadata.
@@ -22,27 +22,19 @@ pub struct SearchResult {
 /// Keyword search over the catalog and extracted text.
 pub fn keyword_search(
     mail_root: &Path,
+    account: &str,
     query: &str,
     limit: usize,
     offset: usize,
 ) -> Result<(Vec<SearchResult>, usize), VivariumError> {
     let query_lower = query.to_ascii_lowercase();
-    let _catalog = Catalog::open(mail_root)?;
     let store = MailStore::new(mail_root);
 
-    // Get all catalog entries for a reasonable scope
     let mut all_results: Vec<SearchResult> = Vec::new();
 
     for folder in &["INBOX", "Archive", "Sent", "Drafts"] {
-        let canonical = canonical_folder(folder);
-        for subdir in &["new", "cur"] {
-            let dir = store.folder_path(canonical).join(subdir);
-            if !dir.exists() {
-                continue;
-            }
-            let folder_results = search_folder(&dir, &query_lower)?;
-            all_results.extend(folder_results);
-        }
+        let folder_results = search_folder(&store, account, folder, &query_lower)?;
+        all_results.extend(folder_results);
     }
 
     // Sort by score descending
@@ -99,15 +91,22 @@ fn snippet_from_bytes(data: &[u8], max_len: usize) -> String {
     // Find the body (after blank line)
     if let Some(body_start) = text.find("\r\n\r\n") {
         let body = &text[body_start + 4..];
-        let end = min(body.find('\n').unwrap_or(max_len), max_len);
-        body[..end].to_string()
+        trim_snippet_line(body, max_len)
     } else if let Some(body_start) = text.find("\n\n") {
         let body = &text[body_start + 2..];
-        let end = min(body.find('\n').unwrap_or(max_len), max_len);
-        body[..end].to_string()
+        trim_snippet_line(body, max_len)
     } else {
         String::new()
     }
+}
+
+fn trim_snippet_line(body: &str, max_len: usize) -> String {
+    body.lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(max_len)
+        .collect()
 }
 
 /// Search result in JSON-friendly format.
@@ -115,6 +114,7 @@ pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
     serde_json::json!({
         "handle": result.handle,
         "raw_path": result.raw_path,
+        "account": result.account,
         "folder": result.folder,
         "date": result.date,
         "from": result.from,
@@ -124,62 +124,44 @@ pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
     })
 }
 
-fn search_folder(dir: &std::path::Path, query: &str) -> Result<Vec<SearchResult>, VivariumError> {
+fn search_folder(
+    store: &MailStore,
+    account: &str,
+    folder: &str,
+    query: &str,
+) -> Result<Vec<SearchResult>, VivariumError> {
     let mut results = Vec::new();
 
-    if let Ok(read_dir) = std::fs::read_dir(dir) {
-        for entry_result in read_dir {
-            let entry = entry_result.ok();
-            let path = entry.as_ref().map(|e| e.path());
-            if path.is_none() {
-                continue;
-            }
-            let path_val = path.unwrap();
-            let stem = path_val
-                .file_stem()
-                .map(|s| s.to_string_lossy())
-                .unwrap_or_default();
-            if !stem.ends_with(".eml") {
-                continue;
-            }
-
-            let data = std::fs::read(&path_val).ok().ok_or_else(|| {
-                VivariumError::Other(format!("cannot read {}", path_val.display()))
-            })?;
-
-            let handle = handle_from_bytes(&data);
-            let score = score_query(query, &data);
-            if score <= 0.0 {
-                continue;
-            }
-
-            let snippet = snippet_from_bytes(&data, 100);
-
-            results.push(SearchResult {
-                handle,
-                raw_path: path_val.to_string_lossy().to_string(),
-                account: String::new(),
-                folder: String::new(),
-                date: String::new(),
-                from: String::new(),
-                subject: String::new(),
-                score,
-                snippet,
-            });
+    for entry in store.list_messages(folder)? {
+        let data = std::fs::read(&entry.path)?;
+        let score = score_query(query, &data);
+        if score <= 0.0 {
+            continue;
         }
+
+        results.push(search_result(account, folder, entry, &data, score));
     }
 
     Ok(results)
 }
 
-fn canonical_folder(folder: &str) -> &'static str {
-    match folder.to_ascii_lowercase().as_str() {
-        "inbox" | "new" => "INBOX",
-        "archive" | "archives" | "all" => "Archive",
-        "sent" => "Sent",
-        "draft" | "drafts" => "Drafts",
-        "outbox" => "outbox",
-        _ => "INBOX",
+fn search_result(
+    account: &str,
+    folder: &str,
+    entry: MessageEntry,
+    data: &[u8],
+    score: f64,
+) -> SearchResult {
+    SearchResult {
+        handle: entry.message_id,
+        raw_path: entry.path.to_string_lossy().to_string(),
+        account: account.to_string(),
+        folder: folder.to_string(),
+        date: entry.date.format("%Y-%m-%d %H:%M").to_string(),
+        from: entry.from,
+        subject: entry.subject,
+        score,
+        snippet: snippet_from_bytes(data, 100),
     }
 }
 
@@ -206,5 +188,28 @@ mod tests {
         let data = b"From: a@b\r\nTo: c@d\r\nSubject: test\r\n\r\nHello world body text";
         let snippet = snippet_from_bytes(data, 5);
         assert!(snippet.len() <= 5);
+    }
+
+    #[test]
+    fn keyword_search_matches_maildir_eml_files_with_metadata() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        store
+            .store_message(
+                "inbox",
+                "inbox-1",
+                b"From: Agent <agent@example.com>\r\nTo: me@example.com\r\nDate: Sat, 2 May 2026 13:35:00 +0000\r\nSubject: Release notice\r\n\r\nRelease body",
+            )
+            .unwrap();
+
+        let (results, total) = keyword_search(tmp.path(), "acct", "release", 10, 0).unwrap();
+
+        assert_eq!(total, 1);
+        assert_eq!(results[0].handle, "inbox-1");
+        assert_eq!(results[0].account, "acct");
+        assert_eq!(results[0].folder, "INBOX");
+        assert_eq!(results[0].from, "Agent");
+        assert_eq!(results[0].subject, "Release notice");
+        assert!(results[0].raw_path.ends_with("inbox-1.eml"));
     }
 }

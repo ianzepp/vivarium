@@ -80,6 +80,7 @@ Vivarium-generated filenames keep a `.eml` stem for non-mail tooling, while `cur
 
 ```
 vivi init                                      # create config directory and files
+vivi --version                                 # print installed version
 vivi sync                                      # sync all accounts
 vivi sync --account proton                     # sync one account
 vivi sync --account proton --limit 100         # cap new downloads for this run
@@ -91,6 +92,8 @@ vivi list -n 25                                # list the 25 newest inbox messag
 vivi list --since 3mo                          # list inbox messages from the last 3 months
 vivi list --since 2025-05-02 --before 2026-05-02
 vivi show inbox-1                              # read a message
+vivi show inbox-1 --json                       # read a message as JSON
+vivi export inbox-1 > inbox-1.eml              # export the raw RFC 5322 message
 vivi archive inbox-1                           # move from inbox to archive
 vivi search "invoice"                          # keyword search
 vivi search "invoice" --json                   # JSON search output
@@ -103,9 +106,7 @@ All commands accept `--account <name>` to target a specific account. Without it,
 These surfaces are not available in the default CLI today:
 
 - semantic search or local embeddings
-- `vivi show <handle> --json`
 - `vivi thread <handle> --json`
-- `vivi export <handle>`
 - catalog or extraction rebuild commands
 - send, reply, compose, OAuth browser auth, token minting, or watch mode
 

@@ -1,3 +1,5 @@
+#[cfg(feature = "outbox")]
+use std::path::{Path, PathBuf};
 use std::process;
 
 use clap::Parser;
@@ -8,13 +10,6 @@ use vivarium::cli::{Cli, Command};
 use vivarium::config::{Account, AccountsFile, Config};
 use vivarium::message;
 use vivarium::store::MailStore;
-
-#[cfg(feature = "outbox")]
-use vivarium::outbox;
-#[cfg(feature = "outbox")]
-use vivarium::smtp;
-#[cfg(feature = "outbox")]
-use vivarium::watch;
 
 #[tokio::main]
 async fn main() {
@@ -92,8 +87,9 @@ impl Runtime {
                 since,
                 before,
             } => self.list(&folder, limit, since, before),
-            Command::Show { message_ids } => self.show(&message_ids),
+            Command::Show { message_ids, json } => self.show(&message_ids, json),
             Command::Archive { message_ids } => self.archive(&message_ids),
+            Command::Export { message_id } => self.export(&message_id),
             Command::Search {
                 query,
                 limit,
@@ -203,9 +199,12 @@ impl Runtime {
         Ok(())
     }
 
-    fn show(&self, message_ids: &[String]) -> Result<(), VivariumError> {
+    fn show(&self, message_ids: &[String], as_json: bool) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.account.clone())?;
         let store = MailStore::new(&acct.mail_path(&self.config));
+        if as_json {
+            return vivarium::retrieve::print_json_messages(&store, message_ids);
+        }
         for (i, message_id) in message_ids.iter().enumerate() {
             if i > 0 {
                 println!("\n---\n");
@@ -215,6 +214,12 @@ impl Runtime {
             println!("{output}");
         }
         Ok(())
+    }
+
+    fn export(&self, message_id: &str) -> Result<(), VivariumError> {
+        let acct = self.resolve_account(self.account.clone())?;
+        let store = MailStore::new(&acct.mail_path(&self.config));
+        vivarium::retrieve::export_raw_message(&store, message_id)
     }
 
     fn archive(&self, message_ids: &[String]) -> Result<(), VivariumError> {
@@ -298,7 +303,8 @@ impl Runtime {
         let acct = self.resolve_account(self.account.clone())?;
         let mail_root = acct.mail_path(&self.config);
 
-        let (results, total) = vivarium::search::keyword_search(&mail_root, query, limit, offset)?;
+        let (results, total) =
+            vivarium::search::keyword_search(&mail_root, &acct.name, query, limit, offset)?;
 
         if as_json {
             let output = serde_json::json!({

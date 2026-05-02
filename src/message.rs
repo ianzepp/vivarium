@@ -199,6 +199,50 @@ pub fn render_message(data: &[u8]) -> Result<String, VivariumError> {
     ))
 }
 
+pub fn to_json_message(message_id: &str, data: &[u8]) -> Result<serde_json::Value, VivariumError> {
+    let parsed = mail_parser::MessageParser::default()
+        .parse(data)
+        .ok_or_else(|| VivariumError::Parse("failed to parse message".into()))?;
+
+    let date = parsed
+        .date()
+        .and_then(|d| DateTime::from_timestamp(d.to_timestamp(), 0))
+        .map(|dt| dt.to_rfc3339());
+    let body = parsed.body_text(0).map(|s| s.to_string());
+
+    Ok(serde_json::json!({
+        "handle": message_id,
+        "message_id": parsed.message_id().and_then(normalize_message_id),
+        "from": first_address(parsed.from()),
+        "to": addresses(parsed.to()),
+        "cc": addresses(parsed.cc()),
+        "bcc": addresses(parsed.bcc()),
+        "date": date,
+        "subject": parsed.subject(),
+        "body": body,
+    }))
+}
+
+fn first_address(list: Option<&mail_parser::Address>) -> Option<String> {
+    list.and_then(|addresses| addresses.first())
+        .and_then(format_address)
+}
+
+fn addresses(list: Option<&mail_parser::Address>) -> Vec<String> {
+    list.map(|addresses| addresses.iter().filter_map(format_address).collect())
+        .unwrap_or_default()
+}
+
+fn format_address(address: &mail_parser::Addr<'_>) -> Option<String> {
+    let addr = address.address()?;
+    let name = address.name().unwrap_or("");
+    if name.is_empty() {
+        Some(addr.to_string())
+    } else {
+        Some(format!("{name} <{addr}>"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,5 +263,19 @@ mod tests {
             message_id_from_bytes(data),
             Some("abc@example.com".to_string())
         );
+    }
+
+    #[test]
+    fn renders_json_message() {
+        let data = b"Message-ID: <ABC@example.COM>\r\nFrom: Agent <agent@example.com>\r\nTo: Me <me@example.com>\r\nSubject: hello\r\n\r\nbody";
+
+        let json = to_json_message("inbox-1", data).unwrap();
+
+        assert_eq!(json["handle"], "inbox-1");
+        assert_eq!(json["message_id"], "abc@example.com");
+        assert_eq!(json["from"], "Agent <agent@example.com>");
+        assert_eq!(json["to"][0], "Me <me@example.com>");
+        assert_eq!(json["subject"], "hello");
+        assert_eq!(json["body"], "body");
     }
 }

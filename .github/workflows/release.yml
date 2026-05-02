@@ -99,7 +99,7 @@ jobs:
             end
 
             test do
-              assert_match "vivi", shell_output("#{bin}/vivi --help")
+              assert_match version.to_s, shell_output("#{bin}/vivi --version")
             end
           end
           FORMULA
