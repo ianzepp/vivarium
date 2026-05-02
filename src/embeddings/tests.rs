@@ -1,7 +1,8 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use rusqlite::Connection;
 
 use super::chunk::chunks_for_message;
 use super::provider::EmbeddingProvider;
@@ -62,7 +63,125 @@ async fn inconsistent_provider_dimensions_are_rejected() {
     assert!(err.to_string().contains("inconsistent dimensions"));
 }
 
-fn build_indexed_message(mail_root: &Path, body: &str) {
+#[tokio::test]
+async fn changed_raw_fingerprint_is_stale_and_not_embedded() {
+    let tmp = tempfile::tempdir().unwrap();
+    let provider = MockProvider::new(vec![vec![0.1, 0.2, 0.3]; 2]);
+    let path = build_indexed_message(tmp.path(), "original body");
+    fs::write(
+        &path,
+        "Message-ID: <one@example.com>\r\nSubject: hi\r\n\r\nchanged",
+    )
+    .unwrap();
+
+    let stats =
+        index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &provider)
+            .await
+            .unwrap();
+
+    assert_eq!(stats.scanned, 1);
+    assert_eq!(stats.stale, 1);
+    assert_eq!(stats.embedded, 0);
+}
+
+#[tokio::test]
+async fn changed_embedding_model_uses_separate_embedding_db() {
+    let tmp = tempfile::tempdir().unwrap();
+    build_indexed_message(tmp.path(), "body text");
+
+    let first = MockProvider::with_model("first", vec![vec![0.1, 0.2, 0.3]; 2]);
+    let second = MockProvider::with_model("second", vec![vec![0.4, 0.5, 0.6]; 2]);
+
+    let first_stats =
+        index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &first)
+            .await
+            .unwrap();
+    let second_stats =
+        index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &second)
+            .await
+            .unwrap();
+
+    assert_eq!(first_stats.embedded, 2);
+    assert_eq!(second_stats.embedded, 2);
+    assert_eq!(embedding_count(tmp.path(), "mock-first"), 2);
+    assert_eq!(embedding_count(tmp.path(), "mock-second"), 2);
+}
+
+#[tokio::test]
+async fn rebuild_failure_leaves_existing_embeddings_intact() {
+    let tmp = tempfile::tempdir().unwrap();
+    let provider = MockProvider::new(vec![vec![0.1, 0.2, 0.3]; 2]);
+    build_indexed_message(tmp.path(), "body text");
+
+    index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &provider)
+        .await
+        .unwrap();
+    assert_eq!(embedding_count(tmp.path(), "mock-model"), 2);
+
+    let err = index_embeddings_with_provider(
+        tmp.path(),
+        "acct",
+        EmbeddingOptions {
+            rebuild: true,
+            ..EmbeddingOptions::default()
+        },
+        &FailingProvider,
+    )
+    .await
+    .unwrap_err();
+
+    assert!(err.to_string().contains("provider unavailable"));
+    assert_eq!(embedding_count(tmp.path(), "mock-model"), 2);
+}
+
+#[tokio::test]
+async fn rebuild_is_scoped_to_selected_provider_model_db() {
+    let tmp = tempfile::tempdir().unwrap();
+    build_indexed_message(tmp.path(), "body text");
+
+    let first = MockProvider::with_model("first", vec![vec![0.1, 0.2, 0.3]; 2]);
+    let second = MockProvider::with_model("second", vec![vec![0.4, 0.5, 0.6]; 2]);
+    index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &first)
+        .await
+        .unwrap();
+    index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &second)
+        .await
+        .unwrap();
+
+    index_embeddings_with_provider(
+        tmp.path(),
+        "acct",
+        EmbeddingOptions {
+            rebuild: true,
+            ..EmbeddingOptions::default()
+        },
+        &first,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(embedding_count(tmp.path(), "mock-first"), 2);
+    assert_eq!(embedding_count(tmp.path(), "mock-second"), 2);
+}
+
+#[tokio::test]
+async fn deleted_local_message_counts_error_without_panic() {
+    let tmp = tempfile::tempdir().unwrap();
+    let provider = MockProvider::new(vec![vec![0.1, 0.2, 0.3]; 2]);
+    let path = build_indexed_message(tmp.path(), "body text");
+    fs::remove_file(path).unwrap();
+
+    let stats =
+        index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &provider)
+            .await
+            .unwrap();
+
+    assert_eq!(stats.scanned, 1);
+    assert_eq!(stats.errors, 1);
+    assert_eq!(stats.embedded, 0);
+}
+
+fn build_indexed_message(mail_root: &Path, body: &str) -> PathBuf {
     let store = MailStore::new(mail_root);
     let eml = format!("Message-ID: <one@example.com>\r\nSubject: hi\r\n\r\n{body}");
     let path = store
@@ -72,6 +191,7 @@ fn build_indexed_message(mail_root: &Path, body: &str) {
     email_index::rebuild(mail_root, "acct").unwrap();
     let index = EmailIndex::open(mail_root).unwrap();
     assert_eq!(index.count_messages("acct").unwrap(), 1);
+    path
 }
 
 fn catalog(mail_root: &Path, account: &str, path: &Path) {
@@ -123,12 +243,20 @@ fn indexed_message(
 }
 
 struct MockProvider {
+    model: String,
     vectors: Vec<Vec<f32>>,
 }
 
 impl MockProvider {
     fn new(vectors: Vec<Vec<f32>>) -> Self {
-        Self { vectors }
+        Self::with_model("model", vectors)
+    }
+
+    fn with_model(model: &str, vectors: Vec<Vec<f32>>) -> Self {
+        Self {
+            model: model.into(),
+            vectors,
+        }
     }
 }
 
@@ -139,10 +267,37 @@ impl EmbeddingProvider for MockProvider {
     }
 
     fn model(&self) -> &str {
-        "model"
+        &self.model
     }
 
     async fn embed(&self, inputs: &[String]) -> Result<Vec<Vec<f32>>, VivariumError> {
         Ok(self.vectors.iter().take(inputs.len()).cloned().collect())
     }
+}
+
+struct FailingProvider;
+
+#[async_trait]
+impl EmbeddingProvider for FailingProvider {
+    fn provider(&self) -> &str {
+        "mock"
+    }
+
+    fn model(&self) -> &str {
+        "model"
+    }
+
+    async fn embed(&self, _inputs: &[String]) -> Result<Vec<Vec<f32>>, VivariumError> {
+        Err(VivariumError::Other("provider unavailable".into()))
+    }
+}
+
+fn embedding_count(mail_root: &Path, db_name: &str) -> i64 {
+    let db_path = mail_root
+        .join(".vivarium")
+        .join("embeddings")
+        .join(format!("{db_name}.sqlite"));
+    let conn = Connection::open(db_path).unwrap();
+    conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))
+        .unwrap()
 }

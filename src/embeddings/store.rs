@@ -48,10 +48,41 @@ impl EmbeddingStore {
         Ok(store)
     }
 
-    pub(crate) fn clear_account(&mut self, account: &str) -> Result<(), VivariumError> {
-        self.conn
-            .execute("DELETE FROM chunks WHERE account = ?1", params![account])
-            .map_err(|e| VivariumError::Other(format!("failed to clear embedding chunks: {e}")))?;
+    pub(crate) fn retain_account_chunks(
+        &mut self,
+        account: &str,
+        chunk_ids: &[String],
+    ) -> Result<(), VivariumError> {
+        let tx = self.conn.transaction().map_err(|e| {
+            VivariumError::Other(format!("failed to start embedding prune transaction: {e}"))
+        })?;
+        tx.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS retained_embedding_chunks (
+               chunk_id TEXT PRIMARY KEY
+             );
+             DELETE FROM retained_embedding_chunks;",
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to prepare embedding prune: {e}")))?;
+        for chunk_id in chunk_ids {
+            tx.execute(
+                "INSERT OR IGNORE INTO retained_embedding_chunks (chunk_id) VALUES (?1)",
+                params![chunk_id],
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to mark retained chunk: {e}")))?;
+        }
+        tx.execute(
+            "DELETE FROM chunks
+             WHERE account = ?1
+               AND NOT EXISTS (
+                 SELECT 1 FROM retained_embedding_chunks r
+                 WHERE r.chunk_id = chunks.chunk_id
+               )",
+            params![account],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to prune embedding chunks: {e}")))?;
+        tx.commit().map_err(|e| {
+            VivariumError::Other(format!("failed to commit embedding prune transaction: {e}"))
+        })?;
         Ok(())
     }
 

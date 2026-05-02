@@ -89,15 +89,18 @@ async fn index_embeddings_with_provider<P: provider::EmbeddingProvider + Sync>(
 ) -> Result<EmbeddingStats, VivariumError> {
     let index = EmailIndex::open(mail_root)?;
     let mut store = store::EmbeddingStore::open(mail_root, provider.provider(), provider.model())?;
-    if options.rebuild {
-        store.clear_account(account)?;
-    }
     let messages = index.list_messages(account)?;
     let mut stats = EmbeddingStats::default();
+    let mut retained_chunks = Vec::new();
 
     for message in limited(messages, options.limit) {
         stats.scanned += 1;
-        index_message(&mut store, provider, &message, &mut stats).await?;
+        retained_chunks.extend(
+            index_message(&mut store, provider, &message, options.rebuild, &mut stats).await?,
+        );
+    }
+    if options.rebuild && options.limit.is_none() && stats.errors == 0 && stats.stale == 0 {
+        store.retain_account_chunks(account, &retained_chunks)?;
     }
     Ok(stats)
 }
@@ -106,30 +109,40 @@ async fn index_message<P: provider::EmbeddingProvider + Sync>(
     store: &mut store::EmbeddingStore,
     provider: &P,
     message: &IndexedMessage,
+    rebuild: bool,
     stats: &mut EmbeddingStats,
-) -> Result<(), VivariumError> {
+) -> Result<Vec<String>, VivariumError> {
     let data = match fs::read(&message.raw_path) {
         Ok(data) => data,
         Err(_) => {
             stats.errors += 1;
-            return Ok(());
+            return Ok(Vec::new());
         }
     };
     if crate::catalog::fingerprint(&data) != message.fingerprint {
         stats.stale += 1;
-        return Ok(());
+        return Ok(Vec::new());
     }
     let chunks = match chunk::chunks_for_message(message, &data) {
         Ok(chunks) => chunks,
         Err(_) => {
             stats.errors += 1;
-            return Ok(());
+            return Ok(Vec::new());
         }
     };
-    let pending = store.pending_chunks(&chunks)?;
-    stats.reused += chunks.len().saturating_sub(pending.len());
+    let retained = chunks
+        .iter()
+        .map(|chunk| chunk.chunk_id.clone())
+        .collect::<Vec<_>>();
+    let chunk_count = chunks.len();
+    let pending = if rebuild {
+        chunks
+    } else {
+        store.pending_chunks(&chunks)?
+    };
+    stats.reused += chunk_count.saturating_sub(pending.len());
     if pending.is_empty() {
-        return Ok(());
+        return Ok(retained);
     }
     let texts = pending
         .iter()
@@ -138,7 +151,7 @@ async fn index_message<P: provider::EmbeddingProvider + Sync>(
     let vectors = provider.embed(&texts).await?;
     store.store_embeddings(&pending, provider.provider(), provider.model(), vectors)?;
     stats.embedded += pending.len();
-    Ok(())
+    Ok(retained)
 }
 
 fn limited<T>(items: Vec<T>, limit: Option<usize>) -> Vec<T> {
