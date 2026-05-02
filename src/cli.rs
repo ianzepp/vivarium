@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use clap::{ArgGroup, Parser, Subcommand};
 
 mod agent_command;
+mod index_command;
 pub use agent_command::AgentCommand;
+pub use index_command::IndexCommand;
 
 #[derive(Debug, Parser)]
 #[command(name = "vivi", version, about = "Local-first IMAP email sync for LLMs")]
@@ -361,16 +363,4 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-}
-
-#[derive(Debug, Subcommand)]
-pub enum IndexCommand {
-    /// Rebuild the deterministic metadata index
-    Rebuild,
-
-    /// Show deterministic index status
-    Status,
-
-    /// Show how many cataloged messages are not indexed
-    Pending,
 }

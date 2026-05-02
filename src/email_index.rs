@@ -120,6 +120,27 @@ impl EmailIndex {
             .map_err(|e| VivariumError::Other(format!("failed to count index rows: {e}")))
     }
 
+    pub fn list_messages(&self, account: &str) -> Result<Vec<IndexedMessage>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT account, handle, catalog_handle, fingerprint, raw_path, folder,
+                    maildir_subdir, date, from_addr, to_addr, cc_addr, bcc_addr,
+                    subject, rfc_message_id
+             FROM messages
+             WHERE account = ?1
+             ORDER BY date, handle",
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to prepare index listing: {e}")))?;
+        let rows = stmt
+            .query_map(params![account], indexed_message_from_row)
+            .map_err(|e| VivariumError::Other(format!("failed to list index rows: {e}")))?;
+        rows.map(|row| {
+            row.map_err(|e| VivariumError::Other(format!("failed to read indexed row: {e}")))
+        })
+        .collect()
+    }
+
     fn thread_handles(
         &self,
         account: &str,

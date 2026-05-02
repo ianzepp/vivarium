@@ -119,7 +119,7 @@ impl Runtime {
                 offset,
                 json,
             } => self.search(&query, limit, offset, json),
-            Command::Index { command } => self.index(command),
+            Command::Index { command } => self.index(command).await,
             #[cfg(feature = "outbox")]
             Command::Watch { account } => self.watch(account).await,
             Command::Send { .. } | Command::Reply { .. } | Command::Compose { .. } => {
@@ -279,51 +279,87 @@ impl Runtime {
         Ok(())
     }
 
-    fn index(&self, command: IndexCommand) -> Result<(), VivariumError> {
+    async fn index(&self, command: IndexCommand) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.account.clone())?;
         let mail_root = acct.mail_path(&self.config);
         match command {
-            IndexCommand::Rebuild => {
-                let stats = vivarium::email_index::rebuild(&mail_root, &acct.name)?;
-                println!(
-                    "indexed {}: scanned={} updated={} reused={} stale={} errors={}",
-                    acct.name,
-                    stats.scanned,
-                    stats.updated,
-                    stats.reused,
-                    stats.stale,
-                    stats.errors
-                );
-                Ok(())
-            }
-            IndexCommand::Status => {
-                let catalog = vivarium::catalog::Catalog::open(&mail_root)?;
-                let catalog_count = catalog.count_messages(&acct.name)?;
-                let index = vivarium::email_index::EmailIndex::open(&mail_root)?;
-                let indexed_count = index.count_messages(&acct.name)?;
-                println!(
-                    "index {}: catalog={} indexed={} pending={}",
-                    acct.name,
-                    catalog_count,
-                    indexed_count,
-                    catalog_count.saturating_sub(indexed_count)
-                );
-                Ok(())
-            }
-            IndexCommand::Pending => {
-                let catalog = vivarium::catalog::Catalog::open(&mail_root)?;
-                let catalog_count = catalog.count_messages(&acct.name)?;
-                let index = vivarium::email_index::EmailIndex::open(&mail_root)?;
-                let indexed_count = index.count_messages(&acct.name)?;
-                println!(
-                    "pending {}: {}",
-                    acct.name,
-                    catalog_count.saturating_sub(indexed_count)
-                );
-                Ok(())
+            IndexCommand::Rebuild => run_index_rebuild(&mail_root, &acct.name),
+            IndexCommand::Status => run_index_status(&mail_root, &acct.name),
+            IndexCommand::Pending => run_index_pending(&mail_root, &acct.name),
+            IndexCommand::Embeddings {
+                pending: _,
+                rebuild,
+                limit,
+                provider,
+                model,
+                endpoint,
+            } => {
+                run_index_embeddings(
+                    &mail_root,
+                    &acct.name,
+                    vivarium::embeddings::EmbeddingOptions {
+                        provider,
+                        model,
+                        endpoint,
+                        rebuild,
+                        limit,
+                    },
+                )
+                .await
             }
         }
     }
+}
+
+fn run_index_rebuild(mail_root: &std::path::Path, account: &str) -> Result<(), VivariumError> {
+    let stats = vivarium::email_index::rebuild(mail_root, account)?;
+    println!(
+        "indexed {account}: scanned={} updated={} reused={} stale={} errors={}",
+        stats.scanned, stats.updated, stats.reused, stats.stale, stats.errors
+    );
+    Ok(())
+}
+
+fn index_counts(
+    mail_root: &std::path::Path,
+    account: &str,
+) -> Result<(usize, usize), VivariumError> {
+    let catalog = vivarium::catalog::Catalog::open(mail_root)?;
+    let catalog_count = catalog.count_messages(account)?;
+    let index = vivarium::email_index::EmailIndex::open(mail_root)?;
+    let indexed_count = index.count_messages(account)?;
+    Ok((catalog_count, indexed_count))
+}
+
+fn run_index_status(mail_root: &std::path::Path, account: &str) -> Result<(), VivariumError> {
+    let (catalog_count, indexed_count) = index_counts(mail_root, account)?;
+    println!(
+        "index {account}: catalog={catalog_count} indexed={indexed_count} pending={}",
+        catalog_count.saturating_sub(indexed_count)
+    );
+    Ok(())
+}
+
+fn run_index_pending(mail_root: &std::path::Path, account: &str) -> Result<(), VivariumError> {
+    let (catalog_count, indexed_count) = index_counts(mail_root, account)?;
+    println!(
+        "pending {account}: {}",
+        catalog_count.saturating_sub(indexed_count)
+    );
+    Ok(())
+}
+
+async fn run_index_embeddings(
+    mail_root: &std::path::Path,
+    account: &str,
+    options: vivarium::embeddings::EmbeddingOptions,
+) -> Result<(), VivariumError> {
+    let stats = vivarium::embeddings::index_embeddings(mail_root, account, options).await?;
+    println!(
+        "embedded {account}: scanned={} reused={} embedded={} stale={} errors={}",
+        stats.scanned, stats.reused, stats.embedded, stats.stale, stats.errors
+    );
+    Ok(())
 }
 
 fn print_sync_result(account: &str, result: &vivarium::sync::SyncResult) {

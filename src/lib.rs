@@ -3,6 +3,7 @@ pub mod catalog;
 pub mod cli;
 pub mod config;
 pub mod email_index;
+pub mod embeddings;
 pub mod error;
 pub mod extract;
 pub mod imap;

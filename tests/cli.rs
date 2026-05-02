@@ -197,6 +197,44 @@ fn parses_index_rebuild() {
 }
 
 #[test]
+fn parses_index_embeddings_pending_limit() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "index",
+        "embeddings",
+        "--pending",
+        "--limit",
+        "2",
+        "--provider",
+        "ollama",
+        "--model",
+        "cassio-embedding",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Index {
+            command:
+                IndexCommand::Embeddings {
+                    pending,
+                    rebuild,
+                    limit,
+                    provider,
+                    model,
+                    ..
+                },
+        } => {
+            assert!(pending);
+            assert!(!rebuild);
+            assert_eq!(limit, Some(2));
+            assert_eq!(provider, "ollama");
+            assert_eq!(model, "cassio-embedding");
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_label_add_dry_run_json() {
     let cli = Cli::try_parse_from([
         "vivi",
