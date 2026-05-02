@@ -269,7 +269,7 @@ impl Runtime {
         let path = store.store_message("drafts", &draft_id, &edited)?;
         println!("draft created: {}", path.display());
         println!(
-            "edit the file, then send with: vivarium send {}",
+            "edit the file, then send with: vivi send {}",
             path.display()
         );
         Ok(())

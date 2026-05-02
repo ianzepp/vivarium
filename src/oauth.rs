@@ -250,7 +250,7 @@ fn load_refresh_token(account: &str) -> Result<String, VivariumError> {
         .output()?;
     if !output.status.success() {
         return Err(VivariumError::Config(format!(
-            "no OAuth refresh token found in Keychain for account '{account}'; run `vivarium auth {account}` first"
+            "no OAuth refresh token found in Keychain for account '{account}'; run `vivi auth {account}` first"
         )));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())

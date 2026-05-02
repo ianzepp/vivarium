@@ -1,7 +1,12 @@
 [package]
 name = "vivarium"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2024"
+autobins = false
+
+[[bin]]
+name = "vivi"
+path = "src/main.rs"
 
 [features]
 outbox = []

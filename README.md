@@ -21,7 +21,7 @@ cargo install --path .
 ## Quick Start
 
 ```
-vivarium init
+vivi init
 ```
 
 This creates `~/.config/vivarium/` with two files:
@@ -53,7 +53,7 @@ the read-only sync/search commands.
 Then sync:
 
 ```
-vivarium sync
+vivi sync
 ```
 
 ## Mail Storage
@@ -79,18 +79,18 @@ Vivarium-generated filenames keep a `.eml` stem for non-mail tooling, while `cur
 ## Commands
 
 ```
-vivarium init                                  # create config directory and files
-vivarium sync                                  # sync all accounts
-vivarium sync --account proton                 # sync one account
-vivarium sync --account proton --limit 100     # cap new downloads for this run
-vivarium sync --account proton --since 3mo     # sync messages from the last 3 months
-vivarium sync --account proton --since 2025-05-02 --before 2026-05-02
-vivarium list                                  # list inbox (default)
-vivarium list sent                             # list sent folder
-vivarium show inbox-1                          # read a message
-vivarium archive inbox-1                       # move from inbox to archive
-vivarium search "invoice"                      # keyword search
-vivarium search "invoice" --json               # JSON search output
+vivi init                                      # create config directory and files
+vivi sync                                      # sync all accounts
+vivi sync --account proton                     # sync one account
+vivi sync --account proton --limit 100         # cap new downloads for this run
+vivi sync --account proton --since 3mo         # sync messages from the last 3 months
+vivi sync --account proton --since 2025-05-02 --before 2026-05-02
+vivi list                                      # list inbox (default)
+vivi list sent                                 # list sent folder
+vivi show inbox-1                              # read a message
+vivi archive inbox-1                           # move from inbox to archive
+vivi search "invoice"                          # keyword search
+vivi search "invoice" --json                   # JSON search output
 ```
 
 All commands accept `--account <name>` to target a specific account. Without it, account-scoped commands use the first account in `accounts.toml`; `sync` and `list` operate on all accounts.
@@ -100,9 +100,9 @@ All commands accept `--account <name>` to target a specific account. Without it,
 These surfaces are not available in the default CLI today:
 
 - semantic search or local embeddings
-- `vivarium show <handle> --json`
-- `vivarium thread <handle> --json`
-- `vivarium export <handle>`
+- `vivi show <handle> --json`
+- `vivi thread <handle> --json`
+- `vivi export <handle>`
 - catalog or extraction rebuild commands
 - send, reply, compose, OAuth browser auth, token minting, or watch mode
 

@@ -34,7 +34,7 @@ const DEFAULT_ACCOUNTS: &str = r#"# Each [[accounts]] entry defines an email acc
 # provider = "gmail"
 # oauth_client_id = "your-google-oauth-client-id.apps.googleusercontent.com"
 # oauth_client_secret = "your-google-oauth-client-secret"
-# token_cmd = "vivarium token gmail"
+# token_cmd = "vivi token gmail"
 # imap_host = "imap.gmail.com"
 # imap_security = "ssl"
 
@@ -70,7 +70,7 @@ pub fn run_init() -> Result<(), VivariumError> {
     println!();
     println!("vivarium is ready. Next steps:");
     println!("  1. Edit {} and add an account", accounts_path.display());
-    println!("  2. Run: vivarium sync");
+    println!("  2. Run: vivi sync");
 
     Ok(())
 }

@@ -33,14 +33,14 @@ jobs:
       - name: Package binary
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf vivarium-${{ matrix.target }}.tar.gz vivarium
-          mv vivarium-${{ matrix.target }}.tar.gz ../../../
+          tar czf vivi-${{ matrix.target }}.tar.gz vivi
+          mv vivi-${{ matrix.target }}.tar.gz ../../../
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vivarium-${{ matrix.target }}
-          path: vivarium-${{ matrix.target }}.tar.gz
+          name: vivi-${{ matrix.target }}
+          path: vivi-${{ matrix.target }}.tar.gz
 
   release:
     needs: build
@@ -54,8 +54,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            vivarium-aarch64-apple-darwin/vivarium-aarch64-apple-darwin.tar.gz
-            vivarium-x86_64-apple-darwin/vivarium-x86_64-apple-darwin.tar.gz
+            vivi-aarch64-apple-darwin/vivi-aarch64-apple-darwin.tar.gz
+            vivi-x86_64-apple-darwin/vivi-x86_64-apple-darwin.tar.gz
           generate_release_notes: true
 
   update-tap:
@@ -69,8 +69,8 @@ jobs:
       - name: Compute SHA256 checksums
         id: sha
         run: |
-          echo "arm64=$(sha256sum vivarium-aarch64-apple-darwin/vivarium-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-          echo "x86_64=$(sha256sum vivarium-x86_64-apple-darwin/vivarium-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "arm64=$(sha256sum vivi-aarch64-apple-darwin/vivi-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "x86_64=$(sha256sum vivi-x86_64-apple-darwin/vivi-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Extract version
         id: version
@@ -87,20 +87,20 @@ jobs:
 
             on_macos do
               if Hardware::CPU.arm?
-                url "https://github.com/ianzepp/vivarium/releases/download/${{ github.ref_name }}/vivarium-aarch64-apple-darwin.tar.gz"
+                url "https://github.com/ianzepp/vivarium/releases/download/${{ github.ref_name }}/vivi-aarch64-apple-darwin.tar.gz"
                 sha256 "${{ steps.sha.outputs.arm64 }}"
               else
-                url "https://github.com/ianzepp/vivarium/releases/download/${{ github.ref_name }}/vivarium-x86_64-apple-darwin.tar.gz"
+                url "https://github.com/ianzepp/vivarium/releases/download/${{ github.ref_name }}/vivi-x86_64-apple-darwin.tar.gz"
                 sha256 "${{ steps.sha.outputs.x86_64 }}"
               end
             end
 
             def install
-              bin.install "vivarium"
+              bin.install "vivi"
             end
 
             test do
-              assert_match "vivarium", shell_output("#{bin}/vivarium --help")
+              assert_match "vivi", shell_output("#{bin}/vivi --help")
             end
           end
           FORMULA

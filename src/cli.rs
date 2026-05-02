@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
-#[command(name = "vivarium", about = "Local-first IMAP email sync for LLMs")]
+#[command(name = "vivi", about = "Local-first IMAP email sync for LLMs")]
 pub struct Cli {
     /// Path to config file
     #[arg(long, global = true)]
