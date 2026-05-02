@@ -117,8 +117,8 @@ impl Account {
     pub fn all_mail_folder(&self) -> &str {
         match self.provider {
             crate::config::types::Provider::Gmail => "[Gmail]/All Mail",
-            crate::config::types::Provider::Standard
-            | crate::config::types::Provider::Protonmail => "INBOX",
+            crate::config::types::Provider::Protonmail => "All Mail",
+            crate::config::types::Provider::Standard => "INBOX",
         }
     }
 

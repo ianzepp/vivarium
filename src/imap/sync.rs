@@ -22,6 +22,19 @@ struct WorkerContext {
     reject_invalid_certs: bool,
 }
 
+#[derive(Clone, Copy)]
+struct FolderPlan<'a> {
+    remote_folder: &'a str,
+    local_folder: &'static str,
+    dedupe_scope: DedupeScope,
+}
+
+#[derive(Clone, Copy)]
+enum DedupeScope {
+    LocalFolder,
+    AllFolders,
+}
+
 /// Sync messages from the account's IMAP server into the local store.
 pub async fn sync_messages(
     account: &Account,
@@ -32,17 +45,14 @@ pub async fn sync_messages(
 ) -> Result<SyncResult, VivariumError> {
     let mut result = SyncResult::default();
     let mut remaining = limit;
-    let mut folders = vec![("INBOX", "inbox"), (account.sent_folder(), "sent")];
-    if account.provider == Provider::Gmail {
-        folders.push((account.all_mail_folder(), "archive"));
-    }
 
-    for (remote_folder, local_folder) in folders {
+    for plan in sync_folders(account) {
         let r = sync_folder(
             account,
             store,
-            remote_folder,
-            local_folder,
+            plan.remote_folder,
+            plan.local_folder,
+            plan.dedupe_scope,
             reject_invalid_certs,
             remaining,
             window,
@@ -60,14 +70,49 @@ pub async fn sync_messages(
     Ok(result)
 }
 
+fn sync_folders(account: &Account) -> Vec<FolderPlan<'_>> {
+    let mut folders = vec![
+        FolderPlan {
+            remote_folder: "INBOX",
+            local_folder: "inbox",
+            dedupe_scope: DedupeScope::LocalFolder,
+        },
+        FolderPlan {
+            remote_folder: account.sent_folder(),
+            local_folder: "sent",
+            dedupe_scope: DedupeScope::LocalFolder,
+        },
+    ];
+
+    if matches!(account.provider, Provider::Gmail | Provider::Protonmail) {
+        folders.push(FolderPlan {
+            remote_folder: account.all_mail_folder(),
+            local_folder: "archive",
+            dedupe_scope: DedupeScope::AllFolders,
+        });
+    }
+
+    folders
+}
+
 /// Compare remote messages against local files and return missing ones.
 fn find_missing(
     remote_messages: &[RemoteMessage],
     store: &MailStore,
     local_folder: &str,
+    dedupe_scope: DedupeScope,
 ) -> Result<Vec<RemoteMessage>, VivariumError> {
     let local_sizes = store.local_sizes(local_folder)?;
-    let rfc_index = store.build_rfc_index(local_folder)?;
+    let rfc_index = match dedupe_scope {
+        DedupeScope::LocalFolder => store.build_rfc_index(local_folder)?,
+        DedupeScope::AllFolders => {
+            let mut index = store.build_rfc_index(local_folder)?;
+            for folder in ["inbox", "sent", "drafts"] {
+                index.extend(store.build_rfc_index(folder)?);
+            }
+            index
+        }
+    };
     let mut missing: Vec<RemoteMessage> = Vec::new();
 
     for remote in remote_messages {
@@ -153,6 +198,7 @@ async fn sync_folder(
     store: &MailStore,
     remote_folder: &str,
     local_folder: &str,
+    dedupe_scope: DedupeScope,
     reject_invalid_certs: bool,
     limit: Option<usize>,
     window: SyncWindow,
@@ -163,7 +209,7 @@ async fn sync_folder(
         return Ok(SyncResult::default());
     }
 
-    let mut missing = find_missing(&remote_messages, store, local_folder)?;
+    let mut missing = find_missing(&remote_messages, store, local_folder, dedupe_scope)?;
     if missing.is_empty() {
         tracing::info!(
             folder = remote_folder,
@@ -339,45 +385,4 @@ pub async fn idle(account: &Account, reject_invalid_certs: bool) -> Result<(), V
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn find_missing_skips_remote_uid_remap_when_message_id_matches() {
-        let tmp = tempfile::tempdir().unwrap();
-        let store = MailStore::new(tmp.path());
-        store
-            .store_message(
-                "inbox",
-                "inbox-1",
-                b"Message-ID: <stable@example.com>\r\nSubject: old\r\n\r\nbody",
-            )
-            .unwrap();
-
-        let remote = RemoteMessage {
-            uid: 9001,
-            size: 999,
-            rfc_message_id: Some("stable@example.com".to_string()),
-        };
-
-        let missing = find_missing(&[remote], &store, "inbox").unwrap();
-        assert!(missing.is_empty());
-    }
-
-    #[test]
-    fn find_missing_falls_back_to_uid_and_size_without_message_id() {
-        let tmp = tempfile::tempdir().unwrap();
-        let store = MailStore::new(tmp.path());
-        let body = b"Subject: no id\r\n\r\nbody";
-        store.store_message("inbox", "inbox-7", body).unwrap();
-
-        let remote = RemoteMessage {
-            uid: 7,
-            size: body.len() as u64,
-            rfc_message_id: None,
-        };
-
-        let missing = find_missing(&[remote], &store, "inbox").unwrap();
-        assert!(missing.is_empty());
-    }
-}
+mod tests;

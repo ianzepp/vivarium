@@ -48,10 +48,12 @@ pub async fn sync_account(
     let store = MailStore::new(&account.mail_path(config));
     store.ensure_folders()?;
 
-    let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
-    let result =
-        crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window).await?;
-    let mut result = result;
+    let mut result = if limit == Some(0) {
+        SyncResult::default()
+    } else {
+        let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
+        crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window).await?
+    };
     let catalog_update =
         crate::catalog::update_maildir(&account.mail_path(config), &account.name, &store)?;
     let (extracted, extraction_errors) =
