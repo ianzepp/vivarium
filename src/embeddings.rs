@@ -3,6 +3,7 @@ use std::path::Path;
 
 use crate::email_index::{EmailIndex, IndexedMessage};
 use crate::error::VivariumError;
+use chunk::EmailChunk;
 
 mod chunk;
 mod provider;
@@ -92,17 +93,32 @@ async fn index_embeddings_with_provider<P: provider::EmbeddingProvider + Sync>(
     let messages = index.list_messages(account)?;
     let mut stats = EmbeddingStats::default();
     let mut retained_chunks = Vec::new();
+    let mut staged_embeddings = Vec::new();
 
     for message in limited(messages, options.limit) {
         stats.scanned += 1;
-        retained_chunks.extend(
-            index_message(&mut store, provider, &message, options.rebuild, &mut stats).await?,
-        );
+        let indexed =
+            index_message(&mut store, provider, &message, options.rebuild, &mut stats).await?;
+        retained_chunks.extend(indexed.retained);
+        staged_embeddings.extend(indexed.embeddings);
     }
     if options.rebuild && options.limit.is_none() && stats.errors == 0 && stats.stale == 0 {
-        store.retain_account_chunks(account, &retained_chunks)?;
+        store.replace_account_embeddings(
+            account,
+            &retained_chunks,
+            &staged_embeddings,
+            provider.provider(),
+            provider.model(),
+        )?;
+    } else if options.rebuild && !staged_embeddings.is_empty() {
+        store.store_embedding_batch(&staged_embeddings, provider.provider(), provider.model())?;
     }
     Ok(stats)
+}
+
+struct IndexedEmbeddings {
+    retained: Vec<String>,
+    embeddings: Vec<(EmailChunk, Vec<f32>)>,
 }
 
 async fn index_message<P: provider::EmbeddingProvider + Sync>(
@@ -111,24 +127,9 @@ async fn index_message<P: provider::EmbeddingProvider + Sync>(
     message: &IndexedMessage,
     rebuild: bool,
     stats: &mut EmbeddingStats,
-) -> Result<Vec<String>, VivariumError> {
-    let data = match fs::read(&message.raw_path) {
-        Ok(data) => data,
-        Err(_) => {
-            stats.errors += 1;
-            return Ok(Vec::new());
-        }
-    };
-    if crate::catalog::fingerprint(&data) != message.fingerprint {
-        stats.stale += 1;
-        return Ok(Vec::new());
-    }
-    let chunks = match chunk::chunks_for_message(message, &data) {
-        Ok(chunks) => chunks,
-        Err(_) => {
-            stats.errors += 1;
-            return Ok(Vec::new());
-        }
+) -> Result<IndexedEmbeddings, VivariumError> {
+    let Some(chunks) = message_chunks(message, stats)? else {
+        return Ok(empty_indexed_embeddings());
     };
     let retained = chunks
         .iter()
@@ -142,16 +143,66 @@ async fn index_message<P: provider::EmbeddingProvider + Sync>(
     };
     stats.reused += chunk_count.saturating_sub(pending.len());
     if pending.is_empty() {
-        return Ok(retained);
+        return Ok(IndexedEmbeddings {
+            retained,
+            embeddings: Vec::new(),
+        });
     }
     let texts = pending
         .iter()
         .map(|chunk| chunk.text.clone())
         .collect::<Vec<_>>();
     let vectors = provider.embed(&texts).await?;
-    store.store_embeddings(&pending, provider.provider(), provider.model(), vectors)?;
+    if vectors.len() != pending.len() {
+        return Err(VivariumError::Other(format!(
+            "embedding provider returned {} vectors for {} chunks",
+            vectors.len(),
+            pending.len()
+        )));
+    }
     stats.embedded += pending.len();
-    Ok(retained)
+    if rebuild {
+        return Ok(IndexedEmbeddings {
+            retained,
+            embeddings: pending.into_iter().zip(vectors).collect(),
+        });
+    }
+    store.store_embeddings(&pending, provider.provider(), provider.model(), vectors)?;
+    Ok(IndexedEmbeddings {
+        retained,
+        embeddings: Vec::new(),
+    })
+}
+
+fn message_chunks(
+    message: &IndexedMessage,
+    stats: &mut EmbeddingStats,
+) -> Result<Option<Vec<EmailChunk>>, VivariumError> {
+    let data = match fs::read(&message.raw_path) {
+        Ok(data) => data,
+        Err(_) => {
+            stats.errors += 1;
+            return Ok(None);
+        }
+    };
+    if crate::catalog::fingerprint(&data) != message.fingerprint {
+        stats.stale += 1;
+        return Ok(None);
+    }
+    match chunk::chunks_for_message(message, &data) {
+        Ok(chunks) => Ok(Some(chunks)),
+        Err(_) => {
+            stats.errors += 1;
+            Ok(None)
+        }
+    }
+}
+
+fn empty_indexed_embeddings() -> IndexedEmbeddings {
+    IndexedEmbeddings {
+        retained: Vec::new(),
+        embeddings: Vec::new(),
+    }
 }
 
 fn limited<T>(items: Vec<T>, limit: Option<usize>) -> Vec<T> {

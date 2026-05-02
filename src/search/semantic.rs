@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use crate::email_index::{EmailIndex, IndexedMessage};
 use crate::embeddings::{self, SemanticMatch};
 use crate::error::VivariumError;
 use crate::search::SearchResult;
@@ -19,7 +18,7 @@ pub async fn semantic_or_hybrid_search(
     if semantic && !hybrid {
         return Ok((semantic_results, semantic_total));
     }
-    let lexical_results = indexed_lexical_search(mail_root, account, query)?;
+    let lexical_results = super::indexed_lexical_results(mail_root, account, query)?;
     Ok(merge_hybrid(
         lexical_results,
         semantic_results,
@@ -98,71 +97,4 @@ fn merge_semantic_result(results: &mut Vec<SearchResult>, semantic: SearchResult
     } else {
         results.push(semantic);
     }
-}
-
-fn indexed_lexical_search(
-    mail_root: &Path,
-    account: &str,
-    query: &str,
-) -> Result<Vec<SearchResult>, VivariumError> {
-    let query_lower = query.to_ascii_lowercase();
-    let index = EmailIndex::open(mail_root)?;
-    let mut results = index
-        .list_messages(account)?
-        .into_iter()
-        .filter_map(|message| indexed_lexical_result(message, &query_lower))
-        .collect::<Vec<_>>();
-    results.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    Ok(results)
-}
-
-fn indexed_lexical_result(message: IndexedMessage, query: &str) -> Option<SearchResult> {
-    let text = indexed_lexical_text(&message);
-    let score = score_text(query, &text);
-    if score <= 0.0 {
-        return None;
-    }
-    Some(SearchResult {
-        handle: message.handle,
-        raw_path: message.raw_path,
-        account: message.account,
-        folder: message.folder,
-        maildir_subdir: message.maildir_subdir,
-        date: message.date,
-        from: message.from_addr,
-        subject: message.subject.clone(),
-        score,
-        lexical_score: Some(score),
-        semantic_score: None,
-        chunk_id: None,
-        snippet: message.subject,
-    })
-}
-
-fn indexed_lexical_text(message: &IndexedMessage) -> String {
-    format!(
-        "{} {} {} {}",
-        message.subject,
-        message.from_addr,
-        message.to_addr,
-        message.rfc_message_id.clone().unwrap_or_default()
-    )
-    .to_ascii_lowercase()
-}
-
-fn score_text(query: &str, text: &str) -> f64 {
-    let words = query.split_whitespace().collect::<Vec<_>>();
-    if words.is_empty() {
-        return 0.0;
-    }
-    let score = words
-        .iter()
-        .filter(|word| text.contains(**word))
-        .map(|word| if word.len() > 3 { 2.0 } else { 1.0 })
-        .sum::<f64>();
-    score / words.len() as f64
 }

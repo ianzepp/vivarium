@@ -48,40 +48,45 @@ impl EmbeddingStore {
         Ok(store)
     }
 
-    pub(crate) fn retain_account_chunks(
+    pub(crate) fn replace_account_embeddings(
         &mut self,
         account: &str,
         chunk_ids: &[String],
+        rows: &[(EmailChunk, Vec<f32>)],
+        provider: &str,
+        model: &str,
     ) -> Result<(), VivariumError> {
+        validate_row_dimensions(rows)?;
+        let now = Utc::now().to_rfc3339();
         let tx = self.conn.transaction().map_err(|e| {
-            VivariumError::Other(format!("failed to start embedding prune transaction: {e}"))
+            VivariumError::Other(format!(
+                "failed to start embedding rebuild transaction: {e}"
+            ))
         })?;
-        tx.execute_batch(
-            "CREATE TEMP TABLE IF NOT EXISTS retained_embedding_chunks (
-               chunk_id TEXT PRIMARY KEY
-             );
-             DELETE FROM retained_embedding_chunks;",
-        )
-        .map_err(|e| VivariumError::Other(format!("failed to prepare embedding prune: {e}")))?;
-        for chunk_id in chunk_ids {
-            tx.execute(
-                "INSERT OR IGNORE INTO retained_embedding_chunks (chunk_id) VALUES (?1)",
-                params![chunk_id],
-            )
-            .map_err(|e| VivariumError::Other(format!("failed to mark retained chunk: {e}")))?;
-        }
-        tx.execute(
-            "DELETE FROM chunks
-             WHERE account = ?1
-               AND NOT EXISTS (
-                 SELECT 1 FROM retained_embedding_chunks r
-                 WHERE r.chunk_id = chunks.chunk_id
-               )",
-            params![account],
-        )
-        .map_err(|e| VivariumError::Other(format!("failed to prune embedding chunks: {e}")))?;
+        store_embedding_rows(&tx, rows, provider, model, &now)?;
+        retain_account_chunks(&tx, account, chunk_ids)?;
         tx.commit().map_err(|e| {
-            VivariumError::Other(format!("failed to commit embedding prune transaction: {e}"))
+            VivariumError::Other(format!(
+                "failed to commit embedding rebuild transaction: {e}"
+            ))
+        })?;
+        Ok(())
+    }
+
+    pub(crate) fn store_embedding_batch(
+        &mut self,
+        rows: &[(EmailChunk, Vec<f32>)],
+        provider: &str,
+        model: &str,
+    ) -> Result<(), VivariumError> {
+        validate_row_dimensions(rows)?;
+        let now = Utc::now().to_rfc3339();
+        let tx = self.conn.transaction().map_err(|e| {
+            VivariumError::Other(format!("failed to start embedding transaction: {e}"))
+        })?;
+        store_embedding_rows(&tx, rows, provider, model, &now)?;
+        tx.commit().map_err(|e| {
+            VivariumError::Other(format!("failed to commit embedding transaction: {e}"))
         })?;
         Ok(())
     }
@@ -107,31 +112,8 @@ impl EmbeddingStore {
         vectors: Vec<Vec<f32>>,
     ) -> Result<(), VivariumError> {
         validate_dimensions(chunks, &vectors)?;
-        let now = Utc::now().to_rfc3339();
-        let tx = self.conn.transaction().map_err(|e| {
-            VivariumError::Other(format!("failed to start embedding transaction: {e}"))
-        })?;
-        for (chunk, vector) in chunks.iter().zip(vectors) {
-            upsert_chunk(&tx, chunk, &now)?;
-            tx.execute(
-                "INSERT OR REPLACE INTO embeddings
-                 (chunk_id, provider, model, dimensions, vector, indexed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    chunk.chunk_id,
-                    provider,
-                    model,
-                    i64::try_from(vector.len()).unwrap_or(i64::MAX),
-                    encode_vector(&vector),
-                    now,
-                ],
-            )
-            .map_err(|e| VivariumError::Other(format!("failed to store embedding row: {e}")))?;
-        }
-        tx.commit().map_err(|e| {
-            VivariumError::Other(format!("failed to commit embedding transaction: {e}"))
-        })?;
-        Ok(())
+        let rows = chunks.iter().cloned().zip(vectors).collect::<Vec<_>>();
+        self.store_embedding_batch(&rows, provider, model)
     }
 
     pub(crate) fn embeddings(&self, account: &str) -> Result<Vec<StoredEmbedding>, VivariumError> {
@@ -249,6 +231,65 @@ fn upsert_chunk(
     Ok(())
 }
 
+fn store_embedding_rows(
+    tx: &rusqlite::Transaction<'_>,
+    rows: &[(EmailChunk, Vec<f32>)],
+    provider: &str,
+    model: &str,
+    now: &str,
+) -> Result<(), VivariumError> {
+    for (chunk, vector) in rows {
+        upsert_chunk(tx, chunk, now)?;
+        tx.execute(
+            "INSERT OR REPLACE INTO embeddings
+             (chunk_id, provider, model, dimensions, vector, indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                chunk.chunk_id,
+                provider,
+                model,
+                i64::try_from(vector.len()).unwrap_or(i64::MAX),
+                encode_vector(vector),
+                now,
+            ],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to store embedding row: {e}")))?;
+    }
+    Ok(())
+}
+
+fn retain_account_chunks(
+    tx: &rusqlite::Transaction<'_>,
+    account: &str,
+    chunk_ids: &[String],
+) -> Result<(), VivariumError> {
+    tx.execute_batch(
+        "CREATE TEMP TABLE IF NOT EXISTS retained_embedding_chunks (
+           chunk_id TEXT PRIMARY KEY
+         );
+         DELETE FROM retained_embedding_chunks;",
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to prepare embedding prune: {e}")))?;
+    for chunk_id in chunk_ids {
+        tx.execute(
+            "INSERT OR IGNORE INTO retained_embedding_chunks (chunk_id) VALUES (?1)",
+            params![chunk_id],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to mark retained chunk: {e}")))?;
+    }
+    tx.execute(
+        "DELETE FROM chunks
+         WHERE account = ?1
+           AND NOT EXISTS (
+             SELECT 1 FROM retained_embedding_chunks r
+             WHERE r.chunk_id = chunks.chunk_id
+           )",
+        params![account],
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to prune embedding chunks: {e}")))?;
+    Ok(())
+}
+
 fn validate_dimensions(chunks: &[EmailChunk], vectors: &[Vec<f32>]) -> Result<(), VivariumError> {
     if chunks.len() != vectors.len() {
         return Err(VivariumError::Other(format!(
@@ -261,6 +302,18 @@ fn validate_dimensions(chunks: &[EmailChunk], vectors: &[Vec<f32>]) -> Result<()
         return Ok(());
     };
     if dimensions == 0 || vectors.iter().any(|vector| vector.len() != dimensions) {
+        return Err(VivariumError::Other(
+            "embedding provider returned inconsistent dimensions".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_row_dimensions(rows: &[(EmailChunk, Vec<f32>)]) -> Result<(), VivariumError> {
+    let Some(dimensions) = rows.first().map(|(_, vector)| vector.len()) else {
+        return Ok(());
+    };
+    if dimensions == 0 || rows.iter().any(|(_, vector)| vector.len() != dimensions) {
         return Err(VivariumError::Other(
             "embedding provider returned inconsistent dimensions".into(),
         ));

@@ -1,6 +1,7 @@
 use std::cmp::min;
 use std::path::Path;
 
+use crate::catalog::Catalog;
 use crate::email_index::{EmailIndex, IndexedMessage};
 use crate::error::VivariumError;
 
@@ -33,9 +34,34 @@ pub fn keyword_search(
     limit: usize,
     offset: usize,
 ) -> Result<(Vec<SearchResult>, usize), VivariumError> {
+    let all_results = indexed_lexical_results(mail_root, account, query)?;
+
+    // Apply pagination
+    let total = all_results.len();
+    let end = min(offset + limit, total);
+    let results = if offset < total {
+        all_results[offset..end].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    Ok((results, total))
+}
+
+pub(crate) fn indexed_lexical_results(
+    mail_root: &Path,
+    account: &str,
+    query: &str,
+) -> Result<Vec<SearchResult>, VivariumError> {
     let query_lower = query.to_ascii_lowercase();
-    let mut all_results: Vec<SearchResult> = Vec::new();
+    let mut results: Vec<SearchResult> = Vec::new();
     let index = EmailIndex::open(mail_root)?;
+    if index.count_messages(account)? == 0 && Catalog::open(mail_root)?.count_messages(account)? > 0
+    {
+        return Err(VivariumError::Message(format!(
+            "email index is empty for account '{account}'; run `vivi index rebuild --account {account}` or `vivi sync --index --account {account}`"
+        )));
+    }
 
     for message in index.list_messages(account)? {
         let score = score_query(&query_lower, indexed_lexical_text(&message).as_bytes());
@@ -48,26 +74,16 @@ pub fn keyword_search(
         if crate::catalog::fingerprint(&data) != message.fingerprint {
             continue;
         }
-        all_results.push(search_result(message, &data, score));
+        results.push(search_result(message, &data, score));
     }
 
-    // Sort by score descending
-    all_results.sort_by(|a, b| {
+    results.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // Apply pagination
-    let total = all_results.len();
-    let end = min(offset + limit, total);
-    let results = if offset < total {
-        all_results[offset..end].to_vec()
-    } else {
-        Vec::new()
-    };
-
-    Ok((results, total))
+    Ok(results)
 }
 
 /// Score a query against raw .eml bytes.
@@ -291,6 +307,44 @@ mod tests {
         let (results, total) = keyword_search(tmp.path(), "acct", "release", 10, 0).unwrap();
 
         assert_eq!(total, 0);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn keyword_search_errors_when_catalog_exists_but_index_is_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        let path = store
+            .store_message(
+                "inbox",
+                "inbox-1",
+                b"Subject: Release notice\r\n\r\nRelease body",
+            )
+            .unwrap();
+        catalog(tmp.path(), "acct", &path, "INBOX");
+
+        let err = keyword_search(tmp.path(), "acct", "release", 10, 0).unwrap_err();
+
+        assert!(err.to_string().contains("email index is empty"));
+    }
+
+    #[test]
+    fn indexed_lexical_results_skip_stale_raw_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        let path = store
+            .store_message(
+                "inbox",
+                "inbox-1",
+                b"Subject: Release notice\r\n\r\nRelease body",
+            )
+            .unwrap();
+        catalog(tmp.path(), "acct", &path, "INBOX");
+        email_index::rebuild(tmp.path(), "acct").unwrap();
+        std::fs::write(&path, b"Subject: Release notice\r\n\r\nchanged").unwrap();
+
+        let results = indexed_lexical_results(tmp.path(), "acct", "release").unwrap();
+
         assert!(results.is_empty());
     }
 
