@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use vivarium::cli::{AgentCommand, Cli, Command};
+use vivarium::cli::{AgentCommand, Cli, Command, IndexCommand};
 
 #[test]
 fn parses_archive_dry_run_json() {
@@ -180,6 +180,18 @@ fn parses_labels_json() {
 
     match cli.command {
         Command::Labels { json } => assert!(json),
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_index_rebuild() {
+    let cli = Cli::try_parse_from(["vivi", "index", "rebuild"]).unwrap();
+
+    match cli.command {
+        Command::Index {
+            command: IndexCommand::Rebuild,
+        } => {}
         other => panic!("unexpected command: {other:?}"),
     }
 }

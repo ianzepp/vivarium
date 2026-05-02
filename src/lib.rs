@@ -2,6 +2,7 @@ pub mod agent;
 pub mod catalog;
 pub mod cli;
 pub mod config;
+pub mod email_index;
 pub mod error;
 pub mod extract;
 pub mod imap;

@@ -315,6 +315,12 @@ pub enum Command {
         json: bool,
     },
 
+    /// Build and inspect derived local indexes
+    Index {
+        #[command(subcommand)]
+        command: IndexCommand,
+    },
+
     /// Agent-safe plan-first commands
     Agent {
         #[command(subcommand)]
@@ -355,4 +361,16 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum IndexCommand {
+    /// Rebuild the deterministic metadata index
+    Rebuild,
+
+    /// Show deterministic index status
+    Status,
+
+    /// Show how many cataloged messages are not indexed
+    Pending,
 }
