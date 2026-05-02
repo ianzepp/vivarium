@@ -260,6 +260,15 @@ impl MailStore {
             .is_some_and(|(_, indexed_size)| *indexed_size == size)
     }
 
+    /// Check if an RFC 5322 Message-ID exists in the index.
+    pub fn rfc_index_contains(
+        &self,
+        index: &HashMap<String, (u32, u64)>,
+        rfc_message_id: &str,
+    ) -> bool {
+        index.contains_key(rfc_message_id)
+    }
+
     pub fn write_message_index(
         &self,
         folder: &str,

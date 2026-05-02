@@ -72,7 +72,7 @@ fn find_missing(
 
     for remote in remote_messages {
         if let Some(ref rfc_message_id) = remote.rfc_message_id
-            && store.rfc_index_lookup(&rfc_index, rfc_message_id, remote.size)
+            && store.rfc_index_contains(&rfc_index, rfc_message_id)
         {
             continue;
         }
@@ -172,6 +172,7 @@ async fn sync_folder(
         );
         return Ok(SyncResult::default());
     }
+    let total_missing = missing.len();
     if let Some(limit) = limit {
         missing.truncate(limit);
         if missing.is_empty() {
@@ -182,7 +183,8 @@ async fn sync_folder(
     tracing::info!(
         folder = remote_folder,
         total = remote_messages.len(),
-        missing = missing.len(),
+        missing = total_missing,
+        downloading = missing.len(),
         "downloading new messages"
     );
 
@@ -334,4 +336,48 @@ pub async fn idle(account: &Account, reject_invalid_certs: bool) -> Result<(), V
         .map_err(|e| VivariumError::Imap(format!("IDLE done failed: {e}")))?;
     session.logout().await.ok();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn find_missing_skips_remote_uid_remap_when_message_id_matches() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        store
+            .store_message(
+                "inbox",
+                "inbox-1",
+                b"Message-ID: <stable@example.com>\r\nSubject: old\r\n\r\nbody",
+            )
+            .unwrap();
+
+        let remote = RemoteMessage {
+            uid: 9001,
+            size: 999,
+            rfc_message_id: Some("stable@example.com".to_string()),
+        };
+
+        let missing = find_missing(&[remote], &store, "inbox").unwrap();
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn find_missing_falls_back_to_uid_and_size_without_message_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        let body = b"Subject: no id\r\n\r\nbody";
+        store.store_message("inbox", "inbox-7", body).unwrap();
+
+        let remote = RemoteMessage {
+            uid: 7,
+            size: body.len() as u64,
+            rfc_message_id: None,
+        };
+
+        let missing = find_missing(&[remote], &store, "inbox").unwrap();
+        assert!(missing.is_empty());
+    }
 }

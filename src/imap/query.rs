@@ -4,7 +4,10 @@ use futures::{TryStream, TryStreamExt};
 use super::transport::{ImapSession, RemoteMessage, connect};
 use crate::config::Account;
 use crate::error::VivariumError;
+use crate::message::message_id_from_bytes;
 use crate::sync::SyncWindow;
+
+const METADATA_FETCH_ITEMS: &str = "(UID RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])";
 
 pub(super) async fn fetch_remote_messages(
     account: &Account,
@@ -46,7 +49,7 @@ async fn fetch_remote_metadata(
     sequence_set: String,
 ) -> Result<Vec<RemoteMessage>, VivariumError> {
     let fetches = session
-        .fetch(sequence_set, "(UID RFC822.SIZE)")
+        .fetch(sequence_set, METADATA_FETCH_ITEMS)
         .await
         .map_err(|e| VivariumError::Imap(format!("uid/size fetch failed: {e}")))?;
     collect_remote_metadata(fetches).await
@@ -57,7 +60,7 @@ async fn uid_fetch_remote_metadata(
     uid_set: String,
 ) -> Result<Vec<RemoteMessage>, VivariumError> {
     let fetches = session
-        .uid_fetch(uid_set, "(UID RFC822.SIZE)")
+        .uid_fetch(uid_set, METADATA_FETCH_ITEMS)
         .await
         .map_err(|e| VivariumError::Imap(format!("uid/size fetch failed: {e}")))?;
     collect_remote_metadata(fetches).await
@@ -77,7 +80,7 @@ async fn collect_remote_metadata(
             Some(RemoteMessage {
                 uid,
                 size,
-                rfc_message_id: None,
+                rfc_message_id: f.header().and_then(message_id_from_bytes),
             })
         })
         .collect())
@@ -122,4 +125,16 @@ fn uid_set_string(uids: &[u32]) -> String {
         .map(|u| u.to_string())
         .collect::<Vec<_>>()
         .join(",")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metadata_fetch_items_include_message_id_header() {
+        assert!(METADATA_FETCH_ITEMS.contains("UID"));
+        assert!(METADATA_FETCH_ITEMS.contains("RFC822.SIZE"));
+        assert!(METADATA_FETCH_ITEMS.contains("BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]"));
+    }
 }
