@@ -5,6 +5,9 @@ use crate::error::VivariumError;
 use crate::message::MessageEntry;
 use crate::store::MailStore;
 
+mod semantic;
+pub use semantic::semantic_or_hybrid_search;
+
 /// A search result with handle and citation metadata.
 #[derive(Debug, Clone)]
 pub struct SearchResult {
@@ -17,6 +20,9 @@ pub struct SearchResult {
     pub from: String,
     pub subject: String,
     pub score: f64,
+    pub lexical_score: Option<f64>,
+    pub semantic_score: Option<f64>,
+    pub chunk_id: Option<String>,
     pub snippet: String,
 }
 
@@ -122,6 +128,9 @@ pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
         "from": result.from,
         "subject": result.subject,
         "score": result.score,
+        "lexical_score": result.lexical_score,
+        "semantic_score": result.semantic_score,
+        "chunk_id": result.chunk_id,
         "snippet": result.snippet,
         "citation": {
             "handle": result.handle,
@@ -215,6 +224,9 @@ fn search_result(
         from: entry.from,
         subject: entry.subject,
         score,
+        lexical_score: Some(score),
+        semantic_score: None,
+        chunk_id: None,
         snippet: snippet_from_bytes(data, 100),
     }
 }
@@ -280,6 +292,9 @@ mod tests {
             from: "Agent".into(),
             subject: "Subject".into(),
             score: 1.0,
+            lexical_score: Some(1.0),
+            semantic_score: None,
+            chunk_id: None,
             snippet: "body".into(),
         };
 

@@ -14,6 +14,17 @@ pub(crate) struct EmbeddingStore {
     conn: Connection,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct StoredEmbedding {
+    pub(crate) chunk_id: String,
+    pub(crate) account: String,
+    pub(crate) handle: String,
+    pub(crate) fingerprint: String,
+    pub(crate) chunk_ordinal: usize,
+    pub(crate) text_hash: String,
+    pub(crate) vector: Vec<f32>,
+}
+
 impl EmbeddingStore {
     pub(crate) fn open(
         mail_root: &Path,
@@ -90,6 +101,26 @@ impl EmbeddingStore {
             VivariumError::Other(format!("failed to commit embedding transaction: {e}"))
         })?;
         Ok(())
+    }
+
+    pub(crate) fn embeddings(&self, account: &str) -> Result<Vec<StoredEmbedding>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT c.chunk_id, c.account, c.handle, c.fingerprint, c.chunk_ordinal,
+                    c.text_hash, e.vector
+             FROM chunks c
+             JOIN embeddings e ON e.chunk_id = c.chunk_id
+             WHERE c.account = ?1",
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to prepare embedding query: {e}")))?;
+        let rows = stmt
+            .query_map(params![account], stored_embedding_from_row)
+            .map_err(|e| VivariumError::Other(format!("failed to query embeddings: {e}")))?;
+        rows.map(|row| {
+            row.map_err(|e| VivariumError::Other(format!("failed to read embedding row: {e}")))
+        })
+        .collect()
     }
 
     fn has_embedding(&self, chunk: &EmailChunk) -> Result<bool, VivariumError> {
@@ -211,6 +242,30 @@ fn encode_vector(vector: &[f32]) -> Vec<u8> {
         .iter()
         .flat_map(|value| value.to_le_bytes())
         .collect::<Vec<_>>()
+}
+
+fn decode_vector(data: Vec<u8>) -> rusqlite::Result<Vec<f32>> {
+    if !data.len().is_multiple_of(4) {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(data
+        .chunks_exact(4)
+        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        .collect())
+}
+
+fn stored_embedding_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredEmbedding> {
+    let ordinal = row.get::<_, i64>(4)?;
+    let vector = decode_vector(row.get::<_, Vec<u8>>(6)?)?;
+    Ok(StoredEmbedding {
+        chunk_id: row.get(0)?,
+        account: row.get(1)?,
+        handle: row.get(2)?,
+        fingerprint: row.get(3)?,
+        chunk_ordinal: usize::try_from(ordinal).unwrap_or_default(),
+        text_hash: row.get(5)?,
+        vector,
+    })
 }
 
 fn safe_name(value: &str) -> String {

@@ -235,6 +235,31 @@ fn parses_index_embeddings_pending_limit() {
 }
 
 #[test]
+fn parses_semantic_and_hybrid_search_flags() {
+    let semantic = Cli::try_parse_from(["vivi", "search", "hello", "--semantic"]).unwrap();
+    let hybrid = Cli::try_parse_from(["vivi", "search", "hello", "--hybrid"]).unwrap();
+
+    match semantic.command {
+        Command::Search {
+            semantic, hybrid, ..
+        } => {
+            assert!(semantic);
+            assert!(!hybrid);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+    match hybrid.command {
+        Command::Search {
+            semantic, hybrid, ..
+        } => {
+            assert!(!semantic);
+            assert!(hybrid);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_label_add_dry_run_json() {
     let cli = Cli::try_parse_from([
         "vivi",

@@ -315,6 +315,14 @@ pub enum Command {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Use local email embeddings for semantic search
+        #[arg(long)]
+        semantic: bool,
+
+        /// Combine lexical and semantic search
+        #[arg(long)]
+        hybrid: bool,
     },
 
     /// Build and inspect derived local indexes

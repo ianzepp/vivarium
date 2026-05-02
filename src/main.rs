@@ -118,7 +118,12 @@ impl Runtime {
                 limit,
                 offset,
                 json,
-            } => self.search(&query, limit, offset, json),
+                semantic,
+                hybrid,
+            } => {
+                self.search(&query, limit, offset, json, semantic, hybrid)
+                    .await
+            }
             Command::Index { command } => self.index(command).await,
             #[cfg(feature = "outbox")]
             Command::Watch { account } => self.watch(account).await,
@@ -263,15 +268,25 @@ impl Runtime {
         }
     }
 
-    fn search(
+    async fn search(
         &self,
         query: &str,
         limit: usize,
         offset: usize,
         as_json: bool,
+        semantic: bool,
+        hybrid: bool,
     ) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.account.clone())?;
         let mail_root = acct.mail_path(&self.config);
+        if semantic || hybrid {
+            let (results, total) = vivarium::search::semantic_or_hybrid_search(
+                &mail_root, &acct.name, query, limit, offset, semantic, hybrid,
+            )
+            .await?;
+            vivarium::search::print_results(query, limit, offset, results, total, as_json);
+            return Ok(());
+        }
 
         let (results, total) =
             vivarium::search::keyword_search(&mail_root, &acct.name, query, limit, offset)?;
