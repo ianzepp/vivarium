@@ -10,6 +10,7 @@ use crate::error::VivariumError;
 use crate::message::{MessageEntry, message_id_from_bytes};
 use crate::store::{secure_create_dir_all, secure_write};
 
+mod local;
 mod remote;
 #[cfg(test)]
 mod tests;
@@ -287,7 +288,7 @@ fn message_paths(
     store: &crate::store::MailStore,
 ) -> Result<Vec<(String, String, PathBuf)>, VivariumError> {
     let mut paths = Vec::new();
-    for folder in ["INBOX", "Archive", "Sent", "Drafts"] {
+    for folder in ["INBOX", "Archive", "Trash", "Sent", "Drafts"] {
         for subdir in ["new", "cur"] {
             let dir = store.folder_path(folder).join(subdir);
             if !dir.exists() {
@@ -366,6 +367,7 @@ fn canonical_folder(folder: &str) -> &'static str {
     match folder.to_ascii_lowercase().as_str() {
         "inbox" | "new" => "INBOX",
         "archive" | "archives" | "all" => "Archive",
+        "trash" | "deleted" => "Trash",
         "sent" => "Sent",
         "draft" | "drafts" => "Drafts",
         "outbox" => "outbox",

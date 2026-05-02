@@ -91,6 +91,39 @@ fn move_message_preserves_source_subdir() {
 }
 
 #[test]
+fn trash_is_a_local_maildir_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = MailStore::new(tmp.path());
+    store
+        .store_message("inbox", "inbox-1", b"Subject: hello\r\n\r\nbody")
+        .unwrap();
+
+    let dst = store.move_message("inbox-1", "inbox", "trash").unwrap();
+
+    assert_eq!(dst, tmp.path().join("Trash/new/inbox-1.eml"));
+    assert!(dst.exists());
+}
+
+#[test]
+fn set_message_flag_updates_maildir_flags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = MailStore::new(tmp.path());
+    store
+        .store_message("inbox", "inbox-1", b"Subject: hello\r\n\r\nbody")
+        .unwrap();
+
+    let read = store
+        .set_message_flag("inbox-1", "inbox", 'S', true)
+        .unwrap();
+    let unread = store
+        .set_message_flag("inbox-1", "inbox", 'S', false)
+        .unwrap();
+
+    assert_eq!(read, tmp.path().join("INBOX/cur/inbox-1.eml:2,S"));
+    assert_eq!(unread, tmp.path().join("INBOX/new/inbox-1.eml"));
+}
+
+#[test]
 fn move_message_rejects_tmp_source() {
     let tmp = tempfile::tempdir().unwrap();
     let store = MailStore::new(tmp.path());

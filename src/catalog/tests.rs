@@ -289,6 +289,26 @@ fn attach_remote_identity_skips_missing_uidvalidity() {
 }
 
 #[test]
+fn remove_entry_does_not_remove_same_handle_for_other_account() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut catalog = Catalog::open(tmp.path()).unwrap();
+    let existing = entry(
+        "abc123",
+        "/mail/INBOX/new/inbox-42.eml",
+        "acct",
+        "INBOX",
+        "new",
+    );
+    catalog.upsert(&existing).unwrap();
+
+    let err = catalog.remove_entry("other", "abc123").unwrap_err();
+    let kept = catalog.entry("acct", "abc123").unwrap();
+
+    assert!(err.to_string().contains("message not found"));
+    assert_eq!(kept.account, "acct");
+}
+
+#[test]
 fn update_maildir_catalogs_only_uncataloged_paths() {
     let tmp = tempfile::tempdir().unwrap();
     let store = crate::store::MailStore::new(tmp.path());

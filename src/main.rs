@@ -12,7 +12,10 @@ use vivarium::message;
 use vivarium::store::MailStore;
 
 mod folders_command;
+mod mutation_runner;
 mod sync_command;
+
+use mutation_runner::MutationDispatch;
 
 #[tokio::main]
 async fn main() {
@@ -68,6 +71,10 @@ impl Runtime {
     }
 
     async fn run(&self, command: Command) -> Result<(), VivariumError> {
+        let command = match self.run_mutation_command(command).await? {
+            MutationDispatch::Handled => return Ok(()),
+            MutationDispatch::Unhandled(command) => command,
+        };
         match command {
             Command::Init => unreachable!(),
             #[cfg(feature = "outbox")]
@@ -98,7 +105,10 @@ impl Runtime {
                 json,
                 limit,
             } => self.thread(&message_id, json, limit),
-            Command::Archive { message_ids } => self.archive(&message_ids),
+            Command::Archive { .. }
+            | Command::Delete { .. }
+            | Command::Move { .. }
+            | Command::Flag { .. } => unreachable!(),
             Command::Export { message_id, text } => self.export(&message_id, text),
             Command::Search {
                 query,
@@ -212,16 +222,6 @@ impl Runtime {
         } else {
             vivarium::retrieve::export_raw_message(&store, message_id)
         }
-    }
-
-    fn archive(&self, message_ids: &[String]) -> Result<(), VivariumError> {
-        let acct = self.resolve_account(self.account.clone())?;
-        let store = MailStore::new(&acct.mail_path(&self.config));
-        for message_id in message_ids {
-            store.move_message(message_id, "inbox", "archive")?;
-            println!("archived {message_id}");
-        }
-        Ok(())
     }
 
     #[cfg(feature = "outbox")]

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use crate::error::VivariumError;
 use crate::message::{MessageEntry, message_id_from_bytes};
 
+mod mutate;
 mod path;
 mod secure;
 #[cfg(test)]
@@ -18,7 +19,7 @@ pub(crate) use secure::{secure_create_dir_all, secure_write};
 use secure::{secure_create_file, secure_file};
 
 /// Local Maildir folders.
-const FOLDERS: &[&str] = &["INBOX", "Archive", "Sent", "Drafts", "outbox"];
+const FOLDERS: &[&str] = &["INBOX", "Archive", "Trash", "Sent", "Drafts", "outbox"];
 const MAILDIR_DIRS: &[&str] = &["tmp", "new", "cur"];
 
 /// File-based mail store for a single account.
@@ -358,7 +359,7 @@ impl MailStore {
         Ok(None)
     }
 
-    fn find_message_in_subdirs(
+    pub(super) fn find_message_in_subdirs(
         &self,
         message_id: &str,
         folder: &str,
@@ -390,10 +391,10 @@ impl MailStore {
     }
 }
 
-fn resolve_folder(folder: &str) -> Result<&'static str, VivariumError> {
+pub(super) fn resolve_folder(folder: &str) -> Result<&'static str, VivariumError> {
     canonical_folder(folder).ok_or_else(|| {
         VivariumError::Message(format!(
-            "invalid folder '{folder}', expected inbox, archive, sent, drafts, or outbox"
+            "invalid folder '{folder}', expected inbox, archive, trash, sent, drafts, or outbox"
         ))
     })
 }

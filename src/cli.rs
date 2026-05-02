@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(name = "vivi", version, about = "Local-first IMAP email sync for LLMs")]
@@ -27,6 +27,60 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Command,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    #[test]
+    fn parses_archive_dry_run_json() {
+        let cli =
+            Cli::try_parse_from(["vivi", "archive", "abc123", "--dry-run", "--json"]).unwrap();
+
+        match cli.command {
+            Command::Archive {
+                handles,
+                dry_run,
+                json,
+            } => {
+                assert_eq!(handles, vec!["abc123"]);
+                assert!(dry_run);
+                assert!(json);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_delete_expunge_confirm() {
+        let cli =
+            Cli::try_parse_from(["vivi", "delete", "abc123", "--expunge", "--confirm"]).unwrap();
+
+        match cli.command {
+            Command::Delete {
+                handle,
+                expunge,
+                confirm,
+                ..
+            } => {
+                assert_eq!(handle, "abc123");
+                assert!(expunge);
+                assert!(confirm);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_multiple_flag_modes() {
+        let err =
+            Cli::try_parse_from(["vivi", "flag", "abc123", "--read", "--unread"]).unwrap_err();
+
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -105,7 +159,7 @@ pub enum Command {
         path: PathBuf,
     },
 
-    /// List messages in a folder (inbox, archive, sent, drafts)
+    /// List messages in a folder (inbox, archive, trash, sent, drafts)
     List {
         /// Folder name
         #[arg(default_value = "inbox")]
@@ -172,11 +226,99 @@ pub enum Command {
         subject: String,
     },
 
-    /// Archive one or more messages (move from inbox to archive)
+    /// Archive one or more messages remotely, then update the local mirror
     Archive {
-        /// Message identifiers
+        /// Message handles or local message identifiers
         #[arg(required = true)]
-        message_ids: Vec<String>,
+        handles: Vec<String>,
+
+        /// Preview the remote mutation without changing mailbox state
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output an agent-readable JSON plan/result
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Delete one message remotely, trashing by default
+    #[command(group(
+        ArgGroup::new("delete_mode")
+            .args(["trash", "expunge"])
+            .multiple(false)
+    ))]
+    Delete {
+        /// Message handle or local message identifier
+        handle: String,
+
+        /// Move to Trash; this is the default delete behavior
+        #[arg(long)]
+        trash: bool,
+
+        /// Permanently expunge the remote message
+        #[arg(long)]
+        expunge: bool,
+
+        /// Required with --expunge for non-dry-run hard delete
+        #[arg(long)]
+        confirm: bool,
+
+        /// Preview the remote mutation without changing mailbox state
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output an agent-readable JSON plan/result
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Move one message to a supported folder role
+    Move {
+        /// Message handle or local message identifier
+        handle: String,
+
+        /// Destination folder role: inbox, archive, trash, sent, or drafts
+        folder: String,
+
+        /// Preview the remote mutation without changing mailbox state
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output an agent-readable JSON plan/result
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Mutate read/star flags on one message
+    #[command(group(
+        ArgGroup::new("flag_mode")
+            .args(["read", "unread", "star", "unstar"])
+            .required(true)
+            .multiple(false)
+    ))]
+    Flag {
+        /// Message handle or local message identifier
+        handle: String,
+
+        #[arg(long)]
+        read: bool,
+
+        #[arg(long)]
+        unread: bool,
+
+        #[arg(long)]
+        star: bool,
+
+        #[arg(long)]
+        unstar: bool,
+
+        /// Preview the remote mutation without changing mailbox state
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output an agent-readable JSON plan/result
+        #[arg(long)]
+        json: bool,
     },
 
     /// Export one raw .eml message by ID

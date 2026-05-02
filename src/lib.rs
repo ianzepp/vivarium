@@ -7,6 +7,7 @@ pub mod imap;
 pub mod init;
 pub mod list;
 pub mod message;
+pub mod mutation_command;
 pub mod oauth;
 pub mod retrieve;
 pub mod search;

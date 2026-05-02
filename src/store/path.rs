@@ -10,6 +10,7 @@ pub(super) fn canonical_folder(folder: &str) -> Option<&'static str> {
     Some(match folder.to_ascii_lowercase().as_str() {
         "inbox" | "new" => "INBOX",
         "archive" | "archives" | "all" => "Archive",
+        "trash" | "deleted" => "Trash",
         "sent" => "Sent",
         "draft" | "drafts" => "Drafts",
         "outbox" => "outbox",
@@ -35,6 +36,17 @@ pub(super) fn maildir_filename(message_id: &str, subdir: &str) -> String {
     } else {
         base
     }
+}
+
+pub(super) fn maildir_filename_with_flags(message_id: &str, flags: &[char]) -> (String, String) {
+    let base = storage_message_id(message_id);
+    if flags.is_empty() {
+        return (base, "new".into());
+    }
+    let mut flags = flags.to_vec();
+    flags.sort_unstable();
+    let flags: String = flags.into_iter().collect();
+    (format!("{base}:2,{flags}"), "cur".into())
 }
 
 fn storage_message_id(message_id: &str) -> String {
