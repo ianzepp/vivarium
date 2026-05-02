@@ -1,3 +1,5 @@
+use std::fs;
+
 use chrono::{DateTime, Local, Months, NaiveDate, Utc};
 
 use crate::config::{Account, Config};
@@ -71,6 +73,19 @@ pub async fn sync_account(
         "sync complete"
     );
     Ok(result)
+}
+
+pub fn reset_account_cache(account: &Account, config: &Config) -> Result<(), VivariumError> {
+    let mail_path = account.mail_path(config);
+    if mail_path.exists() {
+        fs::remove_dir_all(&mail_path)?;
+    }
+    tracing::warn!(
+        account = account.name,
+        path = %mail_path.display(),
+        "reset local account cache"
+    );
+    Ok(())
 }
 
 fn parse_since(value: &str) -> Result<NaiveDate, VivariumError> {
@@ -174,5 +189,45 @@ mod tests {
         assert!(window.contains_datetime(inside));
         assert!(!window.contains_datetime(before));
         assert!(!window.contains_datetime(after));
+    }
+
+    #[test]
+    fn reset_account_cache_removes_account_mail_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let account = account_with_mail_dir(tmp.path().join("account"));
+        let config = Config::default();
+        let message_path = account.mail_path(&config).join("INBOX/new/message.eml");
+        std::fs::create_dir_all(message_path.parent().unwrap()).unwrap();
+        std::fs::write(&message_path, b"Subject: hi\r\n\r\n").unwrap();
+
+        reset_account_cache(&account, &config).unwrap();
+
+        assert!(!account.mail_path(&config).exists());
+    }
+
+    fn account_with_mail_dir(mail_dir: std::path::PathBuf) -> Account {
+        Account {
+            name: "test".into(),
+            email: "test@example.com".into(),
+            imap_host: "localhost".into(),
+            imap_port: Some(1143),
+            imap_security: crate::config::Security::Starttls,
+            smtp_host: "localhost".into(),
+            smtp_port: Some(1025),
+            smtp_security: crate::config::Security::Starttls,
+            username: "test@example.com".into(),
+            auth: crate::config::Auth::Password,
+            password: Some("secret".into()),
+            password_cmd: None,
+            token_cmd: None,
+            oauth_client_id: None,
+            oauth_client_secret: None,
+            mail_dir: Some(mail_dir.to_string_lossy().to_string()),
+            provider: crate::config::Provider::Standard,
+            oauth_authorization_url: None,
+            oauth_token_url: None,
+            oauth_scope: None,
+            reject_invalid_certs: None,
+        }
     }
 }

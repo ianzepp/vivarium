@@ -11,6 +11,8 @@ use vivarium::config::{Account, AccountsFile, Config};
 use vivarium::message;
 use vivarium::store::MailStore;
 
+mod sync_command;
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -80,7 +82,8 @@ impl Runtime {
                 limit,
                 since,
                 before,
-            } => self.sync(account, limit, since, before).await,
+                reset,
+            } => self.sync(account, limit, since, before, reset).await,
             Command::List {
                 folder,
                 limit,
@@ -147,39 +150,6 @@ impl Runtime {
         let acct = self.resolve_account(self.selected_account_name(account))?;
         let client = vivarium::oauth::oauth_client(&acct, None, None)?;
         vivarium::oauth::print_access_token(&acct, client).await
-    }
-
-    async fn sync(
-        &self,
-        account: Option<String>,
-        limit: Option<usize>,
-        since: Option<String>,
-        before: Option<String>,
-    ) -> Result<(), VivariumError> {
-        let window = vivarium::sync::SyncWindow::parse(since.as_deref(), before.as_deref())?;
-        match self.selected_account_name(account) {
-            Some(name) => {
-                let acct = self.accounts.find_account(&name)?;
-                let result =
-                    vivarium::sync::sync_account(acct, &self.config, self.insecure, limit, window)
-                        .await?;
-                print_sync_result(&name, &result);
-            }
-            None => {
-                for acct in &self.accounts.accounts {
-                    let result = vivarium::sync::sync_account(
-                        acct,
-                        &self.config,
-                        self.insecure,
-                        limit,
-                        window,
-                    )
-                    .await?;
-                    print_sync_result(&acct.name, &result);
-                }
-            }
-        }
-        Ok(())
     }
 
     fn list(

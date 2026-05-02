@@ -54,6 +54,7 @@ Then sync:
 
 ```
 vivi sync
+vivi sync --account proton --reset
 ```
 
 `vivi sync` is incremental. It downloads only missing IMAP messages, then updates
@@ -89,6 +90,7 @@ vivi sync --account proton                     # sync one account
 vivi sync --account proton --limit 100         # cap new downloads for this run
 vivi sync --account proton --since 3mo         # sync messages from the last 3 months
 vivi sync --account proton --since 2025-05-02 --before 2026-05-02
+vivi sync --account proton --reset             # delete local cache, then full resync
 vivi list                                      # list inbox (default)
 vivi list sent                                 # list sent folder
 vivi list -n 25                                # list the 25 newest inbox messages

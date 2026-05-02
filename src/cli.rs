@@ -73,6 +73,10 @@ pub enum Command {
         /// Sync messages before this date (YYYY-MM-DD)
         #[arg(long)]
         before: Option<String>,
+
+        /// Delete the local account cache before syncing
+        #[arg(long)]
+        reset: bool,
     },
 
     /// Watch for new mail via IMAP IDLE and outbox changes
