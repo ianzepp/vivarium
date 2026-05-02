@@ -346,7 +346,8 @@ extraction, keyword search, and embeddings without reprocessing the full archive
 Sending is deferred until read-only archive value is proven. If restored, it
 should be a separate explicit capability with approval boundaries. Agents being
 able to read private email is one risk class; agents being able to send email is
-another.
+another. The follow-on factory plan for upstream mailbox writes and outbound
+sending lives in `docs/email-write-send-factory-plan.md`.
 
 ### Cloud LLM Assistance
 
