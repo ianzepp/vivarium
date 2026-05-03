@@ -48,6 +48,7 @@ pub async fn sync_account(
     insecure: bool,
     limit: Option<usize>,
     window: SyncWindow,
+    all: bool,
 ) -> Result<SyncResult, VivariumError> {
     let store = MailStore::new(&account.mail_path(config));
     store.ensure_folders()?;
@@ -56,7 +57,7 @@ pub async fn sync_account(
         SyncResult::default()
     } else {
         let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
-        crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window).await?
+        crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window, all).await?
     };
     let mail_path = account.mail_path(config);
     let catalog_update = crate::catalog::update_maildir(&mail_path, &account.name, &store)?;

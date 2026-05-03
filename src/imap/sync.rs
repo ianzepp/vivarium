@@ -48,11 +48,12 @@ pub async fn sync_messages(
     reject_invalid_certs: bool,
     limit: Option<usize>,
     window: SyncWindow,
+    all: bool,
 ) -> Result<SyncResult, VivariumError> {
     let mut result = SyncResult::default();
     let mut remaining = limit;
 
-    for plan in sync_folders(account) {
+    for plan in sync_folders(account, all) {
         let r = sync_folder(SyncFolderRequest {
             account,
             store,
@@ -75,7 +76,7 @@ pub async fn sync_messages(
     Ok(result)
 }
 
-fn sync_folders(account: &Account) -> Vec<FolderPlan> {
+fn sync_folders(account: &Account, all: bool) -> Vec<FolderPlan> {
     let mut folders = vec![
         FolderPlan {
             remote_folder: account.inbox_folder(),
@@ -89,7 +90,7 @@ fn sync_folders(account: &Account) -> Vec<FolderPlan> {
         },
     ];
 
-    if matches!(account.provider, Provider::Gmail | Provider::Protonmail) {
+    if all && matches!(account.provider, Provider::Gmail | Provider::Protonmail) {
         folders.push(FolderPlan {
             remote_folder: account.all_mail_folder().into(),
             local_folder: "archive",

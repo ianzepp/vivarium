@@ -169,6 +169,7 @@ impl Runtime {
             reset,
             index,
             embed,
+            all,
         } = command
         else {
             unreachable!();
@@ -181,6 +182,7 @@ impl Runtime {
             reset,
             index,
             embed,
+            all,
         })
         .await
     }

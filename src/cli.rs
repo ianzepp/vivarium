@@ -90,6 +90,10 @@ pub enum Command {
         /// Build local embeddings after sync succeeds; implies --index
         #[arg(long)]
         embed: bool,
+
+        /// Sync all IMAP folders (Inbox, Sent, All Mail)
+        #[arg(long)]
+        all: bool,
     },
 
     /// List remote IMAP folders and capabilities

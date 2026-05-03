@@ -59,6 +59,7 @@ async fn watch_imap(
                     insecure,
                     None,
                     SyncWindow::default(),
+                    false,
                 )
                 .await?;
                 tracing::info!(

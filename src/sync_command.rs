@@ -8,6 +8,7 @@ pub(crate) struct SyncOptions {
     pub(crate) reset: bool,
     pub(crate) index: bool,
     pub(crate) embed: bool,
+    pub(crate) all: bool,
 }
 
 impl Runtime {
@@ -32,6 +33,7 @@ impl Runtime {
                     self.insecure,
                     options.limit,
                     window,
+                    options.all,
                 )
                 .await?;
                 print_sync_result(&name, &result);
@@ -49,6 +51,7 @@ impl Runtime {
                         self.insecure,
                         options.limit,
                         window,
+                        options.all,
                     )
                     .await?;
                     print_sync_result(&acct.name, &result);

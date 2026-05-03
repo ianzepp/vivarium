@@ -74,15 +74,41 @@ fn find_missing_falls_back_to_uid_and_size_without_message_id() {
 }
 
 #[test]
+fn protonmail_syncs_all_mail_without_all_flag() {
+    let account = account_with_provider(Provider::Protonmail);
+    let folders = sync_folders(&account, false);
+
+    assert!(folders.len() == 2);
+    assert!(
+        folders.iter().any(|f| f.local_folder == "inbox")
+    );
+    assert!(
+        folders.iter().any(|f| f.local_folder == "sent")
+    );
+    assert!(
+        !folders.iter().any(|f| f.local_folder == "archive")
+    );
+}
+
+#[test]
 fn protonmail_syncs_all_mail_into_archive() {
     let account = account_with_provider(Provider::Protonmail);
-    let folders = sync_folders(&account);
+    let folders = sync_folders(&account, true);
 
     assert!(
         folders
             .iter()
             .any(|folder| folder.remote_folder == "All Mail" && folder.local_folder == "archive")
     );
+}
+
+#[test]
+fn standard_provider_no_all_mail_even_with_flag() {
+    let account = account_with_provider(Provider::Standard);
+    let folders = sync_folders(&account, true);
+
+    assert!(folders.len() == 2);
+    assert!(!folders.iter().any(|f| f.local_folder == "archive"));
 }
 
 #[test]
