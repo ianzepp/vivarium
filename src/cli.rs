@@ -131,6 +131,10 @@ pub enum Command {
         #[arg(short = 'n', long)]
         limit: Option<usize>,
 
+        /// Filter listed messages by handle, sender, or subject text
+        #[arg(long)]
+        filter: Option<String>,
+
         /// List messages on or after this date (YYYY-MM-DD, or relative like 30d, 3mo, 1y)
         #[arg(long)]
         since: Option<String>,
@@ -317,6 +321,10 @@ pub enum Command {
         /// Search query (space-separated keywords)
         query: String,
 
+        /// Restrict results to one local folder role, such as inbox, archive, trash, sent, or drafts
+        #[arg(long)]
+        folder: Option<String>,
+
         /// Maximum results to return
         #[arg(long, default_value = "20")]
         limit: usize,
@@ -328,6 +336,10 @@ pub enum Command {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+
+        /// Print only the total matching message count
+        #[arg(long)]
+        count: bool,
 
         /// Use local email embeddings for semantic search
         #[arg(long)]

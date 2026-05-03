@@ -85,6 +85,19 @@ fn parses_sync_embed_without_index() {
 }
 
 #[test]
+fn parses_list_filter() {
+    let cli = Cli::try_parse_from(["vivi", "list", "inbox", "--filter", "DoorDash"]).unwrap();
+
+    match cli.command {
+        Command::List { folder, filter, .. } => {
+            assert_eq!(folder, "inbox");
+            assert_eq!(filter.as_deref(), Some("DoorDash"));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_default_compose_command() {
     let cli = Cli::try_parse_from([
         "vivi",
@@ -288,6 +301,26 @@ fn parses_semantic_and_hybrid_search_flags() {
         } => {
             assert!(!semantic);
             assert!(hybrid);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_search_count_and_folder() {
+    let cli = Cli::try_parse_from(["vivi", "search", "DoorDash", "--folder", "inbox", "--count"])
+        .unwrap();
+
+    match cli.command {
+        Command::Search {
+            query,
+            folder,
+            count,
+            ..
+        } => {
+            assert_eq!(query, "DoorDash");
+            assert_eq!(folder.as_deref(), Some("inbox"));
+            assert!(count);
         }
         other => panic!("unexpected command: {other:?}"),
     }

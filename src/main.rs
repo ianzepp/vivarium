@@ -94,9 +94,10 @@ impl Runtime {
             Command::List {
                 folder,
                 limit,
+                filter,
                 since,
                 before,
-            } => self.list(&folder, limit, since, before),
+            } => self.list(&folder, limit, filter.as_deref(), since, before),
             Command::Show { message_ids, json } => self.show(&message_ids, json),
             Command::Thread {
                 message_id,
@@ -190,17 +191,28 @@ impl Runtime {
     async fn run_search_command(&self, command: Command) -> Result<(), VivariumError> {
         let Command::Search {
             query,
+            folder,
             limit,
             offset,
             json,
+            count,
             semantic,
             hybrid,
         } = command
         else {
             unreachable!();
         };
-        self.search(&query, limit, offset, json, semantic, hybrid)
-            .await
+        self.search(
+            &query,
+            folder.as_deref(),
+            limit,
+            offset,
+            json,
+            count,
+            semantic,
+            hybrid,
+        )
+        .await
     }
 
     #[cfg(feature = "outbox")]
@@ -226,6 +238,7 @@ impl Runtime {
         &self,
         folder: &str,
         limit: Option<usize>,
+        filter: Option<&str>,
         since: Option<String>,
         before: Option<String>,
     ) -> Result<(), VivariumError> {
@@ -238,7 +251,7 @@ impl Runtime {
             println!("# {}", acct.name);
             let store = MailStore::new(&acct.mail_path(&self.config));
             let entries = store.list_messages(folder)?;
-            let entries = vivarium::list::filter_entries(entries, window, limit);
+            let entries = vivarium::list::filter_entries(entries, window, limit, filter);
             vivarium::list::print_entries(folder, &entries);
         }
         Ok(())
@@ -299,26 +312,51 @@ impl Runtime {
     async fn search(
         &self,
         query: &str,
+        folder: Option<&str>,
         limit: usize,
         offset: usize,
         as_json: bool,
+        count: bool,
         semantic: bool,
         hybrid: bool,
     ) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.account.clone())?;
         let mail_root = acct.mail_path(&self.config);
-        if semantic || hybrid {
-            let (results, total) = vivarium::search::semantic_or_hybrid_search(
-                &mail_root, &acct.name, query, limit, offset, semantic, hybrid,
+        let folder = folder
+            .map(vivarium::search::canonical_search_folder)
+            .transpose()?;
+        let (results, total) = if semantic || hybrid {
+            vivarium::search::semantic_or_hybrid_search(
+                &mail_root,
+                &acct.name,
+                query,
+                limit,
+                offset,
+                semantic,
+                hybrid,
+                folder.as_deref(),
             )
-            .await?;
-            vivarium::search::print_results(query, limit, offset, results, total, as_json);
-            return Ok(());
-        }
-
-        let (results, total) =
-            vivarium::search::keyword_search(&mail_root, &acct.name, query, limit, offset)?;
-        vivarium::search::print_results(query, limit, offset, results, total, as_json);
+            .await?
+        } else {
+            vivarium::search::keyword_search(
+                &mail_root,
+                &acct.name,
+                query,
+                limit,
+                offset,
+                folder.as_deref(),
+            )?
+        };
+        vivarium::search::print_search_output(vivarium::search::SearchOutput {
+            query,
+            folder: folder.as_deref(),
+            limit,
+            offset,
+            results,
+            total,
+            as_json,
+            count_only: count,
+        });
         Ok(())
     }
 }

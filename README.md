@@ -94,6 +94,7 @@ vivi sync --account proton --reset             # delete local cache, then full r
 vivi list                                      # list inbox (default)
 vivi list sent                                 # list sent folder
 vivi list -n 25                                # list the 25 newest inbox messages
+vivi list inbox --filter DoorDash              # list inbox messages matching handle, sender, or subject
 vivi list --since 3mo                          # list inbox messages from the last 3 months
 vivi list --since 2025-05-02 --before 2026-05-02
 vivi show inbox-1                              # read a message
@@ -105,6 +106,7 @@ vivi archive inbox-1                           # move from inbox to archive
 vivi delete inbox-2 inbox-3 --dry-run          # preview deleting multiple messages
 vivi search "invoice"                          # keyword search
 vivi search "invoice" --json                   # JSON search output with citation metadata
+vivi search "DoorDash" --folder inbox --count  # print only the inbox match count
 ```
 
 All commands accept `--account <name>` to target a specific account. Without it, account-scoped commands use the first account in `accounts.toml`; `sync` and `list` operate on all accounts.

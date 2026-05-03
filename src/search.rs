@@ -5,7 +5,9 @@ use crate::catalog::Catalog;
 use crate::email_index::{EmailIndex, IndexedMessage};
 use crate::error::VivariumError;
 
+mod output;
 mod semantic;
+pub use output::{SearchOutput, print_search_output, to_json_result};
 pub use semantic::semantic_or_hybrid_search;
 
 /// A search result with handle and citation metadata.
@@ -33,8 +35,9 @@ pub fn keyword_search(
     query: &str,
     limit: usize,
     offset: usize,
+    folder: Option<&str>,
 ) -> Result<(Vec<SearchResult>, usize), VivariumError> {
-    let all_results = indexed_lexical_results(mail_root, account, query)?;
+    let all_results = filter_by_folder(indexed_lexical_results(mail_root, account, query)?, folder);
 
     // Apply pagination
     let total = all_results.len();
@@ -46,6 +49,32 @@ pub fn keyword_search(
     };
 
     Ok((results, total))
+}
+
+pub fn canonical_search_folder(folder: &str) -> Result<String, VivariumError> {
+    match folder.to_ascii_lowercase().as_str() {
+        "inbox" => Ok("INBOX".into()),
+        "archive" | "all" => Ok("Archive".into()),
+        "trash" | "deleted" => Ok("Trash".into()),
+        "sent" => Ok("Sent".into()),
+        "draft" | "drafts" => Ok("Drafts".into()),
+        _ => Err(VivariumError::Message(format!(
+            "unsupported search folder '{folder}'; expected inbox, archive, trash, sent, or drafts"
+        ))),
+    }
+}
+
+pub(crate) fn filter_by_folder(
+    results: Vec<SearchResult>,
+    folder: Option<&str>,
+) -> Vec<SearchResult> {
+    let Some(folder) = folder else {
+        return results;
+    };
+    results
+        .into_iter()
+        .filter(|result| result.folder.eq_ignore_ascii_case(folder))
+        .collect()
 }
 
 pub(crate) fn indexed_lexical_results(
@@ -154,70 +183,6 @@ fn indexed_lexical_text(message: &IndexedMessage) -> String {
     .join("\n")
 }
 
-/// Search result in JSON-friendly format.
-pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
-    serde_json::json!({
-        "handle": result.handle,
-        "raw_path": result.raw_path,
-        "account": result.account,
-        "folder": result.folder,
-        "maildir_subdir": result.maildir_subdir,
-        "date": result.date,
-        "from": result.from,
-        "subject": result.subject,
-        "score": result.score,
-        "lexical_score": result.lexical_score,
-        "semantic_score": result.semantic_score,
-        "chunk_id": result.chunk_id,
-        "snippet": result.snippet,
-        "citation": {
-            "handle": result.handle,
-            "account": result.account,
-            "folder": result.folder,
-            "maildir_subdir": result.maildir_subdir,
-            "raw_path": result.raw_path,
-            "source_type": "rfc5322",
-        },
-    })
-}
-
-pub fn print_results(
-    query: &str,
-    limit: usize,
-    offset: usize,
-    results: Vec<SearchResult>,
-    total: usize,
-    as_json: bool,
-) {
-    if as_json {
-        let output = serde_json::json!({
-            "query": query,
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "results": results.into_iter()
-                .map(|r| to_json_result(&r))
-                .collect::<Vec<_>>(),
-        });
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&output).unwrap_or_else(|_| output.to_string())
-        );
-        return;
-    }
-
-    println!("search: {} results for '{}'", total, query);
-    for result in &results {
-        println!(
-            "  {}  {:<16}  {}  {}",
-            result.handle, result.date, result.from, result.subject
-        );
-        if !result.snippet.is_empty() {
-            println!("    snippet: {}", result.snippet);
-        }
-    }
-}
-
 fn search_result(message: IndexedMessage, data: &[u8], score: f64) -> SearchResult {
     SearchResult {
         handle: message.handle,
@@ -280,7 +245,7 @@ mod tests {
         catalog(tmp.path(), "acct", &path, "INBOX");
         email_index::rebuild(tmp.path(), "acct").unwrap();
 
-        let (results, total) = keyword_search(tmp.path(), "acct", "release", 10, 0).unwrap();
+        let (results, total) = keyword_search(tmp.path(), "acct", "release", 10, 0, None).unwrap();
 
         assert_eq!(total, 1);
         assert_eq!(results[0].handle, "inbox-1");
@@ -304,7 +269,7 @@ mod tests {
             )
             .unwrap();
 
-        let (results, total) = keyword_search(tmp.path(), "acct", "release", 10, 0).unwrap();
+        let (results, total) = keyword_search(tmp.path(), "acct", "release", 10, 0, None).unwrap();
 
         assert_eq!(total, 0);
         assert!(results.is_empty());
@@ -323,7 +288,7 @@ mod tests {
             .unwrap();
         catalog(tmp.path(), "acct", &path, "INBOX");
 
-        let err = keyword_search(tmp.path(), "acct", "release", 10, 0).unwrap_err();
+        let err = keyword_search(tmp.path(), "acct", "release", 10, 0, None).unwrap_err();
 
         assert!(err.to_string().contains("email index is empty"));
     }

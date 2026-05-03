@@ -12,13 +12,22 @@ pub async fn semantic_or_hybrid_search(
     offset: usize,
     semantic: bool,
     hybrid: bool,
+    folder: Option<&str>,
 ) -> Result<(Vec<SearchResult>, usize), VivariumError> {
     let (semantic_results, semantic_total) =
         semantic_results(mail_root, account, query, limit, offset).await?;
     if semantic && !hybrid {
-        return Ok((semantic_results, semantic_total));
+        if folder.is_none() {
+            return Ok((semantic_results, semantic_total));
+        }
+        let results = super::filter_by_folder(semantic_results, folder);
+        return Ok((results.clone(), results.len()));
     }
-    let lexical_results = super::indexed_lexical_results(mail_root, account, query)?;
+    let lexical_results = super::filter_by_folder(
+        super::indexed_lexical_results(mail_root, account, query)?,
+        folder,
+    );
+    let semantic_results = super::filter_by_folder(semantic_results, folder);
     Ok(merge_hybrid(
         lexical_results,
         semantic_results,

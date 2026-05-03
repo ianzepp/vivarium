@@ -5,15 +5,27 @@ pub fn filter_entries(
     entries: Vec<MessageEntry>,
     window: SyncWindow,
     limit: Option<usize>,
+    text_filter: Option<&str>,
 ) -> Vec<MessageEntry> {
     let mut entries: Vec<MessageEntry> = entries
         .into_iter()
         .filter(|entry| window.contains_datetime(entry.date))
+        .filter(|entry| matches_text_filter(entry, text_filter))
         .collect();
     if let Some(limit) = limit {
         entries.truncate(limit);
     }
     entries
+}
+
+fn matches_text_filter(entry: &MessageEntry, text_filter: Option<&str>) -> bool {
+    let Some(filter) = text_filter else {
+        return true;
+    };
+    let filter = filter.to_ascii_lowercase();
+    entry.message_id.to_ascii_lowercase().contains(&filter)
+        || entry.from.to_ascii_lowercase().contains(&filter)
+        || entry.subject.to_ascii_lowercase().contains(&filter)
 }
 
 pub fn print_entries(folder: &str, entries: &[MessageEntry]) {
@@ -45,11 +57,26 @@ mod tests {
             entry("inbox-4", 2026, 4, 30),
         ];
 
-        let filtered = filter_entries(entries, window, Some(2));
+        let filtered = filter_entries(entries, window, Some(2), None);
 
         assert_eq!(filtered.len(), 2);
         assert_eq!(filtered[0].message_id, "inbox-2");
         assert_eq!(filtered[1].message_id, "inbox-3");
+    }
+
+    #[test]
+    fn filter_entries_applies_text_filter_before_limit() {
+        let window = SyncWindow::parse(None, None).unwrap();
+        let entries = vec![
+            entry_with_text("inbox-1", "DoorDash", "First deal"),
+            entry_with_text("inbox-2", "Other", "No match"),
+            entry_with_text("inbox-3", "DoorDash", "Second deal"),
+        ];
+
+        let filtered = filter_entries(entries, window, Some(1), Some("doordash"));
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].message_id, "inbox-1");
     }
 
     fn entry(message_id: &str, year: i32, month: u32, day: u32) -> MessageEntry {
@@ -58,6 +85,16 @@ mod tests {
             from: "a@example.com".into(),
             subject: "subject".into(),
             date: Utc.with_ymd_and_hms(year, month, day, 12, 0, 0).unwrap(),
+            path: PathBuf::from(format!("{message_id}.eml")),
+        }
+    }
+
+    fn entry_with_text(message_id: &str, from: &str, subject: &str) -> MessageEntry {
+        MessageEntry {
+            message_id: message_id.into(),
+            from: from.into(),
+            subject: subject.into(),
+            date: Utc.with_ymd_and_hms(2026, 5, 3, 12, 0, 0).unwrap(),
             path: PathBuf::from(format!("{message_id}.eml")),
         }
     }
