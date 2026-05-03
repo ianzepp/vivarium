@@ -79,15 +79,9 @@ fn protonmail_syncs_all_mail_without_all_flag() {
     let folders = sync_folders(&account, false);
 
     assert!(folders.len() == 2);
-    assert!(
-        folders.iter().any(|f| f.local_folder == "inbox")
-    );
-    assert!(
-        folders.iter().any(|f| f.local_folder == "sent")
-    );
-    assert!(
-        !folders.iter().any(|f| f.local_folder == "archive")
-    );
+    assert!(folders.iter().any(|f| f.local_folder == "inbox"));
+    assert!(folders.iter().any(|f| f.local_folder == "sent"));
+    assert!(!folders.iter().any(|f| f.local_folder == "archive"));
 }
 
 #[test]

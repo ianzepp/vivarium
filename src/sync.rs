@@ -62,8 +62,14 @@ pub async fn sync_account(
             .await?
     };
     let mail_path = account.mail_path(config);
+    tracing::info!(account = account.name, "cataloging local maildir");
     let catalog_update = crate::catalog::update_maildir(&mail_path, &account.name, &store)?;
     if !result.remote_identities.is_empty() {
+        tracing::info!(
+            account = account.name,
+            candidates = result.remote_identities.len(),
+            "reconciling remote identities"
+        );
         let identity_result =
             crate::catalog::attach_remote_identities(&mail_path, &result.remote_identities)?;
         tracing::info!(

@@ -1,8 +1,6 @@
+use super::transport::RemoteMessage;
 use crate::catalog::RemoteIdentityCandidate;
 use crate::config::Account;
-use crate::sync::SyncResult;
-
-use super::transport::RemoteMessage;
 
 pub(super) fn remote_identity_candidates(
     account: &Account,
@@ -23,13 +21,4 @@ pub(super) fn remote_identity_candidates(
             size: remote.size,
         })
         .collect()
-}
-
-pub(super) fn remote_identity_result(
-    remote_identities: Vec<RemoteIdentityCandidate>,
-) -> SyncResult {
-    SyncResult {
-        remote_identities,
-        ..SyncResult::default()
-    }
 }

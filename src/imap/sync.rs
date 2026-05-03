@@ -2,7 +2,7 @@ use futures::TryStreamExt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::identity::{remote_identity_candidates, remote_identity_result};
+use super::identity::remote_identity_candidates;
 use super::query::fetch_remote_messages;
 use super::transport::{CHUNK_SIZE, ImapSession, RemoteMessage, WORKER_COUNT, connect};
 use crate::config::{Account, Provider};
@@ -212,13 +212,6 @@ async fn sync_folder(request: SyncFolderRequest<'_>) -> Result<SyncResult, Vivar
     if remote_messages.is_empty() {
         return Ok(SyncResult::default());
     }
-    let remote_identities = remote_identity_candidates(
-        request.account,
-        remote_folder,
-        local_folder,
-        &remote_messages,
-    );
-
     let mut missing = find_missing(
         &remote_messages,
         request.store,
@@ -231,13 +224,15 @@ async fn sync_folder(request: SyncFolderRequest<'_>) -> Result<SyncResult, Vivar
             total = remote_messages.len(),
             "all messages up to date"
         );
-        return Ok(remote_identity_result(remote_identities));
+        return Ok(SyncResult::default());
     }
     let total_missing = missing.len();
     truncate_missing(&mut missing, request.limit);
     if missing.is_empty() {
-        return Ok(remote_identity_result(remote_identities));
+        return Ok(SyncResult::default());
     }
+    let remote_identities =
+        remote_identity_candidates(request.account, remote_folder, local_folder, &missing);
 
     tracing::info!(
         folder = remote_folder,
