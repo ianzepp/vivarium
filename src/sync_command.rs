@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use super::{Runtime, VivariumError, print_sync_result};
 
 pub(crate) struct SyncOptions {
@@ -37,7 +39,7 @@ impl Runtime {
                 )
                 .await?;
                 print_sync_result(&name, &result);
-                self.run_post_sync_indexes(acct, options.index, options.embed)
+                self.run_post_sync_indexes(acct, &result, options.index, options.embed)
                     .await?;
             }
             None => {
@@ -55,7 +57,7 @@ impl Runtime {
                     )
                     .await?;
                     print_sync_result(&acct.name, &result);
-                    self.run_post_sync_indexes(acct, options.index, options.embed)
+                    self.run_post_sync_indexes(acct, &result, options.index, options.embed)
                         .await?;
                 }
             }
@@ -66,6 +68,7 @@ impl Runtime {
     async fn run_post_sync_indexes(
         &self,
         acct: &vivarium::config::Account,
+        result: &vivarium::sync::SyncResult,
         index: bool,
         embed: bool,
     ) -> Result<(), VivariumError> {
@@ -79,10 +82,18 @@ impl Runtime {
             acct.name, stats.scanned, stats.updated, stats.reused, stats.stale, stats.errors
         );
         if embed {
+            let catalog_handles = result
+                .cataloged_entries
+                .iter()
+                .map(|entry| entry.handle.clone())
+                .collect::<BTreeSet<_>>();
             let stats = vivarium::embeddings::index_embeddings(
                 &mail_root,
                 &acct.name,
-                vivarium::embeddings::EmbeddingOptions::default(),
+                vivarium::embeddings::EmbeddingOptions {
+                    catalog_handles: Some(catalog_handles),
+                    ..vivarium::embeddings::EmbeddingOptions::default()
+                },
             )
             .await?;
             println!(

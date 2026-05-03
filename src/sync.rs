@@ -2,7 +2,7 @@ use std::fs;
 
 use chrono::{DateTime, Local, Months, NaiveDate, Utc};
 
-use crate::catalog::RemoteIdentityCandidate;
+use crate::catalog::{CatalogEntry, RemoteIdentityCandidate};
 use crate::config::{Account, Config};
 use crate::error::VivariumError;
 use crate::store::MailStore;
@@ -15,6 +15,7 @@ pub struct SyncResult {
     pub extracted: usize,
     pub extraction_errors: usize,
     pub remote_identities: Vec<RemoteIdentityCandidate>,
+    pub cataloged_entries: Vec<CatalogEntry>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -57,7 +58,8 @@ pub async fn sync_account(
         SyncResult::default()
     } else {
         let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
-        crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window, all).await?
+        crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window, all)
+            .await?
     };
     let mail_path = account.mail_path(config);
     let catalog_update = crate::catalog::update_maildir(&mail_path, &account.name, &store)?;
@@ -76,6 +78,7 @@ pub async fn sync_account(
     let (extracted, extraction_errors) =
         crate::extract::extract_catalog_entries(&catalog_update.entries)?;
     result.cataloged = catalog_update.cataloged;
+    result.cataloged_entries = catalog_update.entries;
     result.extracted = extracted;
     result.extraction_errors = extraction_errors;
 

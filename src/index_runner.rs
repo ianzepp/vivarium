@@ -25,6 +25,7 @@ impl Runtime {
                     endpoint,
                     rebuild,
                     limit,
+                    catalog_handles: None,
                 };
                 run_index_embeddings(&mail_root, &acct.name, options).await
             }

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
@@ -7,6 +8,8 @@ use chunk::EmailChunk;
 use progress::EmbeddingProgress;
 
 mod chunk;
+#[cfg(test)]
+mod filter_tests;
 mod progress;
 mod provider;
 mod store;
@@ -27,6 +30,7 @@ pub struct EmbeddingOptions {
     pub endpoint: String,
     pub rebuild: bool,
     pub limit: Option<usize>,
+    pub catalog_handles: Option<BTreeSet<String>>,
 }
 
 impl Default for EmbeddingOptions {
@@ -37,6 +41,7 @@ impl Default for EmbeddingOptions {
             endpoint: DEFAULT_ENDPOINT.to_string(),
             rebuild: false,
             limit: None,
+            catalog_handles: None,
         }
     }
 }
@@ -92,7 +97,7 @@ async fn index_embeddings_with_provider<P: provider::EmbeddingProvider + Sync>(
 ) -> Result<EmbeddingStats, VivariumError> {
     let index = EmailIndex::open(mail_root)?;
     let mut store = store::EmbeddingStore::open(mail_root, provider.provider(), provider.model())?;
-    let messages = index.list_messages(account)?;
+    let messages = filtered_messages(&index, account, options.catalog_handles.as_ref())?;
     let total_messages = options
         .limit
         .map(|limit| usize::min(limit, messages.len()))
@@ -131,6 +136,24 @@ async fn index_embeddings_with_provider<P: provider::EmbeddingProvider + Sync>(
     }
     progress.finish(&stats);
     Ok(stats)
+}
+
+fn filtered_messages(
+    index: &EmailIndex,
+    account: &str,
+    catalog_handles: Option<&BTreeSet<String>>,
+) -> Result<Vec<IndexedMessage>, VivariumError> {
+    let Some(catalog_handles) = catalog_handles else {
+        return index.list_messages(account);
+    };
+    if catalog_handles.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(index
+        .list_messages(account)?
+        .into_iter()
+        .filter(|message| catalog_handles.contains(&message.catalog_handle))
+        .collect())
 }
 
 struct IndexedEmbeddings {
