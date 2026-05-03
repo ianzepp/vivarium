@@ -15,6 +15,7 @@ pub mod mutation_command;
 pub mod oauth;
 pub mod retrieve;
 pub mod search;
+pub mod storage;
 pub mod thread;
 
 #[cfg(feature = "outbox")]
