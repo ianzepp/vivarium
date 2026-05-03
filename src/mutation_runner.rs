@@ -40,7 +40,7 @@ impl Runtime {
                 .await?;
             }
             Command::Delete {
-                handle,
+                handles,
                 trash: _,
                 expunge,
                 confirm,
@@ -53,7 +53,7 @@ impl Runtime {
                     MutationAction::Trash
                 };
                 self.run_mutations(
-                    vec![handle],
+                    handles,
                     |_| Ok(action.clone()),
                     MutationRunOptions {
                         dry_run,

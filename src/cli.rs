@@ -221,15 +221,16 @@ pub enum Command {
         json: bool,
     },
 
-    /// Delete one message remotely, trashing by default
+    /// Delete one or more messages remotely, trashing by default
     #[command(group(
         ArgGroup::new("delete_mode")
             .args(["trash", "expunge"])
             .multiple(false)
     ))]
     Delete {
-        /// Message handle or local message identifier
-        handle: String,
+        /// Message handles or local message identifiers
+        #[arg(required = true)]
+        handles: Vec<String>,
 
         /// Move to Trash; this is the default delete behavior
         #[arg(long)]

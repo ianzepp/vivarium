@@ -102,6 +102,7 @@ vivi thread inbox-1 --json                     # read local thread context as JS
 vivi export inbox-1 > inbox-1.eml              # export the raw RFC 5322 message
 vivi export inbox-1 --text                     # export normalized local text
 vivi archive inbox-1                           # move from inbox to archive
+vivi delete inbox-2 inbox-3 --dry-run          # preview deleting multiple messages
 vivi search "invoice"                          # keyword search
 vivi search "invoice" --json                   # JSON search output with citation metadata
 ```

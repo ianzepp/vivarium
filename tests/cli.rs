@@ -23,16 +23,24 @@ fn parses_archive_dry_run_json() {
 
 #[test]
 fn parses_delete_expunge_confirm() {
-    let cli = Cli::try_parse_from(["vivi", "delete", "abc123", "--expunge", "--confirm"]).unwrap();
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "delete",
+        "abc123",
+        "def456",
+        "--expunge",
+        "--confirm",
+    ])
+    .unwrap();
 
     match cli.command {
         Command::Delete {
-            handle,
+            handles,
             expunge,
             confirm,
             ..
         } => {
-            assert_eq!(handle, "abc123");
+            assert_eq!(handles, vec!["abc123", "def456"]);
             assert!(expunge);
             assert!(confirm);
         }

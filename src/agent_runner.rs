@@ -81,7 +81,7 @@ impl Runtime {
             ));
         }
         self.run_mutation_command(Command::Delete {
-            handle,
+            handles: vec![handle],
             trash: !expunge,
             expunge,
             confirm,
