@@ -40,7 +40,7 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
 }
 
 pub(super) fn import_legacy_json_if_needed(
-    conn: &Connection,
+    conn: &mut Connection,
     legacy_path: &Path,
 ) -> Result<(), VivariumError> {
     if !legacy_path.exists() || count_all_entries(conn)? > 0 {
@@ -51,9 +51,19 @@ pub(super) fn import_legacy_json_if_needed(
         .map_err(|e| VivariumError::Other(format!("failed to read legacy catalog: {e}")))?;
     let entries = serde_json::from_str::<Vec<CatalogEntry>>(&data)
         .map_err(|e| VivariumError::Other(format!("failed to parse legacy catalog: {e}")))?;
+    tracing::info!(
+        path = %legacy_path.display(),
+        entries = entries.len(),
+        "importing legacy catalog into sqlite"
+    );
+    let tx = conn
+        .transaction()
+        .map_err(|e| VivariumError::Other(format!("failed to start catalog import: {e}")))?;
     for entry in entries {
-        upsert_entry(conn, &entry)?;
+        upsert_entry(&tx, &entry)?;
     }
+    tx.commit()
+        .map_err(|e| VivariumError::Other(format!("failed to commit catalog import: {e}")))?;
     Ok(())
 }
 

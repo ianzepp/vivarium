@@ -79,13 +79,13 @@ impl Catalog {
         secure_create_dir_all(&catalog_dir)
             .map_err(|e| VivariumError::Other(format!("failed to create catalog dir: {e}")))?;
         let catalog_path = catalog_dir.join(CATALOG_DB_FILENAME);
-        let conn = Connection::open(&catalog_path)
+        let mut conn = Connection::open(&catalog_path)
             .map_err(|e| VivariumError::Other(format!("failed to open catalog database: {e}")))?;
         #[cfg(unix)]
         fs::set_permissions(&catalog_path, fs::Permissions::from_mode(0o600))?;
 
         ensure_schema(&conn)?;
-        import_legacy_json_if_needed(&conn, &catalog_dir.join(LEGACY_CATALOG_FILENAME))?;
+        import_legacy_json_if_needed(&mut conn, &catalog_dir.join(LEGACY_CATALOG_FILENAME))?;
 
         Ok(Self { conn })
     }
@@ -186,8 +186,7 @@ pub fn update_maildir(
             continue;
         }
 
-        let entry =
-            catalog_entry_for_file(&path, account, &folder, &subdir, existing_handles.clone());
+        let entry = catalog_entry_for_file(&path, account, &folder, &subdir, &existing_handles);
         if entry.is_duplicate {
             result.duplicates += 1;
         }
@@ -231,7 +230,7 @@ pub fn scan_maildir(
         .collect();
 
     for folder in folders {
-        let entries_for_folder = scan_folder_with(existing.clone(), folder, account, store)?;
+        let entries_for_folder = scan_folder_with(&existing, folder, account, store)?;
         all_entries.extend(entries_for_folder);
     }
 
@@ -242,7 +241,7 @@ pub fn scan_maildir(
 }
 
 fn scan_folder_with(
-    existing: HashMap<String, CatalogEntry>,
+    existing: &HashMap<String, CatalogEntry>,
     folder: &str,
     account: &str,
     store: &crate::store::MailStore,
@@ -255,7 +254,7 @@ fn scan_folder_with(
         if !dir.exists() {
             continue;
         }
-        let folder_entries = scan_subdir(&dir, account, canonical, subdir, existing.clone())?;
+        let folder_entries = scan_subdir(&dir, account, canonical, subdir, existing)?;
         entries.extend(folder_entries);
     }
 
@@ -267,7 +266,7 @@ fn scan_subdir(
     account: &str,
     folder: &str,
     subdir: &str,
-    existing: HashMap<String, CatalogEntry>,
+    existing: &HashMap<String, CatalogEntry>,
 ) -> Result<Vec<CatalogEntry>, VivariumError> {
     let mut entries = Vec::new();
 
@@ -290,8 +289,7 @@ fn scan_subdir(
             if !stem.ends_with(".eml") {
                 continue;
             }
-            let entry =
-                catalog_entry_for_file(&path_val, account, folder, subdir, existing.clone());
+            let entry = catalog_entry_for_file(&path_val, account, folder, subdir, existing);
             entries.push(entry);
         }
     }
@@ -337,7 +335,7 @@ fn catalog_entry_for_file(
     account: &str,
     folder: &str,
     subdir: &str,
-    existing: HashMap<String, CatalogEntry>,
+    existing: &HashMap<String, CatalogEntry>,
 ) -> CatalogEntry {
     let data = fs::read(path_val).ok().unwrap_or_default();
     let handle = handle_from_bytes(&data);
