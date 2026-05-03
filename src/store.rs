@@ -15,7 +15,7 @@ mod tests;
 
 pub use path::message_id_from_path;
 use path::{canonical_folder, display_message_id, is_message_file, maildir_filename, stable_hash};
-pub(crate) use secure::{secure_create_dir_all, secure_write};
+pub(crate) use secure::secure_create_dir_all;
 use secure::{secure_create_file, secure_file};
 
 /// Local Maildir folders.

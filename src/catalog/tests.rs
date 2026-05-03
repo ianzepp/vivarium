@@ -37,7 +37,7 @@ fn catalog_uses_private_permissions() {
     catalog.upsert(&entry).unwrap();
 
     assert_eq!(mode(&store.root().join(".vivarium")), 0o700);
-    assert_eq!(mode(&store.root().join(".vivarium/catalog.json")), 0o600);
+    assert_eq!(mode(&store.root().join(".vivarium/catalog.sqlite")), 0o600);
 }
 
 #[test]
@@ -113,6 +113,7 @@ fn catalog_loads_entries_without_remote_identity_field() {
 
     assert_eq!(entries.len(), 1);
     assert!(entries[0].remote.is_none());
+    assert!(catalog_dir.join("catalog.sqlite").exists());
 }
 
 #[test]

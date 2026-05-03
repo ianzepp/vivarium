@@ -1,17 +1,21 @@
 use std::collections::HashMap;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use hex;
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::VivariumError;
 use crate::message::{MessageEntry, message_id_from_bytes};
-use crate::store::{secure_create_dir_all, secure_write};
+use crate::store::secure_create_dir_all;
 
 mod local;
 mod remote;
+mod sqlite;
 #[cfg(test)]
 mod tests;
 
@@ -19,12 +23,16 @@ pub use remote::{
     RemoteIdentity, RemoteIdentityAttachResult, RemoteIdentityCandidate, RemoteReferenceStatus,
     attach_remote_identities,
 };
+use sqlite::{catalog_entry_from_row, ensure_schema, import_legacy_json_if_needed, upsert_entry};
 
 /// Catalog directory inside the mail root.
 const CATALOG_DIR: &str = ".vivarium";
 
-/// Catalog file name.
-const CATALOG_FILENAME: &str = "catalog.json";
+/// Catalog SQLite database filename.
+const CATALOG_DB_FILENAME: &str = "catalog.sqlite";
+
+/// Legacy catalog file name imported on first SQLite open.
+const LEGACY_CATALOG_FILENAME: &str = "catalog.json";
 
 /// Stable handle prefix length (hex chars of SHA-256).
 const HANDLE_LENGTH: usize = 16;
@@ -59,10 +67,9 @@ pub struct CatalogUpdateResult {
     pub entries: Vec<CatalogEntry>,
 }
 
-/// The mail catalog backed by a JSON index.
+/// The mail catalog backed by SQLite.
 pub struct Catalog {
-    root: String,
-    entries: HashMap<String, CatalogEntry>,
+    conn: Connection,
 }
 
 impl Catalog {
@@ -71,77 +78,85 @@ impl Catalog {
         let catalog_dir = mail_root.join(CATALOG_DIR);
         secure_create_dir_all(&catalog_dir)
             .map_err(|e| VivariumError::Other(format!("failed to create catalog dir: {e}")))?;
-        let catalog_path = catalog_dir.join(CATALOG_FILENAME);
+        let catalog_path = catalog_dir.join(CATALOG_DB_FILENAME);
+        let conn = Connection::open(&catalog_path)
+            .map_err(|e| VivariumError::Other(format!("failed to open catalog database: {e}")))?;
+        #[cfg(unix)]
+        fs::set_permissions(&catalog_path, fs::Permissions::from_mode(0o600))?;
 
-        let mut entries = HashMap::new();
-        if catalog_path.exists()
-            && let Ok(data) = fs::read_to_string(&catalog_path)
-        {
-            if let Ok(loaded) = serde_json::from_str::<Vec<CatalogEntry>>(&data) {
-                for e in loaded {
-                    entries.insert(e.handle.clone(), e);
-                }
-            } else {
-                tracing::warn!("failed to load catalog");
-            }
-        }
+        ensure_schema(&conn)?;
+        import_legacy_json_if_needed(&conn, &catalog_dir.join(LEGACY_CATALOG_FILENAME))?;
 
-        Ok(Self {
-            root: mail_root.to_string_lossy().to_string(),
-            entries,
-        })
+        Ok(Self { conn })
     }
 
-    /// Load entries from disk (for rebuilds).
-    /// Persist entries to disk.
+    /// SQLite autocommit persists writes; this keeps the old internal API shape.
     fn flush(&self) -> Result<(), VivariumError> {
-        let catalog_path = format!("{}/{}/{}", self.root, CATALOG_DIR, CATALOG_FILENAME);
-        let entries: Vec<CatalogEntry> = self.entries.values().cloned().collect();
-        let json = serde_json::to_string_pretty(&entries)
-            .map_err(|e| VivariumError::Other(format!("catalog serialization failed: {e}")))?;
-        secure_write(Path::new(&catalog_path), json.as_bytes())?;
         Ok(())
     }
 
     /// Insert or update a single message in the catalog.
     pub fn upsert(&mut self, entry: &CatalogEntry) -> Result<(), VivariumError> {
-        self.entries.insert(entry.handle.clone(), entry.clone());
+        upsert_entry(&self.conn, entry)?;
         self.flush()?;
         Ok(())
     }
 
     /// List all catalog entries for an account.
     pub fn list_messages(&self, account: &str) -> Result<Vec<CatalogEntry>, VivariumError> {
-        let mut entries: Vec<CatalogEntry> = self
-            .entries
-            .values()
-            .filter(|e| e.account == account)
-            .cloned()
-            .collect();
-        entries.sort_by(|a, b| b.date.cmp(&a.date));
-        Ok(entries)
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT handle, raw_path, fingerprint, account, folder, maildir_subdir,
+                        date, from_addr, to_addr, cc_addr, bcc_addr, subject,
+                        rfc_message_id, remote_json, is_duplicate
+                 FROM catalog_entries
+                 WHERE account = ?1
+                 ORDER BY date DESC, handle",
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to prepare catalog listing: {e}")))?;
+        let rows = stmt
+            .query_map(params![account], catalog_entry_from_row)
+            .map_err(|e| VivariumError::Other(format!("failed to list catalog rows: {e}")))?;
+        rows.map(|row| {
+            row.map_err(|e| VivariumError::Other(format!("failed to read catalog row: {e}")))
+        })
+        .collect()
     }
 
     /// Look up a message handle by raw file path.
     pub fn handle_for_path(&self, path: &str) -> Result<Option<String>, VivariumError> {
-        let entry = self.entries.values().find(|e| e.raw_path == path);
-        Ok(entry.map(|e| e.handle.clone()))
+        self.conn
+            .query_row(
+                "SELECT handle FROM catalog_entries WHERE raw_path = ?1 LIMIT 1",
+                params![path],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| VivariumError::Other(format!("failed to read catalog handle: {e}")))
     }
 
     /// Remove all entries for an account from the catalog.
     pub fn remove_account(&mut self, account: &str) -> Result<(), VivariumError> {
-        self.entries.retain(|_, e| e.account != account);
+        self.conn
+            .execute(
+                "DELETE FROM catalog_entries WHERE account = ?1",
+                params![account],
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to remove catalog account: {e}")))?;
         self.flush()?;
         Ok(())
     }
 
     /// Count entries for an account.
     pub fn count_messages(&self, account: &str) -> Result<usize, VivariumError> {
-        Ok(self
-            .entries
-            .values()
-            .filter(|e| e.account == account)
-            .count())
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM catalog_entries WHERE account = ?1",
+                params![account],
+                |row| row.get(0),
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to count catalog rows: {e}")))
     }
 }
 

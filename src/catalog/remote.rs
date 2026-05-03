@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use super::{Catalog, CatalogEntry, canonical_folder};
@@ -65,11 +66,7 @@ impl Catalog {
         handle: &str,
         current_uidvalidity: Option<u32>,
     ) -> RemoteReferenceStatus {
-        let Some(entry) = self
-            .entries
-            .get(handle)
-            .filter(|entry| entry.account == account)
-        else {
+        let Some(entry) = self.entry(account, handle) else {
             return RemoteReferenceStatus::MissingHandle {
                 account: account.to_string(),
                 handle: handle.to_string(),
@@ -125,9 +122,25 @@ impl Catalog {
             let matching = self.matching_handles(candidate);
             match matching.as_slice() {
                 [handle] => {
-                    if let Some(entry) = self.entries.get_mut(handle) {
-                        entry.remote =
-                            Some(remote_identity_for_entry(entry, candidate, uidvalidity));
+                    if let Some(entry) = self.entry(&candidate.account, handle) {
+                        let remote = remote_identity_for_entry(&entry, candidate, uidvalidity);
+                        let remote_json = serde_json::to_string(&remote).map_err(|e| {
+                            VivariumError::Other(format!(
+                                "failed to serialize remote identity: {e}"
+                            ))
+                        })?;
+                        self.conn
+                            .execute(
+                                "UPDATE catalog_entries
+                                 SET remote_json = ?3
+                                 WHERE account = ?1 AND handle = ?2",
+                                params![candidate.account, handle, remote_json],
+                            )
+                            .map_err(|e| {
+                                VivariumError::Other(format!(
+                                    "failed to update remote identity: {e}"
+                                ))
+                            })?;
                         result.matched += 1;
                     }
                 }
@@ -167,16 +180,31 @@ fn rfc_matches(
     folder: &str,
 ) -> Option<Vec<String>> {
     candidate.rfc_message_id.as_ref().map(|rfc_message_id| {
-        catalog
-            .entries
-            .values()
-            .filter(|entry| {
-                entry.account == candidate.account
-                    && entry.folder == folder
-                    && entry.rfc_message_id == *rfc_message_id
-            })
-            .map(|entry| entry.handle.clone())
-            .collect()
+        let mut stmt = match catalog.conn.prepare(
+            "SELECT handle FROM catalog_entries
+             WHERE account = ?1 AND folder = ?2 AND rfc_message_id = ?3
+             ORDER BY handle",
+        ) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                tracing::warn!("failed to prepare remote rfc match query: {e}");
+                return Vec::new();
+            }
+        };
+        let rows = match stmt.query_map(params![candidate.account, folder, rfc_message_id], |row| {
+            row.get::<_, String>(0)
+        }) {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::warn!("failed to query remote rfc matches: {e}");
+                return Vec::new();
+            }
+        };
+        rows.filter_map(|row| {
+            row.map_err(|e| tracing::warn!("failed to read remote rfc match: {e}"))
+                .ok()
+        })
+        .collect()
     })
 }
 
@@ -186,17 +214,40 @@ fn filename_matches(
     folder: &str,
 ) -> Vec<String> {
     let expected_id = format!("{}-{}", candidate.local_folder, candidate.uid);
-    catalog
-        .entries
-        .values()
-        .filter(|entry| {
-            entry.account == candidate.account
-                && entry.folder == folder
-                && message_id_from_path(Path::new(&entry.raw_path)).as_deref()
-                    == Some(expected_id.as_str())
-        })
-        .map(|entry| entry.handle.clone())
-        .collect()
+    let mut stmt = match catalog.conn.prepare(
+        "SELECT handle, raw_path FROM catalog_entries
+         WHERE account = ?1 AND folder = ?2
+         ORDER BY handle",
+    ) {
+        Ok(stmt) => stmt,
+        Err(e) => {
+            tracing::warn!("failed to prepare remote filename match query: {e}");
+            return Vec::new();
+        }
+    };
+    let rows = match stmt.query_map(params![candidate.account, folder], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }) {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("failed to query remote filename matches: {e}");
+            return Vec::new();
+        }
+    };
+    rows.filter_map(|row| match row {
+        Ok((handle, raw_path))
+            if message_id_from_path(Path::new(&raw_path)).as_deref()
+                == Some(expected_id.as_str()) =>
+        {
+            Some(handle)
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("failed to read remote filename match: {e}");
+            None
+        }
+    })
+    .collect()
 }
 
 fn remote_identity_for_entry(

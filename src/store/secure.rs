@@ -1,6 +1,5 @@
 use std::fs;
 use std::fs::OpenOptions;
-use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
@@ -10,16 +9,6 @@ use crate::error::VivariumError;
 pub(crate) fn secure_create_dir_all(path: &Path) -> Result<(), VivariumError> {
     fs::create_dir_all(path)?;
     secure_dir(path)
-}
-
-pub(crate) fn secure_write(path: &Path, data: &[u8]) -> Result<(), VivariumError> {
-    if let Some(parent) = path.parent() {
-        secure_create_dir_all(parent)?;
-    }
-    let mut file = secure_create_file(path)?;
-    file.write_all(data)?;
-    file.sync_all()?;
-    Ok(())
 }
 
 pub(super) fn secure_create_file(path: &Path) -> Result<fs::File, VivariumError> {
