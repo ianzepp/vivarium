@@ -1,6 +1,6 @@
 [package]
 name = "vivarium"
-version = "1.6.1"
+version = "1.6.2"
 edition = "2024"
 autobins = false
 
