@@ -63,6 +63,7 @@ fn index_entry(
     };
     let links = links_from_raw(&data);
     upsert_message(tx, account, &message_id, entry, now)?;
+    replace_search_doc(tx, account, &message_id, entry)?;
     replace_links(tx, account, &message_id, &links)
 }
 
@@ -144,6 +145,39 @@ fn replace_links(
     Ok(())
 }
 
+fn replace_search_doc(
+    tx: &Transaction<'_>,
+    account: &str,
+    message_id: &str,
+    entry: &CatalogEntry,
+) -> Result<(), VivariumError> {
+    tx.execute(
+        "DELETE FROM message_search_fts WHERE account = ?1 AND message_id = ?2",
+        params![account, message_id],
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to clear search document: {e}")))?;
+    tx.execute(
+        "INSERT INTO message_search_fts (
+           account, message_id, local_role, date, from_addr, to_addr, cc_addr,
+           bcc_addr, subject, rfc_message_id
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            account,
+            message_id,
+            entry.local_role,
+            entry.date,
+            entry.from,
+            entry.to,
+            entry.cc,
+            entry.bcc,
+            entry.subject,
+            entry.rfc_message_id,
+        ],
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to upsert search document: {e}")))?;
+    Ok(())
+}
+
 fn prune_stale(
     tx: &Transaction<'_>,
     account: &str,
@@ -159,6 +193,11 @@ fn prune_stale(
             params![account, message_id],
         )
         .map_err(|e| VivariumError::Other(format!("failed to remove stale index row: {e}")))?;
+        tx.execute(
+            "DELETE FROM message_search_fts WHERE account = ?1 AND message_id = ?2",
+            params![account, message_id],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to remove stale search row: {e}")))?;
         stats.stale += 1;
     }
     Ok(())

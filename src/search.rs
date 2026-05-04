@@ -1,4 +1,3 @@
-use std::cmp::min;
 use std::path::Path;
 
 use crate::email_index::{EmailIndex, IndexedMessage};
@@ -37,18 +36,7 @@ pub fn keyword_search(
     offset: usize,
     folder: Option<&str>,
 ) -> Result<(Vec<SearchResult>, usize), VivariumError> {
-    let all_results = filter_by_folder(indexed_lexical_results(mail_root, account, query)?, folder);
-
-    // Apply pagination
-    let total = all_results.len();
-    let end = min(offset + limit, total);
-    let results = if offset < total {
-        all_results[offset..end].to_vec()
-    } else {
-        Vec::new()
-    };
-
-    Ok((results, total))
+    indexed_lexical_results_page(mail_root, account, query, limit, offset, folder)
 }
 
 pub fn canonical_search_folder(folder: &str) -> Result<String, VivariumError> {
@@ -82,8 +70,19 @@ pub(crate) fn indexed_lexical_results(
     account: &str,
     query: &str,
 ) -> Result<Vec<SearchResult>, VivariumError> {
-    let query_lower = query.to_ascii_lowercase();
-    let mut results: Vec<SearchResult> = Vec::new();
+    let (results, _) =
+        indexed_lexical_results_page(mail_root, account, query, usize::MAX, 0, None)?;
+    Ok(results)
+}
+
+pub(crate) fn indexed_lexical_results_page(
+    mail_root: &Path,
+    account: &str,
+    query: &str,
+    limit: usize,
+    offset: usize,
+    folder: Option<&str>,
+) -> Result<(Vec<SearchResult>, usize), VivariumError> {
     let index = EmailIndex::open(mail_root)?;
     if index.count_messages(account)? == 0
         && Storage::open(mail_root)?.count_messages_for_account(account)? > 0
@@ -92,28 +91,19 @@ pub(crate) fn indexed_lexical_results(
             "email index is empty for account '{account}'; run `vivi index rebuild --account {account}` or `vivi sync --index --account {account}`"
         )));
     }
-
-    for message in index.list_messages(account)? {
-        let score = score_query(&query_lower, indexed_lexical_text(&message).as_bytes());
-        if score <= 0.0 {
-            continue;
-        }
-        let Ok(data) = std::fs::read(&message.blob_path) else {
-            continue;
-        };
-        results.push(search_result(message, &data, score));
-    }
-
-    results.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    Ok(results)
+    let (matches, total) = index.search_messages(account, query, limit, offset, folder)?;
+    let results = matches
+        .into_iter()
+        .map(|(message, score)| {
+            let data = std::fs::read(&message.blob_path).unwrap_or_default();
+            search_result(message, &data, score)
+        })
+        .collect();
+    Ok((results, total))
 }
 
 /// Score a query against raw .eml bytes.
+#[cfg(test)]
 fn score_query(query: &str, data: &[u8]) -> f64 {
     let text = std::str::from_utf8(data).ok().unwrap_or("");
     let text_lower = text.to_ascii_lowercase();
@@ -164,21 +154,6 @@ fn trim_snippet_line(body: &str, max_len: usize) -> String {
         .chars()
         .take(max_len)
         .collect()
-}
-
-fn indexed_lexical_text(message: &IndexedMessage) -> String {
-    [
-        message.message_id.as_str(),
-        message.local_role.as_str(),
-        message.date.as_str(),
-        message.from_addr.as_str(),
-        message.to_addr.as_str(),
-        message.cc_addr.as_str(),
-        message.bcc_addr.as_str(),
-        message.subject.as_str(),
-        message.rfc_message_id.as_deref().unwrap_or(""),
-    ]
-    .join("\n")
 }
 
 fn search_result(message: IndexedMessage, data: &[u8], score: f64) -> SearchResult {
