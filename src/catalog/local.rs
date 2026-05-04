@@ -31,6 +31,88 @@ impl Catalog {
             .or_else(|| self.entry_by_message_id(account, handle_or_id))
     }
 
+    pub fn update_message_state(
+        &mut self,
+        account: &str,
+        handle: &str,
+        local_role: &str,
+        read_state: bool,
+        starred: bool,
+        remote: Option<RemoteIdentity>,
+    ) -> Result<(), VivariumError> {
+        let changes = self
+            .conn
+            .execute(
+                "UPDATE messages
+                 SET local_role = ?3,
+                     read_state = ?4,
+                     starred = ?5,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE account = ?1 AND message_id = ?2 AND deleted_at IS NULL",
+                params![
+                    account,
+                    handle,
+                    local_role,
+                    if read_state { 1 } else { 0 },
+                    if starred { 1 } else { 0 }
+                ],
+            )
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to update storage-backed catalog row: {e}"))
+            })?;
+        if changes == 0 {
+            return Err(VivariumError::Message(format!(
+                "message not found in catalog for account '{account}': {handle}"
+            )));
+        }
+        self.conn
+            .execute(
+                "DELETE FROM catalog_compat WHERE message_id = ?1",
+                params![handle],
+            )
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to clear catalog compatibility row: {e}"))
+            })?;
+        if let Some(remote) = remote {
+            self.conn
+                .execute(
+                    "INSERT INTO remote_bindings (
+                       message_id, account, provider, remote_mailbox, remote_uid,
+                       remote_uidvalidity, last_verified_at, stale
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP, 0)
+                     ON CONFLICT(message_id) DO UPDATE SET
+                       account = excluded.account,
+                       provider = excluded.provider,
+                       remote_mailbox = excluded.remote_mailbox,
+                       remote_uid = excluded.remote_uid,
+                       remote_uidvalidity = excluded.remote_uidvalidity,
+                       last_verified_at = excluded.last_verified_at,
+                       stale = 0",
+                    params![
+                        handle,
+                        remote.account,
+                        remote.provider,
+                        remote.remote_mailbox,
+                        remote.uid,
+                        remote.uidvalidity,
+                    ],
+                )
+                .map_err(|e| {
+                    VivariumError::Other(format!("failed to update remote binding: {e}"))
+                })?;
+        } else {
+            self.conn
+                .execute(
+                    "DELETE FROM remote_bindings WHERE message_id = ?1",
+                    params![handle],
+                )
+                .map_err(|e| {
+                    VivariumError::Other(format!("failed to clear remote binding: {e}"))
+                })?;
+        }
+        self.flush()
+    }
+
     pub fn update_local_location(
         &mut self,
         account: &str,

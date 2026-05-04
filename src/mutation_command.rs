@@ -6,7 +6,7 @@ use crate::catalog::{Catalog, CatalogEntry, RemoteIdentity};
 use crate::config::Account;
 use crate::error::VivariumError;
 use crate::imap::{FlagMutation, MutationCapabilities, MutationPlan, MutationTarget};
-use crate::store::{MailStore, message_id_from_path};
+use crate::store::MailStore;
 
 mod audit;
 pub use audit::{MutationAuditRecord, append_audit, audit_record};
@@ -41,9 +41,10 @@ pub struct MutationPreview {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct LocalReconciliation {
     pub action: String,
-    pub raw_path: Option<String>,
-    pub folder: Option<String>,
-    pub maildir_subdir: Option<String>,
+    pub local_role: Option<String>,
+    pub read_state: Option<bool>,
+    pub starred: Option<bool>,
+    pub remote_binding: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,15 +77,13 @@ pub fn prepare_mutation(
             entry.handle
         ))
     })?;
-    let local_message_id =
-        message_id_from_path(Path::new(&entry.raw_path)).unwrap_or_else(|| entry.handle.clone());
     let plan = mutation_plan(account, &action, capabilities)?;
     let target = target_folders(account, &action)?;
     let preview = MutationPreview {
         account: account.name.clone(),
         handle: entry.handle.clone(),
         input: input.into(),
-        local_message_id,
+        local_message_id: entry.handle.clone(),
         operation: action.name().into(),
         source_mailbox: remote.remote_mailbox.clone(),
         source_local_folder: entry.folder.clone(),
@@ -165,7 +164,7 @@ fn mutation_plan(
 }
 
 fn reconcile_move(
-    store: &MailStore,
+    _store: &MailStore,
     catalog: &mut Catalog,
     prepared: &PreparedMutation,
 ) -> Result<LocalReconciliation, VivariumError> {
@@ -176,71 +175,62 @@ fn reconcile_move(
         .ok_or_else(|| {
             VivariumError::Message("mutation has no supported local mirror target".into())
         })?;
-    let dst = store.move_message(
-        &prepared.preview.local_message_id,
-        &prepared.entry.folder,
-        target,
-    )?;
-    let subdir = maildir_subdir(&dst)?;
-    let folder = canonical_local_folder(target).to_string();
-    catalog.update_local_location(
+    let read_state = is_read(&prepared.entry);
+    let starred = is_starred(&prepared.entry);
+    catalog.update_message_state(
         &prepared.preview.account,
         &prepared.preview.handle,
-        dst.to_string_lossy().to_string(),
-        folder.clone(),
-        subdir.clone(),
+        target,
+        read_state,
+        starred,
         None,
     )?;
     Ok(LocalReconciliation {
-        action: "move_local_copy".into(),
-        raw_path: Some(dst.to_string_lossy().to_string()),
-        folder: Some(folder),
-        maildir_subdir: Some(subdir),
+        action: "update_message_row".into(),
+        local_role: Some(target.to_string()),
+        read_state: Some(read_state),
+        starred: Some(starred),
+        remote_binding: Some("cleared".into()),
     })
 }
 
 fn reconcile_expunge(
-    store: &MailStore,
+    _store: &MailStore,
     catalog: &mut Catalog,
     prepared: &PreparedMutation,
 ) -> Result<LocalReconciliation, VivariumError> {
-    store.remove_message(&prepared.preview.local_message_id, &prepared.entry.folder)?;
     catalog.remove_entry(&prepared.preview.account, &prepared.preview.handle)?;
     Ok(LocalReconciliation {
-        action: "remove_local_copy".into(),
-        raw_path: None,
-        folder: None,
-        maildir_subdir: None,
+        action: "remove_message_row".into(),
+        local_role: None,
+        read_state: None,
+        starred: None,
+        remote_binding: None,
     })
 }
 
 fn reconcile_flag(
-    store: &MailStore,
+    _store: &MailStore,
     catalog: &mut Catalog,
     prepared: &PreparedMutation,
     mutation: &FlagMutation,
 ) -> Result<LocalReconciliation, VivariumError> {
-    let (flag, enabled) = flag_change(mutation);
-    let dst = store.set_message_flag(
-        &prepared.preview.local_message_id,
-        &prepared.entry.folder,
-        flag,
-        enabled,
-    )?;
-    let subdir = maildir_subdir(&dst)?;
-    catalog.update_local_location(
+    let read_state = updated_read_state(&prepared.entry, mutation);
+    let starred = updated_starred_state(&prepared.entry, mutation);
+    catalog.update_message_state(
         &prepared.preview.account,
         &prepared.preview.handle,
-        dst.to_string_lossy().to_string(),
-        prepared.entry.folder.clone(),
-        subdir.clone(),
+        &local_role_from_folder(&prepared.entry.folder),
+        read_state,
+        starred,
         prepared.entry.remote.clone(),
     )?;
     Ok(LocalReconciliation {
-        action: "refresh_local_flags".into(),
-        raw_path: Some(dst.to_string_lossy().to_string()),
-        folder: Some(prepared.entry.folder.clone()),
-        maildir_subdir: Some(subdir),
+        action: "update_message_flags".into(),
+        local_role: Some(local_role_from_folder(&prepared.entry.folder)),
+        read_state: Some(read_state),
+        starred: Some(starred),
+        remote_binding: Some("preserved".into()),
     })
 }
 
@@ -312,32 +302,43 @@ fn command_path(plan: &MutationPlan) -> String {
     .into()
 }
 
-fn flag_change(mutation: &FlagMutation) -> (char, bool) {
-    match mutation {
-        FlagMutation::Read => ('S', true),
-        FlagMutation::Unread => ('S', false),
-        FlagMutation::Starred => ('F', true),
-        FlagMutation::Unstarred => ('F', false),
-    }
-}
-
-fn canonical_local_folder(folder: &str) -> &'static str {
+fn local_role_from_folder(folder: &str) -> String {
     match folder.to_ascii_lowercase().as_str() {
-        "inbox" | "new" => "INBOX",
-        "archive" | "archives" | "all" => "Archive",
-        "trash" | "deleted" => "Trash",
-        "sent" => "Sent",
-        "draft" | "drafts" => "Drafts",
-        _ => "INBOX",
+        "inbox" => "inbox".into(),
+        "archive" | "all" => "archive".into(),
+        "trash" | "deleted" => "trash".into(),
+        "sent" => "sent".into(),
+        "draft" | "drafts" => "drafts".into(),
+        other => other.to_string(),
     }
 }
 
-fn maildir_subdir(path: &Path) -> Result<String, VivariumError> {
-    path.parent()
-        .and_then(|parent| parent.file_name())
-        .and_then(|name| name.to_str())
-        .map(str::to_string)
-        .ok_or_else(|| VivariumError::Message("message path has no maildir subdir".into()))
+fn is_read(entry: &CatalogEntry) -> bool {
+    entry.maildir_subdir == "cur"
+}
+
+fn is_starred(entry: &CatalogEntry) -> bool {
+    entry
+        .raw_path
+        .rsplit_once(":2,")
+        .map(|(_, flags)| flags.contains('F'))
+        .unwrap_or(false)
+}
+
+fn updated_read_state(entry: &CatalogEntry, mutation: &FlagMutation) -> bool {
+    match mutation {
+        FlagMutation::Read => true,
+        FlagMutation::Unread => false,
+        FlagMutation::Starred | FlagMutation::Unstarred => is_read(entry),
+    }
+}
+
+fn updated_starred_state(entry: &CatalogEntry, mutation: &FlagMutation) -> bool {
+    match mutation {
+        FlagMutation::Starred => true,
+        FlagMutation::Unstarred => false,
+        FlagMutation::Read | FlagMutation::Unread => is_starred(entry),
+    }
 }
 
 struct TargetFolders {

@@ -5,7 +5,7 @@ use crate::config::{Account, Auth, Provider, Security};
 #[test]
 fn dry_run_plan_resolves_maildir_id_and_serializes_json() {
     let tmp = tempfile::tempdir().unwrap();
-    let (_store, account, _handle) = fixture(tmp.path());
+    let (_store, account, handle) = fixture(tmp.path());
     let caps = capabilities(true, true);
 
     let prepared = prepare_mutation(
@@ -23,7 +23,7 @@ fn dry_run_plan_resolves_maildir_id_and_serializes_json() {
     assert_eq!(prepared.preview.target_mailbox.as_deref(), Some("Archive"));
     assert_eq!(prepared.preview.command_path, "UID MOVE");
     assert_eq!(json["status"], "planned");
-    assert_eq!(json["plan"]["local_message_id"], "inbox-42");
+    assert_eq!(json["plan"]["local_message_id"], handle);
     assert_eq!(audit.operation, "archive");
     assert!(audit.dry_run);
 }
@@ -48,7 +48,7 @@ fn move_plan_rejects_internal_all_mail_folder_name() {
 }
 
 #[test]
-fn reconcile_move_updates_local_maildir_and_catalog() {
+fn reconcile_move_updates_storage_backed_message_state() {
     let tmp = tempfile::tempdir().unwrap();
     let (_store, account, handle) = fixture(tmp.path());
     let prepared = prepare_mutation(
@@ -65,14 +65,15 @@ fn reconcile_move_updates_local_maildir_and_catalog() {
     let catalog = Catalog::open(tmp.path()).unwrap();
     let entry = catalog.entry("acct", &handle).unwrap();
 
-    assert_eq!(local.action, "move_local_copy");
+    assert_eq!(local.action, "update_message_row");
+    assert_eq!(local.local_role.as_deref(), Some("archive"));
     assert_eq!(entry.folder, "Archive");
-    assert!(entry.raw_path.ends_with("Archive/new/inbox-42.eml"));
+    assert!(entry.raw_path.contains("/blobs/"));
     assert!(entry.remote.is_none());
 }
 
 #[test]
-fn reconcile_flag_updates_maildir_flags_and_keeps_remote_identity() {
+fn reconcile_flag_updates_message_state_and_keeps_remote_identity() {
     let tmp = tempfile::tempdir().unwrap();
     let (_store, account, handle) = fixture(tmp.path());
     let prepared = prepare_mutation(
@@ -91,8 +92,10 @@ fn reconcile_flag_updates_maildir_flags_and_keeps_remote_identity() {
     let catalog = Catalog::open(tmp.path()).unwrap();
     let entry = catalog.entry("acct", &handle).unwrap();
 
-    assert_eq!(local.maildir_subdir.as_deref(), Some("cur"));
-    assert!(entry.raw_path.ends_with("INBOX/cur/inbox-42.eml:2,S"));
+    assert_eq!(local.read_state, Some(true));
+    assert_eq!(local.starred, Some(false));
+    assert_eq!(entry.maildir_subdir, "cur");
+    assert!(entry.raw_path.contains("/blobs/"));
     assert!(entry.remote.is_some());
 }
 
@@ -113,7 +116,7 @@ fn reconcile_expunge_removes_local_copy_and_catalog_entry() {
     let local = reconcile_success(tmp.path(), &prepared).unwrap();
     let catalog = Catalog::open(tmp.path()).unwrap();
 
-    assert_eq!(local.action, "remove_local_copy");
+    assert_eq!(local.action, "remove_message_row");
     assert!(catalog.entry("acct", &handle).is_none());
 }
 
