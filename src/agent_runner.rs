@@ -43,7 +43,7 @@ impl Runtime {
 
     async fn agent_archive(&self, handles: Vec<String>) -> Result<(), VivariumError> {
         self.run_mutation_command(Command::Archive {
-            handles,
+            handles: unique_handles(handles),
             dry_run: true,
             json: true,
         })
@@ -53,7 +53,7 @@ impl Runtime {
 
     async fn agent_delete(&self, handles: Vec<String>, expunge: bool) -> Result<(), VivariumError> {
         self.run_mutation_command(Command::Delete {
-            handles,
+            handles: unique_handles(handles),
             trash: !expunge,
             expunge,
             confirm: false,
@@ -157,10 +157,38 @@ fn print_agent_plan(
     Ok(())
 }
 
+fn unique_handles(handles: Vec<String>) -> Vec<String> {
+    let mut unique = Vec::with_capacity(handles.len());
+    for handle in handles {
+        if !unique.contains(&handle) {
+            unique.push(handle);
+        }
+    }
+    unique
+}
+
 fn audit(
     mail_root: &std::path::Path,
     record: vivarium::agent::AgentAuditRecord,
 ) -> Result<(), VivariumError> {
     agent::append_audit(mail_root, record)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unique_handles_preserves_first_seen_order() {
+        let handles = unique_handles(vec![
+            "one".into(),
+            "two".into(),
+            "one".into(),
+            "three".into(),
+            "two".into(),
+        ]);
+
+        assert_eq!(handles, vec!["one", "two", "three"]);
+    }
 }
