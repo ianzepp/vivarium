@@ -27,6 +27,7 @@ pub struct IndexStats {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedMessage {
+    pub handle: String,
     pub account: String,
     pub message_id: String,
     pub content_id: String,
@@ -44,6 +45,7 @@ pub struct IndexedMessage {
 impl IndexedMessage {
     pub fn location(&self) -> MessageLocation {
         MessageLocation {
+            message_id: Some(self.message_id.clone()),
             local_role: self.local_role.clone(),
             content_id: Some(self.content_id.clone()),
             path: Path::new(&self.blob_path).to_path_buf(),
@@ -88,14 +90,19 @@ impl EmailIndex {
         account: &str,
         message_id: &str,
     ) -> Result<Option<IndexedMessage>, VivariumError> {
-        self.conn
+        let mut message = self
+            .conn
             .query_row(
                 &indexed_message_query("WHERE im.account = ?1 AND im.message_id = ?2"),
                 params![account, message_id],
-                |row| indexed_message_from_row(row, &self.mail_root),
+                |row| raw_indexed_message_from_row(row, &self.mail_root),
             )
             .optional()
-            .map_err(|e| VivariumError::Other(format!("failed to read indexed message: {e}")))
+            .map_err(|e| VivariumError::Other(format!("failed to read indexed message: {e}")))?;
+        if let Some(message) = &mut message {
+            message.handle = Storage::open(&self.mail_root)?.display_handle(&message.message_id)?;
+        }
+        Ok(message)
     }
 
     pub fn thread_messages(
@@ -133,13 +140,23 @@ impl EmailIndex {
             .map_err(|e| VivariumError::Other(format!("failed to prepare index listing: {e}")))?;
         let rows = stmt
             .query_map(params![account], |row| {
-                indexed_message_from_row(row, &self.mail_root)
+                raw_indexed_message_from_row(row, &self.mail_root)
             })
             .map_err(|e| VivariumError::Other(format!("failed to list index rows: {e}")))?;
-        rows.map(|row| {
-            row.map_err(|e| VivariumError::Other(format!("failed to read indexed row: {e}")))
-        })
-        .collect()
+        let mut messages: Vec<_> = rows
+            .map(|row| {
+                row.map_err(|e| VivariumError::Other(format!("failed to read indexed row: {e}")))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let storage = Storage::open(&self.mail_root)?;
+        let handle_map = storage.handle_map()?;
+        for message in &mut messages {
+            message.handle = handle_map
+                .get(&message.message_id)
+                .cloned()
+                .unwrap_or_else(|| message.message_id.clone());
+        }
+        Ok(messages)
     }
 
     fn thread_message_ids(
@@ -259,11 +276,12 @@ impl EmailIndex {
     }
 }
 
-fn indexed_message_from_row(
+fn raw_indexed_message_from_row(
     row: &rusqlite::Row<'_>,
     mail_root: &Path,
 ) -> rusqlite::Result<IndexedMessage> {
     Ok(IndexedMessage {
+        handle: row.get::<_, String>(1)?,
         account: row.get(0)?,
         message_id: row.get(1)?,
         content_id: row.get(2)?,

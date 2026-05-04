@@ -266,16 +266,15 @@ fn store_message(
     remote: &RemoteMessage,
 ) -> Result<CatalogEntry, VivariumError> {
     let uid = remote.uid;
-    let message_id = format!("{local_folder}-{uid}");
     let mut storage = Storage::open(store.root())?;
-    storage.ingest_message(
+    let stored = storage.ingest_message(
         &MessageIngestRequest {
             account: account.name.clone(),
             local_role: local_folder.to_string(),
             read_state: local_folder != "inbox",
             starred: false,
-            message_id_hint: Some(message_id.clone()),
-            seed_hint: message_id.clone(),
+            message_id_hint: None,
+            seed_hint: format!("remote_uid:{uid}"),
             remote: remote.uidvalidity.map(|uidvalidity| RemoteBindingInput {
                 account: account.name.clone(),
                 provider: account.provider.to_string(),
@@ -287,10 +286,11 @@ fn store_message(
         body,
     )?;
     storage
-        .catalog_entry(&account.name, &message_id)?
+        .catalog_entry(&account.name, &stored.message_id)?
         .ok_or_else(|| {
             VivariumError::Other(format!(
-                "stored message missing from catalog view: {message_id}"
+                "stored message missing from catalog view: {}",
+                stored.message_id
             ))
         })
 }

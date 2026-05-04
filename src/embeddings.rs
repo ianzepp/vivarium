@@ -57,6 +57,7 @@ pub struct EmbeddingStats {
 
 #[derive(Debug, Clone)]
 pub struct SemanticMatch {
+    pub handle: String,
     pub message_id: String,
     pub account: String,
     pub content_id: String,
@@ -315,6 +316,7 @@ fn match_from_message(
     snippet: String,
 ) -> SemanticMatch {
     SemanticMatch {
+        handle: message.handle,
         message_id: message.message_id,
         account: message.account,
         content_id: message.content_id,

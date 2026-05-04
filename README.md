@@ -1,10 +1,10 @@
 # Vivarium
 
-Local-first email archive and retrieval layer for private agents. Pulls email from IMAP (via Proton Bridge or any IMAP server) into standard Maildir folders on disk. No required database or service - just RFC 5322 message files that local AI and agents can read, search, and cite.
+Local-first email archive and retrieval layer for private agents. Pulls email from IMAP (via Proton Bridge or any IMAP server) into a Vivi-managed local blob store. Raw RFC 5322 bytes stay on disk as `.eml` blobs, while mutable mailbox state and derived indexes live in SQLite.
 
 ## Why
 
-Local agents need access to email. Existing tools (offlineimap, mbsync, mutt) are built for humans and carry decades of assumptions. Vivarium keeps the storage layer compatible anyway: inbox, archive, sent, and drafts are Maildir folders. Point a local agent at the directory and it has real `.eml` files to work with.
+Local agents need access to email. Existing tools (offlineimap, mbsync, mutt) are built for humans and carry decades of assumptions. Vivarium keeps the important part simple: the raw message bytes stay local, stable, and directly readable as `.eml` files, while Vivi owns mailbox placement, flags, bindings, and indexes.
 
 Vivarium treats Proton Bridge as the transport/decryption boundary and does not attempt to speak ProtonMail private APIs.
 
@@ -57,28 +57,37 @@ vivi sync
 vivi sync --account proton --reset
 ```
 
-`vivi sync` is incremental. It downloads only missing IMAP messages, then updates
-the local catalog and extraction state for newly cataloged files.
+`vivi sync --account <name> --reset` is the clean bootstrap path. It removes the
+local cache for that account and rebuilds it from the remote mailbox.
 
-## Mail Storage
+Plain `vivi sync` is incremental. It downloads only missing IMAP messages, then
+updates storage-backed metadata and extracted local content for new messages.
 
-Messages are stored as Maildir folders under `~/.local/share/vivarium/{account}/`:
+## Storage Layout
+
+Each account lives under `~/.local/share/vivarium/{account}/`:
 
 ```
 ~/.local/share/vivarium/proton/
-├── INBOX/
-│   ├── tmp/
-│   ├── new/
-│   └── cur/
-├── Archive/
-│   ├── tmp/
-│   ├── new/
-│   └── cur/
-├── Sent/
-└── Drafts/
+├── blobs/
+│   └── ab/cd/<content_id>.eml
+├── outbox/
+├── Drafts/
+└── .vivarium/
+    ├── storage.sqlite
+    └── embeddings/
 ```
 
-Vivarium-generated filenames keep a `.eml` stem for non-mail tooling, while `cur/` entries use the usual Maildir info suffix such as `:2,S`.
+Rules:
+
+- `blobs/` is the immutable content store and the raw-message source of truth
+- `.vivarium/storage.sqlite` stores message rows, remote bindings, flags, and metadata
+- `.vivarium/embeddings/` stores provider/model-scoped semantic indexes
+- `outbox/` and `Drafts/` are local working surfaces for compose/reply flows
+
+Message handles shown by the CLI are short prefixes derived from Vivi-local
+`message_id` values. They are stable within a given local cache but are not
+folder-and-UID identifiers like `inbox-2050`.
 
 ## Commands
 
@@ -97,16 +106,19 @@ vivi list -n 25                                # list the 25 newest inbox messag
 vivi list inbox --filter DoorDash              # list inbox messages matching handle, sender, or subject
 vivi list --since 3mo                          # list inbox messages from the last 3 months
 vivi list --since 2025-05-02 --before 2026-05-02
-vivi show inbox-1                              # read a message
-vivi show inbox-1 --json                       # read a message as JSON with citation metadata
-vivi thread inbox-1 --json                     # read local thread context as JSON
-vivi export inbox-1 > inbox-1.eml              # export the raw RFC 5322 message
-vivi export inbox-1 --text                     # export normalized local text
-vivi archive inbox-1                           # move from inbox to archive
-vivi delete inbox-2 inbox-3 --dry-run          # preview deleting multiple messages
+vivi show 4f8c2d1                              # read a message by short handle
+vivi show 4f8c2d1 --json                       # read a message as JSON with citation metadata
+vivi thread 4f8c2d1 --json                     # read local thread context as JSON
+vivi export 4f8c2d1 > message.eml              # export the raw RFC 5322 message
+vivi export 4f8c2d1 --text                     # export normalized local text
+vivi archive 4f8c2d1                           # move from inbox to archive
+vivi delete 4f8c2d1 a91be44 --dry-run          # preview deleting multiple messages
 vivi search "invoice"                          # keyword search
 vivi search "invoice" --json                   # JSON search output with citation metadata
 vivi search "DoorDash" --folder inbox --count  # print only the inbox match count
+vivi index rebuild --account proton            # rebuild deterministic local index state
+vivi reply 4f8c2d1                             # draft a reply from a local message
+vivi compose                                   # create a new local draft
 ```
 
 All commands accept `--account <name>` to target a specific account. Without it, account-scoped commands use the first account in `accounts.toml`; `sync` and `list` operate on all accounts.
@@ -115,9 +127,9 @@ All commands accept `--account <name>` to target a specific account. Without it,
 
 These surfaces are not available in the default CLI today:
 
-- semantic search or local embeddings
-- catalog or extraction rebuild commands
-- send, reply, compose, OAuth browser auth, token minting, or watch mode
+- OAuth browser auth and token minting flows
+- watch or background sync mode
+- a stable public compatibility promise for old Maildir-style handles
 
 ## Providers
 
@@ -166,17 +178,26 @@ downloading a batch, use:
 vivi sync --account proton --limit 0
 ```
 
-Raw `.eml` files are the source of truth. If the derived catalog is corrupted,
-stop Vivi, remove `{mail_root}/{account}/.vivarium/catalog.json`, and run
-`vivi sync --account <name> --limit 0` to rebuild local catalog entries from
-the preserved Maildir files. Parse or extraction errors should be investigated
-against the raw path reported in JSON citation fields.
+The normal repair path is a clean reset:
+
+```
+vivi sync --account <name> --reset
+```
+
+That clears the local cache for the account, then redownloads and reindexes it
+from the IMAP source of truth. If deterministic search/thread state drifts
+without needing a full reset, use:
+
+```
+vivi index rebuild --account <name>
+```
 
 ## Architecture
 
-- **Raw `.eml` messages are the source of truth.** They are preserved unchanged.
-- **Derived data is disposable and rebuildable.** Metadata, indexes, and future embeddings are derived from raw files.
-- **Search results point back to original message files.** JSON search output includes handles and raw paths for local citation workflows.
+- **Raw `.eml` blobs are the source of truth.** They are preserved unchanged under `blobs/`.
+- **Mutable mailbox state lives in `storage.sqlite`.** Local role, flags, and remote bindings do not rename blobs.
+- **Derived data is disposable and rebuildable.** Deterministic indexes and embeddings can be rebuilt from blobs plus storage metadata.
+- **Search results point back to stable local content.** JSON search output includes the short handle, internal `message_id`, and `content_id` citation data.
 - **Full corpus contents never leave the machine by default.** Any cloud access would be explicit, narrow, and user-approved.
 
 ## License

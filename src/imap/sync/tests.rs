@@ -75,6 +75,44 @@ fn find_missing_falls_back_to_uid_and_size_without_message_id() {
 }
 
 #[test]
+fn find_missing_falls_back_to_uid_and_size_with_storage_backed_rows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    let body = b"Subject: no id\r\n\r\nbody";
+    storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "test".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: "remote_uid:7".into(),
+                remote: Some(RemoteBindingInput {
+                    account: "test".into(),
+                    provider: "protonmail".into(),
+                    remote_mailbox: "INBOX".into(),
+                    remote_uid: 7,
+                    remote_uidvalidity: 123,
+                }),
+            },
+            body,
+        )
+        .unwrap();
+    let store = MailStore::new(tmp.path());
+
+    let remote = RemoteMessage {
+        uid: 7,
+        uidvalidity: Some(123),
+        size: body.len() as u64,
+        rfc_message_id: None,
+    };
+
+    let missing = find_missing(&[remote], &store, "inbox", DedupeScope::LocalFolder).unwrap();
+    assert!(missing.is_empty());
+}
+
+#[test]
 fn protonmail_syncs_all_mail_without_all_flag() {
     let account = account_with_provider(Provider::Protonmail);
     let folders = sync_folders(&account, false);

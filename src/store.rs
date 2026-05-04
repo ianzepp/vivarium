@@ -49,6 +49,7 @@ pub struct MailStore {
 
 #[derive(Debug, Clone)]
 pub struct MessageLocation {
+    pub message_id: Option<String>,
     pub local_role: String,
     pub content_id: Option<String>,
     pub path: PathBuf,
@@ -95,7 +96,7 @@ impl MailStore {
                 let mut entries: Vec<_> = stored
                     .into_iter()
                     .map(|message| MessageEntry {
-                        message_id: message.message_id,
+                        message_id: message.handle,
                         from: message.from_addr,
                         subject: message.subject,
                         date: parse_storage_date(&message.date),
@@ -132,7 +133,8 @@ impl MailStore {
     /// Read raw message bytes by message ID (looks across all folders).
     pub fn read_message(&self, message_id: &str) -> Result<Vec<u8>, VivariumError> {
         if let Ok(storage) = Storage::open(&self.root)
-            && let Ok(data) = storage.read_message(message_id)
+            && let Ok(resolved) = storage.resolve_message_token(message_id)
+            && let Ok(data) = storage.read_message(&resolved)
         {
             return Ok(data);
         }
@@ -143,9 +145,11 @@ impl MailStore {
     /// Locate a message by handle across all user-facing folders.
     pub fn locate_message(&self, message_id: &str) -> Result<MessageLocation, VivariumError> {
         if let Ok(storage) = Storage::open(&self.root)
-            && let Ok(Some(message)) = storage.message_by_id(message_id)
+            && let Ok(resolved) = storage.resolve_message_token(message_id)
+            && let Ok(Some(message)) = storage.message_by_id(&resolved)
         {
             return Ok(MessageLocation {
+                message_id: Some(message.message_id),
                 local_role: message.local_role,
                 content_id: Some(message.content_id),
                 path: self.root.join(message.blob_relpath),
@@ -163,6 +167,7 @@ impl MailStore {
                     let file_path = entry.path();
                     if message_id_from_path(&file_path).as_deref() == Some(wanted.as_str()) {
                         return Ok(MessageLocation {
+                            message_id: Some(wanted.clone()),
                             local_role: storage_role(folder),
                             content_id: None,
                             path: file_path,
@@ -174,6 +179,24 @@ impl MailStore {
         Err(VivariumError::Message(format!(
             "message not found: {message_id}"
         )))
+    }
+
+    pub fn resolve_message_id(&self, token: &str) -> Result<String, VivariumError> {
+        if let Ok(storage) = Storage::open(&self.root) {
+            if let Ok(message_id) = storage.resolve_message_token(token) {
+                return Ok(message_id);
+            }
+        }
+        Ok(display_message_id(token))
+    }
+
+    pub fn display_handle(&self, token: &str) -> Result<String, VivariumError> {
+        if let Ok(storage) = Storage::open(&self.root)
+            && let Ok(message_id) = storage.resolve_message_token(token)
+        {
+            return storage.display_handle(&message_id);
+        }
+        Ok(display_message_id(token))
     }
 
     /// Store a message in `new/`.

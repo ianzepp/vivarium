@@ -54,6 +54,7 @@ pub struct RemoteBindingInput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredMessageView {
+    pub handle: String,
     pub message_id: String,
     pub account: String,
     pub content_id: String,
@@ -133,7 +134,8 @@ impl Storage {
     }
 
     pub fn read_message(&self, message_id: &str) -> Result<Vec<u8>, VivariumError> {
-        let Some(view) = self.message_by_id(message_id)? else {
+        let resolved = self.resolve_message_token(message_id)?;
+        let Some(view) = self.message_by_id(&resolved)? else {
             return Err(VivariumError::Message(format!(
                 "message not found: {message_id}"
             )));
@@ -145,14 +147,19 @@ impl Storage {
         &self,
         message_id: &str,
     ) -> Result<Option<StoredMessageView>, VivariumError> {
-        self.conn
+        let mut message = self
+            .conn
             .query_row(
                 &message_query("WHERE m.message_id = ?1"),
                 params![message_id],
-                stored_message_from_row,
+                raw_stored_message_from_row,
             )
             .optional()
-            .map_err(|e| VivariumError::Other(format!("failed to read stored message: {e}")))
+            .map_err(|e| VivariumError::Other(format!("failed to read stored message: {e}")))?;
+        if let Some(message) = &mut message {
+            message.handle = self.display_handle(&message.message_id)?;
+        }
+        Ok(message)
     }
 
     pub fn list_messages_by_role(
@@ -167,12 +174,16 @@ impl Storage {
             ))
             .map_err(|e| VivariumError::Other(format!("failed to prepare storage listing: {e}")))?;
         let rows = stmt
-            .query_map(params![local_role], stored_message_from_row)
+            .query_map(params![local_role], raw_stored_message_from_row)
             .map_err(|e| VivariumError::Other(format!("failed to list stored messages: {e}")))?;
-        rows.map(|row| {
-            row.map_err(|e| VivariumError::Other(format!("failed to read stored message row: {e}")))
-        })
-        .collect()
+        let messages: Result<Vec<_>, _> = rows
+            .map(|row| {
+                row.map_err(|e| {
+                    VivariumError::Other(format!("failed to read stored message row: {e}"))
+                })
+            })
+            .collect();
+        self.decorate_handles(messages?)
     }
 
     pub fn list_catalog_entries(&self, account: &str) -> Result<Vec<CatalogEntry>, VivariumError> {
@@ -186,7 +197,7 @@ impl Storage {
                 VivariumError::Other(format!("failed to prepare catalog view listing: {e}"))
             })?;
         let rows = stmt
-            .query_map(params![account], stored_message_from_row)
+            .query_map(params![account], raw_stored_message_from_row)
             .map_err(|e| VivariumError::Other(format!("failed to query catalog view: {e}")))?;
         let messages: Result<Vec<_>, _> = rows
             .map(|row| {
@@ -214,7 +225,7 @@ impl Storage {
                     message_query("")
                 ),
                 params![account, handle_or_id],
-                stored_message_from_row,
+                raw_stored_message_from_row,
             )
             .optional()
             .map_err(|e| VivariumError::Other(format!("failed to read catalog entry: {e}")))?
@@ -241,7 +252,14 @@ impl Storage {
         let messages = self.list_messages_by_role(local_role)?;
         Ok(messages
             .into_iter()
-            .map(|message| (message.message_id, message.byte_size))
+            .map(|message| {
+                let key = message
+                    .remote
+                    .as_ref()
+                    .map(|remote| format!("{local_role}-{}", remote.remote_uid))
+                    .unwrap_or(message.message_id);
+                (key, message.byte_size)
+            })
             .collect())
     }
 
@@ -269,6 +287,67 @@ impl Storage {
             map.insert(rfc_message_id, (uid, message.byte_size));
         }
         Ok(map)
+    }
+
+    pub fn resolve_message_token(&self, token: &str) -> Result<String, VivariumError> {
+        if self.message_by_id_exact(token)?.is_some() {
+            return Ok(token.to_string());
+        }
+        let message_ids = self.active_message_ids()?;
+        let handle_map = short_handle_map(&message_ids);
+        let handle_matches: Vec<_> = handle_map
+            .iter()
+            .filter_map(|(message_id, handle)| (handle == token).then_some(message_id.clone()))
+            .collect();
+        match handle_matches.len() {
+            1 => return Ok(handle_matches[0].clone()),
+            n if n > 1 => {
+                return Err(VivariumError::Message(format!(
+                    "ambiguous handle '{token}'; matches {} messages",
+                    n
+                )));
+            }
+            _ => {}
+        }
+        let id_prefix_matches: Vec<_> = message_ids
+            .iter()
+            .filter(|message_id| message_id.starts_with(token))
+            .cloned()
+            .collect();
+        match id_prefix_matches.len() {
+            1 => return Ok(id_prefix_matches[0].clone()),
+            n if n > 1 => {
+                return Err(VivariumError::Message(format!(
+                    "ambiguous message_id prefix '{token}'; matches {} messages",
+                    n
+                )));
+            }
+            _ => {}
+        }
+        let content_matches = self.content_prefix_matches(token)?;
+        match content_matches.len() {
+            1 => Ok(content_matches[0].clone()),
+            n if n > 1 => Err(VivariumError::Message(format!(
+                "ambiguous content_id prefix '{token}'; matches {} messages",
+                n
+            ))),
+            _ => Err(VivariumError::Message(format!(
+                "message not found: {token}"
+            ))),
+        }
+    }
+
+    pub fn display_handle(&self, message_id: &str) -> Result<String, VivariumError> {
+        Ok(self
+            .handle_map()?
+            .get(message_id)
+            .cloned()
+            .unwrap_or_else(|| message_id.to_string()))
+    }
+
+    pub fn handle_map(&self) -> Result<HashMap<String, String>, VivariumError> {
+        let message_ids = self.active_message_ids()?;
+        Ok(short_handle_map(&message_ids))
     }
 
     #[cfg(test)]
@@ -431,6 +510,107 @@ impl Storage {
     ) -> Result<StoredMessage, VivariumError> {
         self.ingest_message(&request_from_catalog_entry(entry), data)
     }
+
+    fn active_message_ids(&self) -> Result<Vec<String>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT message_id FROM messages WHERE deleted_at IS NULL ORDER BY message_id")
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to prepare message id query: {e}"))
+            })?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| VivariumError::Other(format!("failed to query message ids: {e}")))?;
+        rows.map(|row| {
+            row.map_err(|e| VivariumError::Other(format!("failed to read message id row: {e}")))
+        })
+        .collect()
+    }
+
+    fn message_by_id_exact(&self, message_id: &str) -> Result<Option<String>, VivariumError> {
+        self.conn
+            .query_row(
+                "SELECT message_id FROM messages WHERE message_id = ?1 AND deleted_at IS NULL",
+                params![message_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| VivariumError::Other(format!("failed to read exact message id: {e}")))
+    }
+
+    fn content_prefix_matches(&self, token: &str) -> Result<Vec<String>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT message_id
+                 FROM messages
+                 WHERE deleted_at IS NULL AND content_id LIKE ?1
+                 ORDER BY message_id",
+            )
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to prepare content prefix query: {e}"))
+            })?;
+        let rows = stmt
+            .query_map(params![format!("{token}%")], |row| row.get::<_, String>(0))
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to query content prefix matches: {e}"))
+            })?;
+        rows.map(|row| {
+            row.map_err(|e| {
+                VivariumError::Other(format!("failed to read content prefix match row: {e}"))
+            })
+        })
+        .collect()
+    }
+
+    fn decorate_handles(
+        &self,
+        mut messages: Vec<StoredMessageView>,
+    ) -> Result<Vec<StoredMessageView>, VivariumError> {
+        let handle_map = short_handle_map(&self.active_message_ids()?);
+        for message in &mut messages {
+            message.handle = handle_map
+                .get(&message.message_id)
+                .cloned()
+                .unwrap_or_else(|| message.message_id.clone());
+        }
+        Ok(messages)
+    }
+}
+
+fn raw_stored_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredMessageView> {
+    let remote_account: Option<String> = row.get(15)?;
+    let remote = if let Some(account) = remote_account {
+        Some(RemoteBindingInput {
+            account,
+            provider: row.get(16)?,
+            remote_mailbox: row.get(17)?,
+            remote_uid: row.get(18)?,
+            remote_uidvalidity: row.get(19)?,
+        })
+    } else {
+        None
+    };
+    let message_id: String = row.get(0)?;
+    Ok(StoredMessageView {
+        handle: message_id.clone(),
+        message_id,
+        account: row.get(1)?,
+        content_id: row.get(2)?,
+        blob_relpath: row.get(3)?,
+        byte_size: row.get::<_, i64>(4)? as u64,
+        local_role: row.get(5)?,
+        read_state: row.get::<_, i64>(6)? != 0,
+        starred: row.get::<_, i64>(7)? != 0,
+        date: row.get(8)?,
+        from_addr: row.get(9)?,
+        to_addr: row.get(10)?,
+        cc_addr: row.get(11)?,
+        bcc_addr: row.get(12)?,
+        subject: row.get(13)?,
+        normalized_message_id: row.get(14)?,
+        remote,
+    })
 }
 
 pub fn import_catalog_entries(
@@ -522,39 +702,6 @@ fn message_query(where_clause: &str) -> String {
          LEFT JOIN remote_bindings rb ON rb.message_id = m.message_id
          {where_clause}"
     )
-}
-
-fn stored_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredMessageView> {
-    let remote_account: Option<String> = row.get(15)?;
-    let remote = if let Some(account) = remote_account {
-        Some(RemoteBindingInput {
-            account,
-            provider: row.get(16)?,
-            remote_mailbox: row.get(17)?,
-            remote_uid: row.get(18)?,
-            remote_uidvalidity: row.get(19)?,
-        })
-    } else {
-        None
-    };
-    Ok(StoredMessageView {
-        message_id: row.get(0)?,
-        account: row.get(1)?,
-        content_id: row.get(2)?,
-        blob_relpath: row.get(3)?,
-        byte_size: row.get::<_, i64>(4)? as u64,
-        local_role: row.get(5)?,
-        read_state: row.get::<_, i64>(6)? != 0,
-        starred: row.get::<_, i64>(7)? != 0,
-        date: row.get(8)?,
-        from_addr: row.get(9)?,
-        to_addr: row.get(10)?,
-        cc_addr: row.get(11)?,
-        bcc_addr: row.get(12)?,
-        subject: row.get(13)?,
-        normalized_message_id: row.get(14)?,
-        remote,
-    })
 }
 
 fn blob_relpath(content_id: &str) -> String {
@@ -706,6 +853,39 @@ fn folder_name(local_role: &str) -> String {
 fn opaque_message_id(seed: &str) -> String {
     let hash = sha256_hex(seed.as_bytes());
     format!("msg_{}", &hash[..24])
+}
+
+fn short_handle_map(message_ids: &[String]) -> HashMap<String, String> {
+    let bases = message_ids
+        .iter()
+        .map(|message_id| (message_id.clone(), handle_basis(message_id).to_string()))
+        .collect::<Vec<_>>();
+    let mut map = HashMap::new();
+    for (message_id, basis) in &bases {
+        if !message_id.starts_with("msg_") {
+            map.insert(message_id.clone(), message_id.clone());
+            continue;
+        }
+        let min_len = usize::min(7, basis.len());
+        let mut handle = basis.clone();
+        for len in min_len..=basis.len() {
+            let prefix = &basis[..len];
+            let count = bases
+                .iter()
+                .filter(|(_, other)| other.starts_with(prefix))
+                .count();
+            if count == 1 {
+                handle = prefix.to_string();
+                break;
+            }
+        }
+        map.insert(message_id.clone(), handle);
+    }
+    map
+}
+
+fn handle_basis(message_id: &str) -> &str {
+    message_id.strip_prefix("msg_").unwrap_or(message_id)
 }
 
 fn path_has_maildir_flag(path: &str, flag: char) -> bool {
@@ -873,6 +1053,130 @@ mod tests {
         assert_eq!(storage.blob_count().unwrap(), 1);
         assert_eq!(storage.message_count().unwrap(), 1);
         assert_eq!(storage.remote_binding_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn short_handles_resolve_uniquely_for_storage_native_ids() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut storage = Storage::open(tmp.path()).unwrap();
+
+        let first = storage
+            .ingest_message(
+                &MessageIngestRequest {
+                    account: "acct".into(),
+                    local_role: "inbox".into(),
+                    read_state: false,
+                    starred: false,
+                    message_id_hint: None,
+                    seed_hint: "remote_uid:1".into(),
+                    remote: Some(RemoteBindingInput {
+                        account: "acct".into(),
+                        provider: "protonmail".into(),
+                        remote_mailbox: "INBOX".into(),
+                        remote_uid: 1,
+                        remote_uidvalidity: 42,
+                    }),
+                },
+                &message_bytes("one@example.com", "first"),
+            )
+            .unwrap();
+        let second = storage
+            .ingest_message(
+                &MessageIngestRequest {
+                    account: "acct".into(),
+                    local_role: "inbox".into(),
+                    read_state: false,
+                    starred: false,
+                    message_id_hint: None,
+                    seed_hint: "remote_uid:2".into(),
+                    remote: Some(RemoteBindingInput {
+                        account: "acct".into(),
+                        provider: "protonmail".into(),
+                        remote_mailbox: "INBOX".into(),
+                        remote_uid: 2,
+                        remote_uidvalidity: 42,
+                    }),
+                },
+                &message_bytes("two@example.com", "second"),
+            )
+            .unwrap();
+
+        let first_handle = storage.display_handle(&first.message_id).unwrap();
+        let second_handle = storage.display_handle(&second.message_id).unwrap();
+
+        assert_ne!(first_handle, second_handle);
+        assert!(first_handle.len() >= 7);
+        assert_eq!(
+            storage.resolve_message_token(&first_handle).unwrap(),
+            first.message_id
+        );
+        assert_eq!(
+            storage.resolve_message_token(&second_handle).unwrap(),
+            second.message_id
+        );
+    }
+
+    #[test]
+    fn content_id_prefix_can_resolve_message() {
+        let tmp = tempfile::tempdir().unwrap();
+        let raw = message_bytes("content@example.com", "body");
+        let mut storage = Storage::open(tmp.path()).unwrap();
+        let stored = storage
+            .ingest_message(
+                &MessageIngestRequest {
+                    account: "acct".into(),
+                    local_role: "inbox".into(),
+                    read_state: false,
+                    starred: false,
+                    message_id_hint: None,
+                    seed_hint: "remote_uid:3".into(),
+                    remote: Some(RemoteBindingInput {
+                        account: "acct".into(),
+                        provider: "protonmail".into(),
+                        remote_mailbox: "INBOX".into(),
+                        remote_uid: 3,
+                        remote_uidvalidity: 42,
+                    }),
+                },
+                &raw,
+            )
+            .unwrap();
+
+        let prefix = &stored.content_id[..12];
+        assert_eq!(
+            storage.resolve_message_token(prefix).unwrap(),
+            stored.message_id
+        );
+    }
+
+    #[test]
+    fn local_size_fallback_uses_remote_uid_shape_for_storage_rows() {
+        let tmp = tempfile::tempdir().unwrap();
+        let raw = message_bytes("size@example.com", "body");
+        let mut storage = Storage::open(tmp.path()).unwrap();
+        storage
+            .ingest_message(
+                &MessageIngestRequest {
+                    account: "acct".into(),
+                    local_role: "inbox".into(),
+                    read_state: false,
+                    starred: false,
+                    message_id_hint: None,
+                    seed_hint: "remote_uid:7".into(),
+                    remote: Some(RemoteBindingInput {
+                        account: "acct".into(),
+                        provider: "protonmail".into(),
+                        remote_mailbox: "INBOX".into(),
+                        remote_uid: 7,
+                        remote_uidvalidity: 42,
+                    }),
+                },
+                &raw,
+            )
+            .unwrap();
+
+        let sizes = storage.local_sizes_by_role("inbox").unwrap();
+        assert_eq!(sizes.get("inbox-7"), Some(&(raw.len() as u64)));
     }
 
     fn message_bytes(message_id: &str, body: &str) -> Vec<u8> {

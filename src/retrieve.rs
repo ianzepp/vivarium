@@ -39,10 +39,12 @@ pub fn json_message(
     account: &str,
     message_id: &str,
 ) -> Result<serde_json::Value, VivariumError> {
+    let resolved_message_id = store.resolve_message_id(message_id)?;
+    let handle = store.display_handle(&resolved_message_id)?;
     let location = store.locate_message(message_id)?;
     let data = std::fs::read(&location.path)?;
-    let mut value = message::to_json_message(message_id, &data)?;
-    value["citation"] = citation_json(message_id, account, &location);
+    let mut value = message::to_json_message(&handle, &data)?;
+    value["citation"] = citation_json(&handle, account, &location);
     Ok(value)
 }
 
@@ -55,6 +57,9 @@ pub fn citation_json(handle: &str, account: &str, location: &MessageLocation) ->
     });
     if let Some(content_id) = &location.content_id {
         citation["content_id"] = serde_json::Value::String(content_id.clone());
+    }
+    if let Some(message_id) = &location.message_id {
+        citation["message_id"] = serde_json::Value::String(message_id.clone());
     }
     citation
 }

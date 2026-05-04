@@ -26,8 +26,9 @@ pub fn thread_json(
     seed_handle: &str,
     limit: usize,
 ) -> Result<serde_json::Value, VivariumError> {
-    let index = email_index::ensure_for_thread(store.root(), account, seed_handle)?;
-    let messages = index.thread_messages(account, seed_handle, limit)?;
+    let resolved_seed = store.resolve_message_id(seed_handle)?;
+    let index = email_index::ensure_for_thread(store.root(), account, &resolved_seed)?;
+    let messages = index.thread_messages(account, &resolved_seed, limit)?;
     let total = messages.len();
     let messages = messages
         .into_iter()
@@ -36,7 +37,7 @@ pub fn thread_json(
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(serde_json::json!({
-        "seed": seed_handle,
+        "seed": store.display_handle(&resolved_seed)?,
         "total": total,
         "limit": limit,
         "messages": messages,
@@ -48,8 +49,8 @@ fn indexed_message_json(
     account: &str,
 ) -> Result<serde_json::Value, VivariumError> {
     let data = fs::read(&indexed.blob_path)?;
-    let mut json = message::to_json_message(&indexed.message_id, &data)?;
-    json["citation"] = citation_json(&indexed.message_id, account, &indexed.location());
+    let mut json = message::to_json_message(&indexed.handle, &data)?;
+    json["citation"] = citation_json(&indexed.handle, account, &indexed.location());
     Ok(json)
 }
 

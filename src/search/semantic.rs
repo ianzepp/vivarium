@@ -57,6 +57,7 @@ async fn semantic_results(
 
 fn semantic_result(result: SemanticMatch) -> SearchResult {
     SearchResult {
+        handle: result.handle,
         message_id: result.message_id,
         account: result.account,
         content_id: result.content_id,

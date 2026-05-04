@@ -14,7 +14,8 @@ pub struct SearchOutput<'a> {
 /// Search result in JSON-friendly format.
 pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
     serde_json::json!({
-        "handle": result.message_id,
+        "handle": result.handle,
+        "message_id": result.message_id,
         "account": result.account,
         "local_role": result.local_role,
         "content_id": result.content_id,
@@ -27,7 +28,8 @@ pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
         "chunk_id": result.chunk_id,
         "snippet": result.snippet,
         "citation": {
-            "handle": result.message_id,
+            "handle": result.handle,
+            "message_id": result.message_id,
             "account": result.account,
             "local_role": result.local_role,
             "content_id": result.content_id,
@@ -50,7 +52,7 @@ pub fn print_search_output(output: SearchOutput<'_>) {
     for result in &output.results {
         println!(
             "  {}  {:<16}  {}  {}",
-            result.message_id, result.date, result.from, result.subject
+            result.handle, result.date, result.from, result.subject
         );
         if !result.snippet.is_empty() {
             println!("    snippet: {}", result.snippet);

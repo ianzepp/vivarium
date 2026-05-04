@@ -29,6 +29,11 @@ impl Catalog {
     pub fn resolve_entry(&self, account: &str, handle_or_id: &str) -> Option<CatalogEntry> {
         self.entry(account, handle_or_id)
             .or_else(|| self.entry_by_message_id(account, handle_or_id))
+            .or_else(|| {
+                let storage = crate::storage::Storage::open(&self.mail_root).ok()?;
+                let resolved = storage.resolve_message_token(handle_or_id).ok()?;
+                self.entry(account, &resolved)
+            })
     }
 
     pub fn update_message_state(

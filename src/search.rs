@@ -13,6 +13,7 @@ pub use semantic::semantic_or_hybrid_search;
 /// A search result with handle and citation metadata.
 #[derive(Debug, Clone)]
 pub struct SearchResult {
+    pub handle: String,
     pub message_id: String,
     pub account: String,
     pub content_id: String,
@@ -181,6 +182,7 @@ fn indexed_lexical_text(message: &IndexedMessage) -> String {
 
 fn search_result(message: IndexedMessage, data: &[u8], score: f64) -> SearchResult {
     SearchResult {
+        handle: message.handle,
         message_id: message.message_id,
         account: message.account,
         content_id: message.content_id,
@@ -310,6 +312,7 @@ mod tests {
     #[test]
     fn json_result_includes_citation() {
         let result = SearchResult {
+            handle: "inbox-1".into(),
             message_id: "inbox-1".into(),
             account: "acct".into(),
             content_id: "content-1".into(),

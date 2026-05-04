@@ -281,6 +281,7 @@ fn indexed_message(
     subject: &str,
 ) -> IndexedMessage {
     IndexedMessage {
+        handle: message_id.into(),
         account: account.into(),
         message_id: message_id.into(),
         content_id: content_id.into(),
