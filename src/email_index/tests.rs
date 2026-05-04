@@ -29,7 +29,8 @@ fn rebuild_indexes_messages_and_links_without_text() {
     assert!(ids.contains("root@example.com"));
     assert!(ids.contains("parent@example.com"));
 
-    let db = fs::read(tmp.path().join(".vivarium/index.sqlite")).unwrap();
+    assert!(!tmp.path().join(".vivarium/index.sqlite").exists());
+    let db = fs::read(tmp.path().join(".vivarium/storage.sqlite")).unwrap();
     assert!(!String::from_utf8_lossy(&db).contains("secret body"));
 }
 

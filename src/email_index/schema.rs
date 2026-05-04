@@ -2,7 +2,7 @@ use rusqlite::{Connection, params};
 
 use crate::error::VivariumError;
 
-const INDEX_SCHEMA_VERSION: &str = "2";
+const INDEX_SCHEMA_VERSION: &str = "3";
 
 pub(crate) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
     let existing_version: Option<String> = conn
@@ -16,7 +16,7 @@ pub(crate) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
         conn.execute_batch(
             "
             DROP TABLE IF EXISTS message_links;
-            DROP TABLE IF EXISTS messages;
+            DROP TABLE IF EXISTS indexed_messages;
             DROP TABLE IF EXISTS index_metadata;
             ",
         )
@@ -31,24 +31,13 @@ pub(crate) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
           value TEXT NOT NULL
         );
 
-        CREATE TABLE IF NOT EXISTS messages (
+        CREATE TABLE IF NOT EXISTS indexed_messages (
           account TEXT NOT NULL,
           message_id TEXT NOT NULL,
           content_id TEXT NOT NULL,
-          blob_path TEXT NOT NULL,
-          local_role TEXT NOT NULL,
-          date TEXT NOT NULL,
-          from_addr TEXT NOT NULL,
-          to_addr TEXT NOT NULL,
-          cc_addr TEXT NOT NULL,
-          bcc_addr TEXT NOT NULL,
-          subject TEXT NOT NULL,
-          rfc_message_id TEXT,
-          remote_mailbox TEXT,
-          remote_uid INTEGER,
-          remote_uidvalidity INTEGER,
           indexed_at TEXT NOT NULL,
-          PRIMARY KEY (account, message_id)
+          PRIMARY KEY (account, message_id),
+          FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS message_links (
@@ -57,11 +46,11 @@ pub(crate) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
           link_kind TEXT NOT NULL,
           normalized_message_id TEXT NOT NULL,
           PRIMARY KEY (account, message_id, link_kind, normalized_message_id),
-          FOREIGN KEY (account, message_id) REFERENCES messages(account, message_id) ON DELETE CASCADE
+          FOREIGN KEY (account, message_id) REFERENCES indexed_messages(account, message_id) ON DELETE CASCADE
         );
 
-        CREATE INDEX IF NOT EXISTS messages_account_role_idx ON messages(account, local_role, date);
-        CREATE INDEX IF NOT EXISTS messages_rfc_message_id_idx ON messages(account, rfc_message_id);
+        CREATE INDEX IF NOT EXISTS indexed_messages_account_content_idx
+          ON indexed_messages(account, content_id);
         CREATE INDEX IF NOT EXISTS message_links_rfc_idx ON message_links(account, normalized_message_id);
         ",
     )

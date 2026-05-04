@@ -29,8 +29,9 @@ Recommended names:
 - `docs/factory/storage-phase-00-blob-foundation.md`
 - `docs/factory/storage-phase-01-sync-and-catalog-cutover.md`
 - `docs/factory/storage-phase-02-read-search-thread-cutover.md`
-- `docs/factory/storage-phase-03-mutation-and-reconciliation-cutover.md`
-- `docs/factory/storage-phase-04-embeddings-reset-and-docs.md`
+- `docs/factory/storage-phase-03-storage-db-consolidation.md`
+- `docs/factory/storage-phase-04-mutation-and-reconciliation-cutover.md`
+- `docs/factory/storage-phase-05-handle-reset-and-docs.md`
 
 ### Checkpoint Policy
 
@@ -115,16 +116,24 @@ Move the remaining indexed and search-driven surfaces fully off compatibility
 views and onto native `storage.sqlite` + blob reads, including handle-model
 cleanup.
 
-### Storage Phase 03: Mutation And Reconciliation Cutover
+### Storage Phase 03: Storage DB Consolidation
+
+#### Goal
+
+Fold deterministic thread/search metadata into `storage.sqlite` and eliminate
+the separate `index.sqlite` core DB.
+
+### Storage Phase 04: Mutation And Reconciliation Cutover
 
 #### Goal
 
 Replace local filesystem moves and filename flag rewrites with message-row and
 remote-binding updates.
 
-### Storage Phase 04: Embeddings, Reset, And Docs Cleanup
+### Storage Phase 05: Handle, Reset, And Docs Cleanup
 
 #### Goal
 
-Retarget embeddings and operational surfaces to `message_id` + `content_id`,
-remove stale Maildir assumptions, and document the clean-break reset flow.
+Finish the user-facing clean break: opaque `message_id` rows, short-hash
+handles, reset/bootstrap semantics, and docs that stop describing Maildir as
+the source of truth.

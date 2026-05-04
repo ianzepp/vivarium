@@ -1,13 +1,12 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::VivariumError;
-use crate::store::{MessageLocation, secure_create_dir_all};
+use crate::storage::Storage;
+use crate::store::MessageLocation;
 
 mod links;
 mod rebuild;
@@ -53,19 +52,29 @@ impl IndexedMessage {
 }
 
 pub struct EmailIndex {
+    mail_root: std::path::PathBuf,
     conn: Connection,
 }
 
 impl EmailIndex {
     pub fn open(mail_root: &Path) -> Result<Self, VivariumError> {
-        let vivarium_dir = mail_root.join(".vivarium");
-        secure_create_dir_all(&vivarium_dir)?;
-        let path = vivarium_dir.join("index.sqlite");
+        Storage::open(mail_root)?;
+        let legacy_path = mail_root.join(".vivarium").join("index.sqlite");
+        if legacy_path.exists() {
+            fs::remove_file(&legacy_path).map_err(|e| {
+                VivariumError::Other(format!(
+                    "failed to remove legacy index.sqlite at {}: {e}",
+                    legacy_path.display()
+                ))
+            })?;
+        }
+        let path = mail_root.join(".vivarium").join("storage.sqlite");
         let conn = Connection::open(&path)
             .map_err(|e| VivariumError::Other(format!("failed to open email index: {e}")))?;
-        #[cfg(unix)]
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-        let index = Self { conn };
+        let index = Self {
+            mail_root: mail_root.to_path_buf(),
+            conn,
+        };
         schema::ensure_schema(&index.conn)?;
         Ok(index)
     }
@@ -81,13 +90,9 @@ impl EmailIndex {
     ) -> Result<Option<IndexedMessage>, VivariumError> {
         self.conn
             .query_row(
-                "SELECT account, message_id, content_id, blob_path, local_role,
-                        date, from_addr, to_addr, cc_addr, bcc_addr,
-                        subject, rfc_message_id
-                 FROM messages
-                 WHERE account = ?1 AND message_id = ?2",
+                &indexed_message_query("WHERE im.account = ?1 AND im.message_id = ?2"),
                 params![account, message_id],
-                indexed_message_from_row,
+                |row| indexed_message_from_row(row, &self.mail_root),
             )
             .optional()
             .map_err(|e| VivariumError::Other(format!("failed to read indexed message: {e}")))
@@ -111,7 +116,7 @@ impl EmailIndex {
     pub fn count_messages(&self, account: &str) -> Result<usize, VivariumError> {
         self.conn
             .query_row(
-                "SELECT COUNT(*) FROM messages WHERE account = ?1",
+                "SELECT COUNT(*) FROM indexed_messages WHERE account = ?1",
                 params![account],
                 |row| row.get::<_, usize>(0),
             )
@@ -121,17 +126,15 @@ impl EmailIndex {
     pub fn list_messages(&self, account: &str) -> Result<Vec<IndexedMessage>, VivariumError> {
         let mut stmt = self
             .conn
-            .prepare(
-                "SELECT account, message_id, content_id, blob_path, local_role,
-                    date, from_addr, to_addr, cc_addr, bcc_addr,
-                    subject, rfc_message_id
-             FROM messages
-             WHERE account = ?1
-             ORDER BY date, message_id",
-            )
+            .prepare(&format!(
+                "{} ORDER BY md.date, im.message_id",
+                indexed_message_query("WHERE im.account = ?1")
+            ))
             .map_err(|e| VivariumError::Other(format!("failed to prepare index listing: {e}")))?;
         let rows = stmt
-            .query_map(params![account], indexed_message_from_row)
+            .query_map(params![account], |row| {
+                indexed_message_from_row(row, &self.mail_root)
+            })
             .map_err(|e| VivariumError::Other(format!("failed to list index rows: {e}")))?;
         rows.map(|row| {
             row.map_err(|e| VivariumError::Other(format!("failed to read indexed row: {e}")))
@@ -256,12 +259,18 @@ impl EmailIndex {
     }
 }
 
-fn indexed_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<IndexedMessage> {
+fn indexed_message_from_row(
+    row: &rusqlite::Row<'_>,
+    mail_root: &Path,
+) -> rusqlite::Result<IndexedMessage> {
     Ok(IndexedMessage {
         account: row.get(0)?,
         message_id: row.get(1)?,
         content_id: row.get(2)?,
-        blob_path: row.get(3)?,
+        blob_path: mail_root
+            .join(row.get::<_, String>(3)?)
+            .to_string_lossy()
+            .to_string(),
         local_role: row.get(4)?,
         date: row.get(5)?,
         from_addr: row.get(6)?,
@@ -271,6 +280,29 @@ fn indexed_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Indexed
         subject: row.get(10)?,
         rfc_message_id: row.get(11)?,
     })
+}
+
+fn indexed_message_query(where_clause: &str) -> String {
+    format!(
+        "SELECT
+            m.account,
+            m.message_id,
+            m.content_id,
+            b.blob_relpath,
+            m.local_role,
+            md.date,
+            md.from_addr,
+            md.to_addr,
+            md.cc_addr,
+            md.bcc_addr,
+            md.subject,
+            md.normalized_message_id
+         FROM indexed_messages im
+         JOIN messages m ON m.message_id = im.message_id
+         JOIN blobs b ON b.content_id = m.content_id
+         JOIN message_metadata md ON md.content_id = m.content_id
+         {where_clause}"
+    )
 }
 
 pub fn rebuild(mail_root: &Path, account: &str) -> Result<IndexStats, VivariumError> {
