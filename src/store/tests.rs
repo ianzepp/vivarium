@@ -4,6 +4,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
+use crate::storage::MessageIngestRequest;
+
 use super::*;
 
 #[test]
@@ -40,10 +42,7 @@ fn store_message_writes_via_maildir() {
         .unwrap();
 
     assert_eq!(path, tmp.path().join("INBOX/new/inbox-1.eml"));
-    assert_eq!(
-        store.read_message("inbox-1").unwrap(),
-        b"Subject: hello\r\n\r\nbody"
-    );
+    assert_eq!(fs::read(path).unwrap(), b"Subject: hello\r\n\r\nbody");
 }
 
 #[test]
@@ -141,15 +140,41 @@ fn move_message_rejects_tmp_source() {
 }
 
 #[test]
-fn rfc_index_builds_from_local_files() {
+fn list_messages_ignores_legacy_maildir_files_without_storage_rows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = MailStore::new(tmp.path());
+    store
+        .store_message("inbox", "inbox-1", b"Subject: hello\r\n\r\nbody")
+        .unwrap();
+
+    let entries = store.list_messages("inbox").unwrap();
+
+    assert!(entries.is_empty());
+}
+
+#[test]
+fn read_message_requires_storage_row() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = MailStore::new(tmp.path());
+    store
+        .store_message("inbox", "inbox-1", b"Subject: hello\r\n\r\nbody")
+        .unwrap();
+
+    let err = store.read_message("inbox-1").unwrap_err();
+
+    assert!(err.to_string().contains("message not found"));
+}
+
+#[test]
+fn rfc_index_builds_from_outbox_files() {
     let tmp = tempfile::tempdir().unwrap();
     let store = MailStore::new(tmp.path());
     let data1 = b"Message-ID: <ABC@example.COM>\r\nSubject: hello\r\n\r\nbody";
     let data2 = b"Message-ID: <DEF@example.COM>\r\nSubject: world\r\n\r\nmore";
-    store.store_message("inbox", "inbox-7", data1).unwrap();
-    store.store_message("inbox", "inbox-8", data2).unwrap();
+    store.store_message("outbox", "outbox-7", data1).unwrap();
+    store.store_message("outbox", "outbox-8", data2).unwrap();
 
-    let index = store.build_rfc_index("inbox").unwrap();
+    let index = store.build_rfc_index("outbox").unwrap();
     assert_eq!(index.get("abc@example.com"), Some(&(7, data1.len() as u64)));
     assert_eq!(index.get("def@example.com"), Some(&(8, data2.len() as u64)));
     assert!(!index.contains_key("nonexistent@example.com"));
@@ -172,16 +197,52 @@ fn rfc_index_skips_files_without_message_id() {
     let store = MailStore::new(tmp.path());
     let data_with_id = b"Message-ID: <test@example.com>\r\nSubject: hi\r\n\r\n";
     store
-        .store_message("inbox", "inbox-1", data_with_id)
+        .store_message("outbox", "outbox-1", data_with_id)
         .unwrap();
     let data_without_id = b"Subject: no id\r\n\r\n";
     store
-        .store_message("inbox", "inbox-2", data_without_id)
+        .store_message("outbox", "outbox-2", data_without_id)
         .unwrap();
 
-    let index = store.build_rfc_index("inbox").unwrap();
+    let index = store.build_rfc_index("outbox").unwrap();
     assert_eq!(index.len(), 1);
     assert!(index.contains_key("test@example.com"));
+}
+
+#[test]
+fn list_messages_reads_storage_rows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = MailStore::new(tmp.path());
+    ingest_storage_message(
+        tmp.path(),
+        "msg_list",
+        b"From: A <a@example.com>\r\nTo: B <b@example.com>\r\nSubject: storage\r\n\r\nbody",
+    );
+
+    let entries = store.list_messages("inbox").unwrap();
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].message_id, "list");
+    assert_eq!(entries[0].from, "A <a@example.com>");
+    assert_eq!(entries[0].subject, "storage");
+}
+
+fn ingest_storage_message(root: &std::path::Path, message_id: &str, data: &[u8]) {
+    Storage::open(root)
+        .unwrap()
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "acct".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: Some(message_id.into()),
+                seed_hint: message_id.into(),
+                remote: None,
+            },
+            data,
+        )
+        .unwrap();
 }
 
 #[cfg(unix)]

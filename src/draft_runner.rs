@@ -141,10 +141,16 @@ fn reconcile_sent(
 }
 
 fn source_is_local_draft(store: &MailStore, source_path: &Path, message_id: &str) -> bool {
-    let Ok(location) = store.locate_message(message_id) else {
+    let Ok(canonical_source) = source_path.canonicalize() else {
         return false;
     };
-    location.local_role == "drafts" && same_file(&location.path, source_path)
+    let Ok(canonical_drafts) = store.folder_path("drafts").canonicalize() else {
+        return false;
+    };
+    if !canonical_source.starts_with(canonical_drafts) {
+        return false;
+    }
+    message_id_from_path(source_path).as_deref() == Some(message_id)
 }
 
 pub(crate) fn read_by_handle_or_id(
@@ -212,12 +218,6 @@ pub(crate) fn require_eml_path(path: &Path) -> Result<(), VivariumError> {
             path.display()
         )))
     }
-}
-
-fn same_file(left: &Path, right: &Path) -> bool {
-    let left = std::fs::canonicalize(left).ok();
-    let right = std::fs::canonicalize(right).ok();
-    left.is_some() && left == right
 }
 
 fn draft_id() -> String {

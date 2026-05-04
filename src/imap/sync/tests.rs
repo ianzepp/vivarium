@@ -5,13 +5,12 @@ use crate::imap::identity::remote_identity_candidates;
 fn find_missing_skips_remote_uid_remap_when_message_id_matches() {
     let tmp = tempfile::tempdir().unwrap();
     let store = MailStore::new(tmp.path());
-    store
-        .store_message(
-            "inbox",
-            "inbox-1",
-            b"Message-ID: <stable@example.com>\r\nSubject: old\r\n\r\nbody",
-        )
-        .unwrap();
+    ingest_storage_message(
+        tmp.path(),
+        "inbox",
+        "remote_uid:1",
+        b"Message-ID: <stable@example.com>\r\nSubject: old\r\n\r\nbody",
+    );
 
     let remote = RemoteMessage {
         uid: 9001,
@@ -28,13 +27,12 @@ fn find_missing_skips_remote_uid_remap_when_message_id_matches() {
 fn find_missing_can_dedupe_all_mail_against_inbox() {
     let tmp = tempfile::tempdir().unwrap();
     let store = MailStore::new(tmp.path());
-    store
-        .store_message(
-            "inbox",
-            "inbox-1",
-            b"Message-ID: <stable@example.com>\r\nSubject: old\r\n\r\nbody",
-        )
-        .unwrap();
+    ingest_storage_message(
+        tmp.path(),
+        "inbox",
+        "remote_uid:1",
+        b"Message-ID: <stable@example.com>\r\nSubject: old\r\n\r\nbody",
+    );
 
     let remote = RemoteMessage {
         uid: 9001,
@@ -57,7 +55,7 @@ fn find_missing_can_dedupe_all_mail_against_inbox() {
 }
 
 #[test]
-fn find_missing_falls_back_to_uid_and_size_without_message_id() {
+fn find_missing_does_not_scan_legacy_maildir_without_message_id() {
     let tmp = tempfile::tempdir().unwrap();
     let store = MailStore::new(tmp.path());
     let body = b"Subject: no id\r\n\r\nbody";
@@ -71,7 +69,7 @@ fn find_missing_falls_back_to_uid_and_size_without_message_id() {
     };
 
     let missing = find_missing(&[remote], &store, "inbox", DedupeScope::LocalFolder).unwrap();
-    assert!(missing.is_empty());
+    assert_eq!(missing.len(), 1);
 }
 
 #[test]
@@ -195,4 +193,22 @@ fn account_with_provider(provider: Provider) -> Account {
         oauth_scope: None,
         reject_invalid_certs: None,
     }
+}
+
+fn ingest_storage_message(root: &std::path::Path, local_role: &str, seed_hint: &str, data: &[u8]) {
+    Storage::open(root)
+        .unwrap()
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "test".into(),
+                local_role: local_role.into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: seed_hint.into(),
+                remote: None,
+            },
+            data,
+        )
+        .unwrap();
 }

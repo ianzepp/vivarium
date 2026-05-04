@@ -92,20 +92,18 @@ impl MailStore {
         if folder != "outbox" {
             let storage = Storage::open(&self.root)?;
             let stored = storage.list_messages_by_role(&storage_role(folder))?;
-            if !stored.is_empty() {
-                let mut entries: Vec<_> = stored
-                    .into_iter()
-                    .map(|message| MessageEntry {
-                        message_id: message.handle,
-                        from: message.from_addr,
-                        subject: message.subject,
-                        date: parse_storage_date(&message.date),
-                        path: self.root.join(message.blob_relpath),
-                    })
-                    .collect();
-                entries.sort_by_key(|entry| Reverse(entry.date));
-                return Ok(entries);
-            }
+            let mut entries: Vec<_> = stored
+                .into_iter()
+                .map(|message| MessageEntry {
+                    message_id: message.handle,
+                    from: message.from_addr,
+                    subject: message.subject,
+                    date: parse_storage_date(&message.date),
+                    path: self.root.join(message.blob_relpath),
+                })
+                .collect();
+            entries.sort_by_key(|entry| Reverse(entry.date));
+            return Ok(entries);
         }
         let path = self.folder_path(folder);
         if !path.exists() {
@@ -132,22 +130,16 @@ impl MailStore {
 
     /// Read raw message bytes by message ID (looks across all folders).
     pub fn read_message(&self, message_id: &str) -> Result<Vec<u8>, VivariumError> {
-        if let Ok(storage) = Storage::open(&self.root)
-            && let Ok(resolved) = storage.resolve_message_token(message_id)
-            && let Ok(data) = storage.read_message(&resolved)
-        {
-            return Ok(data);
-        }
-        let location = self.locate_message(message_id)?;
-        Ok(fs::read(location.path)?)
+        let storage = Storage::open(&self.root)?;
+        let resolved = storage.resolve_message_token(message_id)?;
+        storage.read_message(&resolved)
     }
 
     /// Locate a message by handle across all user-facing folders.
     pub fn locate_message(&self, message_id: &str) -> Result<MessageLocation, VivariumError> {
-        if let Ok(storage) = Storage::open(&self.root)
-            && let Ok(resolved) = storage.resolve_message_token(message_id)
-            && let Ok(Some(message)) = storage.message_by_id(&resolved)
-        {
+        let storage = Storage::open(&self.root)?;
+        let resolved = storage.resolve_message_token(message_id)?;
+        if let Some(message) = storage.message_by_id(&resolved)? {
             return Ok(MessageLocation {
                 message_id: Some(message.message_id),
                 local_role: message.local_role,
@@ -155,39 +147,13 @@ impl MailStore {
                 path: self.root.join(message.blob_relpath),
             });
         }
-        let wanted = display_message_id(message_id);
-        for folder in FOLDERS {
-            for subdir in ["new", "cur"] {
-                let dir = self.folder_path(folder).join(subdir);
-                if !dir.exists() {
-                    continue;
-                }
-                for entry in fs::read_dir(&dir)? {
-                    let entry = entry?;
-                    let file_path = entry.path();
-                    if message_id_from_path(&file_path).as_deref() == Some(wanted.as_str()) {
-                        return Ok(MessageLocation {
-                            message_id: Some(wanted.clone()),
-                            local_role: storage_role(folder),
-                            content_id: None,
-                            path: file_path,
-                        });
-                    }
-                }
-            }
-        }
         Err(VivariumError::Message(format!(
             "message not found: {message_id}"
         )))
     }
 
     pub fn resolve_message_id(&self, token: &str) -> Result<String, VivariumError> {
-        if let Ok(storage) = Storage::open(&self.root) {
-            if let Ok(message_id) = storage.resolve_message_token(token) {
-                return Ok(message_id);
-            }
-        }
-        Ok(display_message_id(token))
+        Storage::open(&self.root)?.resolve_message_token(token)
     }
 
     pub fn display_handle(&self, token: &str) -> Result<String, VivariumError> {
@@ -296,10 +262,7 @@ impl MailStore {
         let folder = resolve_folder(folder)?;
         if folder != "outbox" {
             let storage = Storage::open(&self.root)?;
-            let map = storage.local_sizes_by_role(&storage_role(folder))?;
-            if !map.is_empty() {
-                return Ok(map);
-            }
+            return storage.local_sizes_by_role(&storage_role(folder));
         }
         let path = self.folder_path(folder);
         let mut map = HashMap::new();
@@ -335,10 +298,7 @@ impl MailStore {
         let folder = resolve_folder(folder)?;
         if folder != "outbox" {
             let storage = Storage::open(&self.root)?;
-            let map = storage.rfc_index_by_role(&storage_role(folder))?;
-            if !map.is_empty() {
-                return Ok(map);
-            }
+            return storage.rfc_index_by_role(&storage_role(folder));
         }
         let path = self.folder_path(folder);
         let mut map = HashMap::new();
