@@ -3,7 +3,7 @@ use crate::catalog::{Catalog, RemoteIdentity, handle_from_bytes};
 use crate::config::{Account, Auth, Provider, Security};
 
 #[test]
-fn dry_run_plan_resolves_maildir_id_and_serializes_json() {
+fn dry_run_plan_resolves_storage_handle_and_serializes_json() {
     let tmp = tempfile::tempdir().unwrap();
     let (_store, account, handle) = fixture(tmp.path());
     let caps = capabilities(true, true);
@@ -11,7 +11,7 @@ fn dry_run_plan_resolves_maildir_id_and_serializes_json() {
     let prepared = prepare_mutation(
         &account,
         tmp.path(),
-        "inbox-42",
+        &handle,
         MutationAction::Archive,
         &caps,
         true,

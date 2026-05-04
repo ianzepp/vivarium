@@ -135,7 +135,8 @@ fn catalog_duplicate_same_handle_replaces() {
 
     let entries = catalog.list_messages("test").unwrap();
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].raw_path, "Archive/cur/dup.eml");
+    assert_eq!(entries[0].folder, "Archive");
+    assert!(entries[0].raw_path.contains("/blobs/"));
 }
 
 #[test]
@@ -165,11 +166,11 @@ fn attach_remote_identity_matches_by_rfc_message_id() {
     assert_eq!(remote.local_folder, "inbox");
     assert_eq!(remote.uid, 42);
     assert_eq!(remote.uidvalidity, 9);
-    assert_eq!(remote.content_fingerprint, "fingerprint");
+    assert_eq!(remote.content_fingerprint.len(), 64);
 }
 
 #[test]
-fn attach_remote_identity_falls_back_to_local_uid_filename() {
+fn attach_remote_identity_does_not_use_legacy_uid_filename() {
     let tmp = tempfile::tempdir().unwrap();
     let mut catalog = Catalog::open(tmp.path()).unwrap();
     let existing = entry(
@@ -188,14 +189,9 @@ fn attach_remote_identity_falls_back_to_local_uid_filename() {
         }])
         .unwrap();
 
-    assert_eq!(result.matched, 1);
-    assert_eq!(
-        catalog
-            .remote_reference("acct", "abc123")
-            .unwrap()
-            .uidvalidity,
-        11
-    );
+    assert_eq!(result.matched, 0);
+    assert_eq!(result.missing_local, 1);
+    assert!(catalog.remote_reference("acct", "abc123").is_err());
 }
 
 #[test]
@@ -209,6 +205,8 @@ fn remote_reference_status_reports_missing_and_stale_states() {
         "INBOX",
         "new",
     );
+    let mut existing = existing;
+    existing.rfc_message_id = "one@example.com".into();
     catalog.upsert(&existing).unwrap();
 
     assert!(matches!(

@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{Catalog, CatalogEntry, canonical_folder};
 use crate::error::VivariumError;
-use crate::store::message_id_from_path;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemoteIdentity {
@@ -173,7 +172,7 @@ impl Catalog {
         {
             return matches;
         }
-        filename_matches(self, candidate, folder)
+        Vec::new()
     }
 }
 
@@ -224,29 +223,6 @@ fn rfc_matches(
         })
         .collect()
     })
-}
-
-fn filename_matches(
-    catalog: &Catalog,
-    candidate: &RemoteIdentityCandidate,
-    folder: &str,
-) -> Vec<String> {
-    let expected_id = format!("{}-{}", candidate.local_folder, candidate.uid);
-    match catalog.list_messages(&candidate.account) {
-        Ok(entries) => entries
-            .into_iter()
-            .filter(|entry| entry.folder == folder)
-            .filter(|entry| {
-                message_id_from_path(Path::new(&entry.raw_path)).as_deref()
-                    == Some(expected_id.as_str())
-            })
-            .map(|entry| entry.handle)
-            .collect(),
-        Err(e) => {
-            tracing::warn!("failed to query remote filename matches: {e}");
-            Vec::new()
-        }
-    }
 }
 
 fn remote_identity_for_entry(

@@ -668,6 +668,7 @@ fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
            subject TEXT NOT NULL,
            normalized_message_id TEXT
          );
+         DROP TABLE IF EXISTS catalog_compat;
          COMMIT;",
     )
     .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))

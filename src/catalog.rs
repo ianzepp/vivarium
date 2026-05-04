@@ -94,7 +94,7 @@ impl Catalog {
         #[cfg(unix)]
         fs::set_permissions(&catalog_path, fs::Permissions::from_mode(0o600))?;
 
-        ensure_catalog_compat_schema(&conn)?;
+        drop_catalog_compat_schema(&conn)?;
 
         let mut catalog = Self {
             mail_root: mail_root.to_path_buf(),
@@ -112,7 +112,7 @@ impl Catalog {
 
     /// Insert or update a single message in the catalog.
     pub fn upsert(&mut self, entry: &CatalogEntry) -> Result<(), VivariumError> {
-        let data = entry_bytes(entry)?;
+        let data = self.entry_bytes(entry)?;
         let request = MessageIngestRequest {
             account: entry.account.clone(),
             local_role: local_role_from_folder(&entry.folder),
@@ -123,7 +123,6 @@ impl Catalog {
             remote: entry.remote.as_ref().map(remote_binding_input),
         };
         Storage::open(&self.mail_root)?.ingest_message(&request, &data)?;
-        self.upsert_catalog_compat(entry)?;
         self.flush()?;
         Ok(())
     }
@@ -149,19 +148,6 @@ impl Catalog {
 
     /// Look up a message handle by raw file path.
     pub fn handle_for_path(&self, path: &str) -> Result<Option<String>, VivariumError> {
-        if let Some(handle) = self
-            .conn
-            .query_row(
-                "SELECT message_id FROM catalog_compat WHERE raw_path = ?1 LIMIT 1",
-                params![path],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| VivariumError::Other(format!("failed to read catalog handle: {e}")))?
-        {
-            return Ok(Some(handle));
-        }
-
         let relpath = Path::new(path)
             .strip_prefix(&self.mail_root)
             .ok()
@@ -187,15 +173,6 @@ impl Catalog {
 
     /// Remove all entries for an account from the catalog.
     pub fn remove_account(&mut self, account: &str) -> Result<(), VivariumError> {
-        self.conn
-            .execute(
-                "DELETE FROM catalog_compat
-                 WHERE message_id IN (SELECT message_id FROM messages WHERE account = ?1)",
-                params![account],
-            )
-            .map_err(|e| {
-                VivariumError::Other(format!("failed to remove catalog compatibility rows: {e}"))
-            })?;
         self.conn
             .execute("DELETE FROM messages WHERE account = ?1", params![account])
             .map_err(|e| VivariumError::Other(format!("failed to remove catalog account: {e}")))?;
@@ -235,33 +212,6 @@ impl Catalog {
         Ok(())
     }
 
-    fn upsert_catalog_compat(&self, entry: &CatalogEntry) -> Result<(), VivariumError> {
-        self.conn
-            .execute(
-                "INSERT INTO catalog_compat (
-                   message_id, raw_path, folder, maildir_subdir, fingerprint, is_duplicate
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                 ON CONFLICT(message_id) DO UPDATE SET
-                   raw_path = excluded.raw_path,
-                   folder = excluded.folder,
-                   maildir_subdir = excluded.maildir_subdir,
-                   fingerprint = excluded.fingerprint,
-                   is_duplicate = excluded.is_duplicate",
-                params![
-                    entry.handle,
-                    entry.raw_path,
-                    entry.folder,
-                    entry.maildir_subdir,
-                    entry.fingerprint,
-                    if entry.is_duplicate { 1 } else { 0 },
-                ],
-            )
-            .map_err(|e| {
-                VivariumError::Other(format!("failed to upsert catalog compatibility row: {e}"))
-            })?;
-        Ok(())
-    }
-
     fn catalog_entry_from_row(&self, row: &rusqlite::Row<'_>) -> rusqlite::Result<CatalogEntry> {
         let message_id: String = row.get(0)?;
         let account: String = row.get(1)?;
@@ -271,27 +221,6 @@ impl Catalog {
         let read_state = row.get::<_, i64>(6)? != 0;
         let normalized_message_id: Option<String> = row.get(14)?;
         let remote_account: Option<String> = row.get(15)?;
-        let compat_raw_path: Option<String> = row.get(20)?;
-        let compat_folder: Option<String> = row.get(21)?;
-        let compat_maildir_subdir: Option<String> = row.get(22)?;
-        let compat_fingerprint: Option<String> = row.get(23)?;
-        let compat_is_duplicate = row.get::<_, Option<i64>>(24)?.unwrap_or(0) != 0;
-
-        let raw_path = compat_raw_path.unwrap_or_else(|| {
-            self.mail_root
-                .join(&blob_relpath)
-                .to_string_lossy()
-                .to_string()
-        });
-        let folder = compat_folder.unwrap_or_else(|| folder_name_from_role(&local_role));
-        let maildir_subdir = compat_maildir_subdir.unwrap_or_else(|| {
-            if read_state {
-                "cur".into()
-            } else {
-                "new".into()
-            }
-        });
-        let fingerprint = compat_fingerprint.unwrap_or(content_id.clone());
         let remote = remote_account.map(|remote_account| RemoteIdentity {
             account: remote_account,
             provider: row.get(16).unwrap_or_default(),
@@ -301,16 +230,24 @@ impl Catalog {
             uidvalidity: row.get(19).unwrap_or_default(),
             rfc_message_id: normalized_message_id.clone().unwrap_or_default(),
             size: row.get::<_, i64>(4).unwrap_or_default() as u64,
-            content_fingerprint: fingerprint.clone(),
+            content_fingerprint: content_id.clone(),
         });
 
         Ok(CatalogEntry {
             handle: message_id,
-            raw_path,
-            fingerprint,
+            raw_path: self
+                .mail_root
+                .join(&blob_relpath)
+                .to_string_lossy()
+                .to_string(),
+            fingerprint: content_id,
             account,
-            folder,
-            maildir_subdir,
+            folder: folder_name_from_role(&local_role),
+            maildir_subdir: if read_state {
+                "cur".into()
+            } else {
+                "new".into()
+            },
             date: row.get(8)?,
             from: row.get(9)?,
             to: row.get(10)?,
@@ -319,7 +256,7 @@ impl Catalog {
             subject: row.get(13)?,
             rfc_message_id: normalized_message_id.unwrap_or_default(),
             remote,
-            is_duplicate: compat_is_duplicate,
+            is_duplicate: false,
         })
     }
 }
@@ -331,12 +268,8 @@ pub fn update_maildir(
     store: &crate::store::MailStore,
 ) -> Result<CatalogUpdateResult, VivariumError> {
     let mut catalog = Catalog::open(mail_root)?;
-    let existing = catalog.list_messages(account)?;
-    let mut existing_paths: HashMap<String, String> = existing
-        .iter()
-        .map(|entry| (entry.raw_path.clone(), entry.handle.clone()))
-        .collect();
-    let mut existing_handles: HashMap<String, CatalogEntry> = existing
+    let mut existing_handles: HashMap<String, CatalogEntry> = catalog
+        .list_messages(account)?
         .into_iter()
         .map(|entry| (entry.handle.clone(), entry))
         .collect();
@@ -344,18 +277,15 @@ pub fn update_maildir(
 
     for (folder, subdir, path) in message_paths(store)? {
         result.scanned += 1;
-        let raw_path = path.to_string_lossy().to_string();
-        if existing_paths.contains_key(&raw_path) {
+        let entry = catalog_entry_for_file(&path, account, &folder, &subdir, &existing_handles);
+        if existing_handles.contains_key(&entry.handle) {
             result.skipped += 1;
             continue;
         }
-
-        let entry = catalog_entry_for_file(&path, account, &folder, &subdir, &existing_handles);
         if entry.is_duplicate {
             result.duplicates += 1;
         }
         catalog.upsert(&entry)?;
-        existing_paths.insert(entry.raw_path.clone(), entry.handle.clone());
         existing_handles.insert(entry.handle.clone(), entry.clone());
         result.cataloged += 1;
         result.entries.push(entry);
@@ -573,43 +503,34 @@ fn catalog_select_sql() -> &'static str {
         rb.provider,
         rb.remote_mailbox,
         rb.remote_uid,
-        rb.remote_uidvalidity,
-        cc.raw_path,
-        cc.folder,
-        cc.maildir_subdir,
-        cc.fingerprint,
-        cc.is_duplicate
+        rb.remote_uidvalidity
      FROM messages m
      JOIN blobs b ON b.content_id = m.content_id
      JOIN message_metadata md ON md.content_id = m.content_id
-     LEFT JOIN remote_bindings rb ON rb.message_id = m.message_id
-     LEFT JOIN catalog_compat cc ON cc.message_id = m.message_id"
+     LEFT JOIN remote_bindings rb ON rb.message_id = m.message_id"
 }
 
-fn ensure_catalog_compat_schema(conn: &Connection) -> Result<(), VivariumError> {
-    conn.execute_batch(
-        "BEGIN;
-         CREATE TABLE IF NOT EXISTS catalog_compat (
-           message_id TEXT PRIMARY KEY REFERENCES messages(message_id) ON DELETE CASCADE,
-           raw_path TEXT,
-           folder TEXT,
-           maildir_subdir TEXT,
-           fingerprint TEXT,
-           is_duplicate INTEGER NOT NULL DEFAULT 0
-         );
-         COMMIT;",
-    )
-    .map_err(|e| {
-        VivariumError::Other(format!(
-            "failed to initialize catalog compatibility schema: {e}"
-        ))
-    })
+fn drop_catalog_compat_schema(conn: &Connection) -> Result<(), VivariumError> {
+    conn.execute_batch("DROP TABLE IF EXISTS catalog_compat;")
+        .map_err(|e| {
+            VivariumError::Other(format!(
+                "failed to remove legacy catalog compatibility schema: {e}"
+            ))
+        })
 }
 
-fn entry_bytes(entry: &CatalogEntry) -> Result<Vec<u8>, VivariumError> {
-    match fs::read(&entry.raw_path) {
-        Ok(data) => Ok(data),
-        Err(_) => Ok(synthesized_entry_bytes(entry)),
+impl Catalog {
+    fn entry_bytes(&self, entry: &CatalogEntry) -> Result<Vec<u8>, VivariumError> {
+        if let Ok(data) = fs::read(&entry.raw_path) {
+            return Ok(data);
+        }
+        let path = Path::new(&entry.raw_path);
+        if path.is_relative()
+            && let Ok(data) = fs::read(self.mail_root.join(path))
+        {
+            return Ok(data);
+        }
+        Ok(synthesized_entry_bytes(entry))
     }
 }
 

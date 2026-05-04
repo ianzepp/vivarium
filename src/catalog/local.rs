@@ -18,12 +18,7 @@ impl Catalog {
     }
 
     pub fn entry_by_message_id(&self, account: &str, message_id: &str) -> Option<CatalogEntry> {
-        self.entry(account, message_id).or_else(|| {
-            self.list_messages(account).ok()?.into_iter().find(|entry| {
-                crate::store::message_id_from_path(std::path::Path::new(&entry.raw_path)).as_deref()
-                    == Some(message_id)
-            })
-        })
+        self.entry(account, message_id)
     }
 
     pub fn resolve_entry(&self, account: &str, handle_or_id: &str) -> Option<CatalogEntry> {
@@ -70,14 +65,6 @@ impl Catalog {
                 "message not found in catalog for account '{account}': {handle}"
             )));
         }
-        self.conn
-            .execute(
-                "DELETE FROM catalog_compat WHERE message_id = ?1",
-                params![handle],
-            )
-            .map_err(|e| {
-                VivariumError::Other(format!("failed to clear catalog compatibility row: {e}"))
-            })?;
         if let Some(remote) = remote {
             self.conn
                 .execute(
@@ -122,7 +109,7 @@ impl Catalog {
         &mut self,
         account: &str,
         handle: &str,
-        raw_path: String,
+        _raw_path: String,
         folder: String,
         maildir_subdir: String,
         remote: Option<RemoteIdentity>,
@@ -147,28 +134,6 @@ impl Catalog {
                 "message not found in catalog for account '{account}': {handle}"
             )));
         }
-        self.conn
-            .execute(
-                "INSERT INTO catalog_compat (
-                   message_id, raw_path, folder, maildir_subdir, fingerprint, is_duplicate
-                 )
-                 VALUES (
-                   ?1,
-                   ?2,
-                   ?3,
-                   ?4,
-                   COALESCE((SELECT fingerprint FROM catalog_compat WHERE message_id = ?1), NULL),
-                   COALESCE((SELECT is_duplicate FROM catalog_compat WHERE message_id = ?1), 0)
-                 )
-                 ON CONFLICT(message_id) DO UPDATE SET
-                   raw_path = excluded.raw_path,
-                   folder = excluded.folder,
-                   maildir_subdir = excluded.maildir_subdir",
-                params![handle, raw_path, folder, maildir_subdir],
-            )
-            .map_err(|e| {
-                VivariumError::Other(format!("failed to update catalog compatibility row: {e}"))
-            })?;
         if let Some(remote) = remote {
             self.conn
                 .execute(
@@ -210,14 +175,6 @@ impl Catalog {
     }
 
     pub fn remove_entry(&mut self, account: &str, handle: &str) -> Result<(), VivariumError> {
-        self.conn
-            .execute(
-                "DELETE FROM catalog_compat WHERE message_id = ?1",
-                params![handle],
-            )
-            .map_err(|e| {
-                VivariumError::Other(format!("failed to remove catalog compatibility row: {e}"))
-            })?;
         let changes = self
             .conn
             .execute(
