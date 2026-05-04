@@ -7,7 +7,7 @@ use crate::storage::Storage;
 mod output;
 mod semantic;
 pub use output::{SearchOutput, print_search_output, to_json_result};
-pub use semantic::semantic_or_hybrid_search;
+pub use semantic::{SemanticSearchOptions, semantic_or_hybrid_search};
 
 /// A search result with handle and citation metadata.
 #[derive(Debug, Clone)]

@@ -55,6 +55,18 @@ fn indexed_message_json(
 }
 
 #[cfg(test)]
+fn storage_role(folder: &str) -> String {
+    match folder.to_ascii_lowercase().as_str() {
+        "inbox" => "inbox".into(),
+        "archive" => "archive".into(),
+        "trash" => "trash".into(),
+        "sent" => "sent".into(),
+        "draft" | "drafts" => "drafts".into(),
+        other => other.into(),
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::catalog::{Catalog, CatalogEntry};
@@ -125,17 +137,5 @@ mod tests {
                 remote: None,
             })
             .unwrap();
-    }
-}
-
-#[cfg(test)]
-fn storage_role(folder: &str) -> String {
-    match folder.to_ascii_lowercase().as_str() {
-        "inbox" => "inbox".into(),
-        "archive" => "archive".into(),
-        "trash" => "trash".into(),
-        "sent" => "sent".into(),
-        "draft" | "drafts" => "drafts".into(),
-        other => other.into(),
     }
 }

@@ -22,6 +22,17 @@ use draft_runner::DraftDispatch;
 use label_runner::LabelDispatch;
 use mutation_runner::MutationDispatch;
 
+struct SearchRequest<'a> {
+    query: &'a str,
+    folder: Option<&'a str>,
+    limit: usize,
+    offset: usize,
+    as_json: bool,
+    count: bool,
+    semantic: bool,
+    hybrid: bool,
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -202,16 +213,16 @@ impl Runtime {
         else {
             unreachable!();
         };
-        self.search(
-            &query,
-            folder.as_deref(),
+        self.search(SearchRequest {
+            query: &query,
+            folder: folder.as_deref(),
             limit,
             offset,
-            json,
+            as_json: json,
             count,
             semantic,
             hybrid,
-        )
+        })
         .await
     }
 
@@ -309,53 +320,46 @@ impl Runtime {
         }
     }
 
-    async fn search(
-        &self,
-        query: &str,
-        folder: Option<&str>,
-        limit: usize,
-        offset: usize,
-        as_json: bool,
-        count: bool,
-        semantic: bool,
-        hybrid: bool,
-    ) -> Result<(), VivariumError> {
+    async fn search(&self, request: SearchRequest<'_>) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.account.clone())?;
         let mail_root = acct.mail_path(&self.config);
-        let folder = folder
+        let folder = request
+            .folder
             .map(vivarium::search::canonical_search_folder)
             .transpose()?;
-        let (results, total) = if semantic || hybrid {
+        let (results, total) = if request.semantic || request.hybrid {
             vivarium::search::semantic_or_hybrid_search(
                 &mail_root,
                 &acct.name,
-                query,
-                limit,
-                offset,
-                semantic,
-                hybrid,
-                folder.as_deref(),
+                request.query,
+                vivarium::search::SemanticSearchOptions {
+                    limit: request.limit,
+                    offset: request.offset,
+                    semantic: request.semantic,
+                    hybrid: request.hybrid,
+                    folder: folder.as_deref(),
+                },
             )
             .await?
         } else {
             vivarium::search::keyword_search(
                 &mail_root,
                 &acct.name,
-                query,
-                limit,
-                offset,
+                request.query,
+                request.limit,
+                request.offset,
                 folder.as_deref(),
             )?
         };
         vivarium::search::print_search_output(vivarium::search::SearchOutput {
-            query,
+            query: request.query,
             folder: folder.as_deref(),
-            limit,
-            offset,
+            limit: request.limit,
+            offset: request.offset,
             results,
             total,
-            as_json,
-            count_only: count,
+            as_json: request.as_json,
+            count_only: request.count,
         });
         Ok(())
     }
