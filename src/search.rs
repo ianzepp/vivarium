@@ -1,9 +1,9 @@
 use std::cmp::min;
 use std::path::Path;
 
-use crate::catalog::Catalog;
 use crate::email_index::{EmailIndex, IndexedMessage};
 use crate::error::VivariumError;
+use crate::storage::Storage;
 
 mod output;
 mod semantic;
@@ -85,7 +85,8 @@ pub(crate) fn indexed_lexical_results(
     let query_lower = query.to_ascii_lowercase();
     let mut results: Vec<SearchResult> = Vec::new();
     let index = EmailIndex::open(mail_root)?;
-    if index.count_messages(account)? == 0 && Catalog::open(mail_root)?.count_messages(account)? > 0
+    if index.count_messages(account)? == 0
+        && Storage::open(mail_root)?.count_messages_for_account(account)? > 0
     {
         return Err(VivariumError::Message(format!(
             "email index is empty for account '{account}'; run `vivi index rebuild --account {account}` or `vivi sync --index --account {account}`"

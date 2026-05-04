@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
+use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -28,9 +28,6 @@ pub use remote::{
 
 /// Catalog directory inside the mail root.
 const CATALOG_DIR: &str = ".vivarium";
-
-/// Catalog SQLite database filename.
-const CATALOG_DB_FILENAME: &str = "catalog.sqlite";
 
 /// Source-of-truth storage database filename.
 const STORAGE_DB_FILENAME: &str = "storage.sqlite";
@@ -98,7 +95,6 @@ impl Catalog {
         fs::set_permissions(&catalog_path, fs::Permissions::from_mode(0o600))?;
 
         ensure_catalog_compat_schema(&conn)?;
-        ensure_catalog_placeholder(&catalog_dir.join(CATALOG_DB_FILENAME))?;
 
         let mut catalog = Self {
             mail_root: mail_root.to_path_buf(),
@@ -608,13 +604,6 @@ fn ensure_catalog_compat_schema(conn: &Connection) -> Result<(), VivariumError> 
             "failed to initialize catalog compatibility schema: {e}"
         ))
     })
-}
-
-fn ensure_catalog_placeholder(path: &Path) -> Result<(), VivariumError> {
-    let _ = OpenOptions::new().create(true).append(true).open(path)?;
-    #[cfg(unix)]
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    Ok(())
 }
 
 fn entry_bytes(entry: &CatalogEntry) -> Result<Vec<u8>, VivariumError> {

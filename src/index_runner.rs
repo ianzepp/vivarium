@@ -2,6 +2,7 @@ use std::path::Path;
 
 use super::{Runtime, VivariumError};
 use vivarium::cli::IndexCommand;
+use vivarium::storage::Storage;
 
 impl Runtime {
     pub(crate) async fn index(&self, command: IndexCommand) -> Result<(), VivariumError> {
@@ -43,8 +44,7 @@ fn run_index_rebuild(mail_root: &Path, account: &str) -> Result<(), VivariumErro
 }
 
 fn index_counts(mail_root: &Path, account: &str) -> Result<(usize, usize), VivariumError> {
-    let catalog = vivarium::catalog::Catalog::open(mail_root)?;
-    let catalog_count = catalog.count_messages(account)?;
+    let catalog_count = Storage::open(mail_root)?.count_messages_for_account(account)?;
     let index = vivarium::email_index::EmailIndex::open(mail_root)?;
     let indexed_count = index.count_messages(account)?;
     Ok((catalog_count, indexed_count))

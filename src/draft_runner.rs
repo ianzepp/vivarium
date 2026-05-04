@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use vivarium::VivariumError;
-use vivarium::catalog::Catalog;
 use vivarium::cli::Command;
 use vivarium::message::{self, ComposeDraft, ReplyDraft};
 use vivarium::store::{MailStore, message_id_from_path};
@@ -150,17 +149,12 @@ fn source_is_local_draft(store: &MailStore, source_path: &Path, message_id: &str
 
 pub(crate) fn read_by_handle_or_id(
     store: &MailStore,
-    account: &str,
+    _account: &str,
     handle: &str,
 ) -> Result<Vec<u8>, VivariumError> {
-    if let Ok(data) = store.read_message(handle) {
-        return Ok(data);
-    }
-    let catalog = Catalog::open(store.root())?;
-    let entry = catalog
-        .resolve_entry(account, handle)
-        .ok_or_else(|| VivariumError::Message(format!("message not found for reply: {handle}")))?;
-    store.read_message(&entry.handle)
+    store
+        .read_message(handle)
+        .map_err(|_| VivariumError::Message(format!("message not found for reply: {handle}")))
 }
 
 fn edit_if_needed(
