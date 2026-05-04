@@ -111,7 +111,7 @@ impl Storage {
             imported_blobs: 0,
         };
         for entry in entries {
-            let data = fs::read(&entry.raw_path)?;
+            let data = fs::read(&entry.blob_path)?;
             let stored = self.ingest_message(&request_from_catalog_entry(entry), &data)?;
             result.imported_messages += 1;
             if stored.created_blob {
@@ -668,7 +668,6 @@ fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
            subject TEXT NOT NULL,
            normalized_message_id TEXT
          );
-         DROP TABLE IF EXISTS catalog_compat;
          COMMIT;",
     )
     .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))
@@ -741,6 +740,7 @@ fn write_blob_if_absent(path: &Path, data: &[u8]) -> Result<bool, VivariumError>
     }
 }
 
+#[cfg(test)]
 fn local_role(folder: &str) -> String {
     match folder {
         "INBOX" | "Inbox" | "inbox" => "inbox".into(),
@@ -776,9 +776,9 @@ fn fallback_message_id(request: &MessageIngestRequest, content_id: &str) -> Stri
 fn request_from_catalog_entry(entry: &CatalogEntry) -> MessageIngestRequest {
     MessageIngestRequest {
         account: entry.account.clone(),
-        local_role: local_role(&entry.folder),
-        read_state: entry.maildir_subdir == "cur",
-        starred: path_has_maildir_flag(&entry.raw_path, 'F'),
+        local_role: entry.local_role.clone(),
+        read_state: entry.read_state,
+        starred: entry.starred,
         message_id_hint: Some(entry.handle.clone()),
         seed_hint: entry.handle.clone(),
         remote: entry.remote.as_ref().map(remote_binding_from_catalog),
@@ -800,7 +800,6 @@ impl Storage {
         &self,
         message: StoredMessageView,
     ) -> Result<CatalogEntry, VivariumError> {
-        let data = self.read_blob(&message.content_id)?;
         let remote = message.remote.as_ref().map(|binding| RemoteIdentity {
             account: binding.account.clone(),
             provider: binding.provider.clone(),
@@ -814,19 +813,16 @@ impl Storage {
         });
         Ok(CatalogEntry {
             handle: message.message_id.clone(),
-            raw_path: self
+            account: message.account,
+            content_id: message.content_id,
+            blob_path: self
                 .mail_root
                 .join(&message.blob_relpath)
                 .to_string_lossy()
                 .to_string(),
-            fingerprint: sha256_hex(&data),
-            account: message.account,
-            folder: folder_name(&message.local_role),
-            maildir_subdir: if message.read_state {
-                "cur".into()
-            } else {
-                "new".into()
-            },
+            local_role: message.local_role,
+            read_state: message.read_state,
+            starred: message.starred,
             date: message.date,
             from: message.from_addr,
             to: message.to_addr,
@@ -835,19 +831,7 @@ impl Storage {
             subject: message.subject,
             rfc_message_id: message.normalized_message_id.unwrap_or_default(),
             remote,
-            is_duplicate: false,
         })
-    }
-}
-
-fn folder_name(local_role: &str) -> String {
-    match local_role {
-        "inbox" => "INBOX".into(),
-        "archive" => "Archive".into(),
-        "trash" => "Trash".into(),
-        "sent" => "Sent".into(),
-        "drafts" | "draft" => "Drafts".into(),
-        other => other.to_string(),
     }
 }
 
@@ -887,12 +871,6 @@ fn short_handle_map(message_ids: &[String]) -> HashMap<String, String> {
 
 fn handle_basis(message_id: &str) -> &str {
     message_id.strip_prefix("msg_").unwrap_or(message_id)
-}
-
-fn path_has_maildir_flag(path: &str, flag: char) -> bool {
-    path.rsplit_once(":2,")
-        .map(|(_, flags)| flags.contains(flag))
-        .unwrap_or(false)
 }
 
 fn sha256_hex(data: &[u8]) -> String {
@@ -1200,17 +1178,18 @@ mod tests {
     fn catalog_entry(
         account: &str,
         handle: &str,
-        raw_path: &str,
+        blob_path: &str,
         folder: &str,
         remote: Option<RemoteIdentity>,
     ) -> CatalogEntry {
         CatalogEntry {
             handle: handle.into(),
-            raw_path: raw_path.into(),
-            fingerprint: sha256_hex(&fs::read(raw_path).unwrap()),
             account: account.into(),
-            folder: folder.into(),
-            maildir_subdir: "new".into(),
+            content_id: sha256_hex(&fs::read(blob_path).unwrap()),
+            blob_path: blob_path.into(),
+            local_role: local_role(folder),
+            read_state: false,
+            starred: false,
             date: "2026-05-03T12:00:00Z".into(),
             from: "agent@example.com".into(),
             to: "user@example.com".into(),
@@ -1219,7 +1198,6 @@ mod tests {
             subject: "hi".into(),
             rfc_message_id: "meta@example.com".into(),
             remote,
-            is_duplicate: false,
         }
     }
 

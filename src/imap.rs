@@ -1,5 +1,6 @@
 mod append;
 mod folders;
+#[cfg(test)]
 mod identity;
 mod idle;
 mod mutate;

@@ -86,7 +86,7 @@ pub fn prepare_mutation(
         local_message_id: entry.handle.clone(),
         operation: action.name().into(),
         source_mailbox: remote.remote_mailbox.clone(),
-        source_local_folder: entry.folder.clone(),
+        source_local_folder: entry.local_role.clone(),
         target_mailbox: target.remote,
         target_local_folder: target.local,
         uid: remote.uid,
@@ -220,14 +220,14 @@ fn reconcile_flag(
     catalog.update_message_state(
         &prepared.preview.account,
         &prepared.preview.handle,
-        &local_role_from_folder(&prepared.entry.folder),
+        &prepared.entry.local_role,
         read_state,
         starred,
         prepared.entry.remote.clone(),
     )?;
     Ok(LocalReconciliation {
         action: "update_message_flags".into(),
-        local_role: Some(local_role_from_folder(&prepared.entry.folder)),
+        local_role: Some(prepared.entry.local_role.clone()),
         read_state: Some(read_state),
         starred: Some(starred),
         remote_binding: Some("preserved".into()),
@@ -302,27 +302,12 @@ fn command_path(plan: &MutationPlan) -> String {
     .into()
 }
 
-fn local_role_from_folder(folder: &str) -> String {
-    match folder.to_ascii_lowercase().as_str() {
-        "inbox" => "inbox".into(),
-        "archive" | "all" => "archive".into(),
-        "trash" | "deleted" => "trash".into(),
-        "sent" => "sent".into(),
-        "draft" | "drafts" => "drafts".into(),
-        other => other.to_string(),
-    }
-}
-
 fn is_read(entry: &CatalogEntry) -> bool {
-    entry.maildir_subdir == "cur"
+    entry.read_state
 }
 
 fn is_starred(entry: &CatalogEntry) -> bool {
-    entry
-        .raw_path
-        .rsplit_once(":2,")
-        .map(|(_, flags)| flags.contains('F'))
-        .unwrap_or(false)
+    entry.starred
 }
 
 fn updated_read_state(entry: &CatalogEntry, mutation: &FlagMutation) -> bool {

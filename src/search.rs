@@ -342,11 +342,12 @@ mod tests {
         catalog
             .upsert(&CatalogEntry {
                 handle,
-                raw_path: path.to_string_lossy().to_string(),
-                fingerprint: crate::catalog::fingerprint(&data),
                 account: account.into(),
-                folder: folder.into(),
-                maildir_subdir: "new".into(),
+                content_id: crate::catalog::fingerprint(&data),
+                blob_path: path.to_string_lossy().to_string(),
+                local_role: storage_role(folder),
+                read_state: false,
+                starred: false,
                 date: "2026-05-02 13:35".into(),
                 from: "Agent".into(),
                 to: "me@example.com".into(),
@@ -355,8 +356,18 @@ mod tests {
                 subject: "Release notice".into(),
                 rfc_message_id: crate::message::message_id_from_bytes(&data).unwrap_or_default(),
                 remote: None,
-                is_duplicate: false,
             })
             .unwrap();
+    }
+
+    fn storage_role(folder: &str) -> String {
+        match folder.to_ascii_lowercase().as_str() {
+            "inbox" => "inbox".into(),
+            "archive" => "archive".into(),
+            "trash" => "trash".into(),
+            "sent" => "sent".into(),
+            "draft" | "drafts" => "drafts".into(),
+            other => other.into(),
+        }
     }
 }

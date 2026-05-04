@@ -239,6 +239,6 @@ fn remote_identity_for_entry(
         uidvalidity,
         rfc_message_id: candidate.rfc_message_id.clone().unwrap_or_default(),
         size: candidate.size,
-        content_fingerprint: entry.fingerprint.clone(),
+        content_fingerprint: entry.content_id.clone(),
     }
 }

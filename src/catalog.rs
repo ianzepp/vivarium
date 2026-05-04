@@ -14,8 +14,6 @@ use crate::store::secure_create_dir_all;
 
 mod local;
 mod remote;
-#[allow(dead_code)]
-mod sqlite;
 #[cfg(test)]
 mod tests;
 
@@ -30,9 +28,6 @@ const CATALOG_DIR: &str = ".vivarium";
 /// Source-of-truth storage database filename.
 const STORAGE_DB_FILENAME: &str = "storage.sqlite";
 
-/// Legacy catalog file name imported on first SQLite open.
-const LEGACY_CATALOG_FILENAME: &str = "catalog.json";
-
 /// Stable handle prefix length (hex chars of SHA-256).
 const HANDLE_LENGTH: usize = 16;
 
@@ -40,11 +35,12 @@ const HANDLE_LENGTH: usize = 16;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CatalogEntry {
     pub handle: String,
-    pub raw_path: String,
-    pub fingerprint: String,
     pub account: String,
-    pub folder: String,
-    pub maildir_subdir: String,
+    pub content_id: String,
+    pub blob_path: String,
+    pub local_role: String,
+    pub read_state: bool,
+    pub starred: bool,
     pub date: String,
     pub from: String,
     pub to: String,
@@ -54,7 +50,6 @@ pub struct CatalogEntry {
     pub rfc_message_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<RemoteIdentity>,
-    pub is_duplicate: bool,
 }
 
 /// The mail catalog backed by SQLite.
@@ -83,15 +78,10 @@ impl Catalog {
         #[cfg(unix)]
         fs::set_permissions(&catalog_path, fs::Permissions::from_mode(0o600))?;
 
-        drop_catalog_compat_schema(&conn)?;
-
-        let mut catalog = Self {
+        Ok(Self {
             mail_root: mail_root.to_path_buf(),
             conn,
-        };
-        catalog.import_legacy_json_if_needed(&catalog_dir.join(LEGACY_CATALOG_FILENAME))?;
-
-        Ok(catalog)
+        })
     }
 
     /// SQLite autocommit persists writes; this keeps the old internal API shape.
@@ -104,9 +94,9 @@ impl Catalog {
         let data = self.entry_bytes(entry)?;
         let request = MessageIngestRequest {
             account: entry.account.clone(),
-            local_role: local_role_from_folder(&entry.folder),
-            read_state: entry.maildir_subdir == "cur",
-            starred: raw_path_has_maildir_flag(&entry.raw_path, 'F'),
+            local_role: entry.local_role.clone(),
+            read_state: entry.read_state,
+            starred: entry.starred,
             message_id_hint: Some(entry.handle.clone()),
             seed_hint: entry.handle.clone(),
             remote: entry.remote.as_ref().map(remote_binding_input),
@@ -155,27 +145,6 @@ impl Catalog {
             .map_err(|e| VivariumError::Other(format!("failed to count catalog rows: {e}")))
     }
 
-    fn import_legacy_json_if_needed(&mut self, legacy_path: &Path) -> Result<(), VivariumError> {
-        if !legacy_path.exists() {
-            return Ok(());
-        }
-        let count: usize = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
-            .map_err(|e| VivariumError::Other(format!("failed to count stored messages: {e}")))?;
-        if count > 0 {
-            return Ok(());
-        }
-        let data = fs::read_to_string(legacy_path)?;
-        let entries = serde_json::from_str::<Vec<CatalogEntry>>(&data).map_err(|e| {
-            VivariumError::Other(format!("failed to parse legacy catalog JSON: {e}"))
-        })?;
-        for entry in entries {
-            self.upsert(&entry)?;
-        }
-        Ok(())
-    }
-
     fn catalog_entry_from_row(&self, row: &rusqlite::Row<'_>) -> rusqlite::Result<CatalogEntry> {
         let message_id: String = row.get(0)?;
         let account: String = row.get(1)?;
@@ -183,6 +152,7 @@ impl Catalog {
         let blob_relpath: String = row.get(3)?;
         let local_role: String = row.get(5)?;
         let read_state = row.get::<_, i64>(6)? != 0;
+        let starred = row.get::<_, i64>(7)? != 0;
         let normalized_message_id: Option<String> = row.get(14)?;
         let remote_account: Option<String> = row.get(15)?;
         let remote = remote_account.map(|remote_account| RemoteIdentity {
@@ -199,19 +169,16 @@ impl Catalog {
 
         Ok(CatalogEntry {
             handle: message_id,
-            raw_path: self
+            account,
+            content_id,
+            blob_path: self
                 .mail_root
                 .join(&blob_relpath)
                 .to_string_lossy()
                 .to_string(),
-            fingerprint: content_id,
-            account,
-            folder: folder_name_from_role(&local_role),
-            maildir_subdir: if read_state {
-                "cur".into()
-            } else {
-                "new".into()
-            },
+            local_role,
+            read_state,
+            starred,
             date: row.get(8)?,
             from: row.get(9)?,
             to: row.get(10)?,
@@ -220,7 +187,6 @@ impl Catalog {
             subject: row.get(13)?,
             rfc_message_id: normalized_message_id.unwrap_or_default(),
             remote,
-            is_duplicate: false,
         })
     }
 }
@@ -277,21 +243,12 @@ fn catalog_select_sql() -> &'static str {
      LEFT JOIN remote_bindings rb ON rb.message_id = m.message_id"
 }
 
-fn drop_catalog_compat_schema(conn: &Connection) -> Result<(), VivariumError> {
-    conn.execute_batch("DROP TABLE IF EXISTS catalog_compat;")
-        .map_err(|e| {
-            VivariumError::Other(format!(
-                "failed to remove legacy catalog compatibility schema: {e}"
-            ))
-        })
-}
-
 impl Catalog {
     fn entry_bytes(&self, entry: &CatalogEntry) -> Result<Vec<u8>, VivariumError> {
-        if let Ok(data) = fs::read(&entry.raw_path) {
+        if let Ok(data) = fs::read(&entry.blob_path) {
             return Ok(data);
         }
-        let path = Path::new(&entry.raw_path);
+        let path = Path::new(&entry.blob_path);
         if path.is_relative()
             && let Ok(data) = fs::read(self.mail_root.join(path))
         {
@@ -337,23 +294,6 @@ fn local_role_from_folder(folder: &str) -> String {
         "Drafts" => "drafts".into(),
         other => other.to_ascii_lowercase(),
     }
-}
-
-fn folder_name_from_role(local_role: &str) -> String {
-    match local_role {
-        "inbox" => "INBOX".into(),
-        "archive" => "Archive".into(),
-        "trash" => "Trash".into(),
-        "sent" => "Sent".into(),
-        "drafts" | "draft" => "Drafts".into(),
-        other => other.to_string(),
-    }
-}
-
-fn raw_path_has_maildir_flag(path: &str, flag: char) -> bool {
-    path.rsplit_once(":2,")
-        .map(|(_, flags)| flags.contains(flag))
-        .unwrap_or(false)
 }
 
 fn remote_binding_input(remote: &RemoteIdentity) -> RemoteBindingInput {

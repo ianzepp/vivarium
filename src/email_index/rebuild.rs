@@ -52,7 +52,7 @@ fn index_entry(
 ) -> Result<(), VivariumError> {
     let message_id = entry.handle.clone();
     seen.insert(message_id.clone());
-    let blob_path = entry.raw_path.clone();
+    let blob_path = entry.blob_path.clone();
     update_reuse_stats(tx, account, &message_id, entry, &blob_path, stats)?;
     let data = match fs::read(&blob_path) {
         Ok(data) => data,
@@ -99,7 +99,7 @@ fn unchanged_existing_row(
         )
         .optional()
         .map_err(|e| VivariumError::Other(format!("failed to read index row: {e}")))?;
-    Ok(existing.as_deref() == Some(entry.fingerprint.as_str()))
+    Ok(existing.as_deref() == Some(entry.content_id.as_str()))
 }
 
 fn upsert_message(
@@ -116,7 +116,7 @@ fn upsert_message(
         ON CONFLICT(account, message_id) DO UPDATE SET
             content_id = excluded.content_id,
             indexed_at = excluded.indexed_at",
-        params![account, message_id, entry.fingerprint, now,],
+        params![account, message_id, entry.content_id, now,],
     )
     .map_err(|e| VivariumError::Other(format!("failed to upsert index row: {e}")))?;
     Ok(())

@@ -67,8 +67,8 @@ fn reconcile_move_updates_storage_backed_message_state() {
 
     assert_eq!(local.action, "update_message_row");
     assert_eq!(local.local_role.as_deref(), Some("archive"));
-    assert_eq!(entry.folder, "Archive");
-    assert!(entry.raw_path.contains("/blobs/"));
+    assert_eq!(entry.local_role, "archive");
+    assert!(entry.blob_path.contains("/blobs/"));
     assert!(entry.remote.is_none());
 }
 
@@ -94,8 +94,8 @@ fn reconcile_flag_updates_message_state_and_keeps_remote_identity() {
 
     assert_eq!(local.read_state, Some(true));
     assert_eq!(local.starred, Some(false));
-    assert_eq!(entry.maildir_subdir, "cur");
-    assert!(entry.raw_path.contains("/blobs/"));
+    assert!(entry.read_state);
+    assert!(entry.blob_path.contains("/blobs/"));
     assert!(entry.remote.is_some());
 }
 
@@ -132,14 +132,15 @@ fn fixture(root: &std::path::Path) -> (crate::store::MailStore, Account, String)
     (store, account(), handle)
 }
 
-fn entry(handle: &str, raw_path: String) -> crate::catalog::CatalogEntry {
+fn entry(handle: &str, blob_path: String) -> crate::catalog::CatalogEntry {
     crate::catalog::CatalogEntry {
         handle: handle.into(),
-        raw_path,
-        fingerprint: "fingerprint".into(),
         account: "acct".into(),
-        folder: "INBOX".into(),
-        maildir_subdir: "new".into(),
+        content_id: crate::catalog::fingerprint(&std::fs::read(&blob_path).unwrap()),
+        blob_path,
+        local_role: "inbox".into(),
+        read_state: false,
+        starred: false,
         date: "2026-05-02 00:00".into(),
         from: "a@example.com".into(),
         to: String::new(),
@@ -148,7 +149,6 @@ fn entry(handle: &str, raw_path: String) -> crate::catalog::CatalogEntry {
         subject: "hi".into(),
         rfc_message_id: "one@example.com".into(),
         remote: None,
-        is_duplicate: false,
     }
 }
 

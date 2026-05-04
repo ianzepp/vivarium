@@ -189,7 +189,7 @@ pub fn extract_catalog_entries(entries: &[CatalogEntry]) -> Result<(usize, usize
     let mut errors = 0;
 
     for entry in entries {
-        match fs::read(&entry.raw_path)
+        match fs::read(&entry.blob_path)
             .map_err(VivariumError::from)
             .and_then(|data| extract_text(&data).map(|_| ()))
         {
@@ -268,11 +268,12 @@ mod tests {
         .unwrap();
         let entry = CatalogEntry {
             handle: "h1".into(),
-            raw_path: path.to_string_lossy().to_string(),
-            fingerprint: "f1".into(),
             account: "acct".into(),
-            folder: "INBOX".into(),
-            maildir_subdir: "new".into(),
+            content_id: "f1".into(),
+            blob_path: path.to_string_lossy().to_string(),
+            local_role: "inbox".into(),
+            read_state: false,
+            starred: false,
             date: String::new(),
             from: String::new(),
             to: String::new(),
@@ -281,7 +282,6 @@ mod tests {
             subject: String::new(),
             rfc_message_id: String::new(),
             remote: None,
-            is_duplicate: false,
         };
 
         let (extracted, errors) = extract_catalog_entries(&[entry]).unwrap();

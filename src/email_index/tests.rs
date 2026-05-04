@@ -75,11 +75,12 @@ fn catalog(mail_root: &Path, account: &str, handle: &str, path: &Path, folder: &
     catalog
         .upsert(&CatalogEntry {
             handle: handle.to_string(),
-            raw_path: path.to_string_lossy().to_string(),
-            fingerprint: crate::catalog::fingerprint(&data),
             account: account.to_string(),
-            folder: folder.to_string(),
-            maildir_subdir: subdir.to_string(),
+            content_id: crate::catalog::fingerprint(&data),
+            blob_path: path.to_string_lossy().to_string(),
+            local_role: storage_role(folder),
+            read_state: subdir == "cur",
+            starred: false,
             date: "2026-05-02 12:00".to_string(),
             from: String::new(),
             to: String::new(),
@@ -88,7 +89,17 @@ fn catalog(mail_root: &Path, account: &str, handle: &str, path: &Path, folder: &
             subject: String::new(),
             rfc_message_id: crate::message::message_id_from_bytes(&data).unwrap_or_default(),
             remote: None,
-            is_duplicate: false,
         })
         .unwrap();
+}
+
+fn storage_role(folder: &str) -> String {
+    match folder.to_ascii_lowercase().as_str() {
+        "inbox" => "inbox".into(),
+        "archive" => "archive".into(),
+        "trash" => "trash".into(),
+        "sent" => "sent".into(),
+        "draft" | "drafts" => "drafts".into(),
+        other => other.into(),
+    }
 }

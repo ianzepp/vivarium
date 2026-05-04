@@ -53,11 +53,12 @@ fn catalog(mail_root: &Path, handle: &str, path: &Path) {
         .unwrap()
         .upsert(&CatalogEntry {
             handle: handle.into(),
-            raw_path: path.to_string_lossy().to_string(),
-            fingerprint: crate::catalog::fingerprint(&data),
             account: "acct".into(),
-            folder: "INBOX".into(),
-            maildir_subdir: "new".into(),
+            content_id: crate::catalog::fingerprint(&data),
+            blob_path: path.to_string_lossy().to_string(),
+            local_role: "inbox".into(),
+            read_state: false,
+            starred: false,
             date: "2026-05-02 12:00".into(),
             from: String::new(),
             to: String::new(),
@@ -66,7 +67,6 @@ fn catalog(mail_root: &Path, handle: &str, path: &Path) {
             subject: "hi".into(),
             rfc_message_id: crate::message::message_id_from_bytes(&data).unwrap_or_default(),
             remote: None,
-            is_duplicate: false,
         })
         .unwrap();
 }

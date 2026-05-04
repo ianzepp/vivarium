@@ -53,7 +53,7 @@ fn catalog_upsert_and_list() {
     let entries = catalog.list_messages("acct").unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].handle, "abc123");
-    assert!(!entries[0].is_duplicate);
+    assert_eq!(entries[0].local_role, "inbox");
 }
 
 #[test]
@@ -70,7 +70,6 @@ fn catalog_rebuild_stable_handles() {
     let fp1 = fingerprint(msg_data);
     let mut catalog = Catalog::open(&mail_root).unwrap();
     let mut entry = entry(&handle1, "inbox-1.eml", "test", "INBOX", "new");
-    entry.fingerprint = fp1.clone();
     entry.subject = "stable".into();
     entry.rfc_message_id = "test@example.com".into();
     catalog.upsert(&entry).unwrap();
@@ -79,11 +78,11 @@ fn catalog_rebuild_stable_handles() {
     let handles = catalog2.list_messages("test").unwrap();
     assert_eq!(handles.len(), 1);
     assert_eq!(handles[0].handle, handle1);
-    assert_eq!(handles[0].fingerprint, fp1);
+    assert_eq!(handles[0].content_id, fp1);
 }
 
 #[test]
-fn catalog_loads_entries_without_remote_identity_field() {
+fn catalog_ignores_legacy_json_without_importing_maildir_state() {
     let tmp = tempfile::tempdir().unwrap();
     let catalog_dir = tmp.path().join(".vivarium");
     fs::create_dir_all(&catalog_dir).unwrap();
@@ -111,8 +110,7 @@ fn catalog_loads_entries_without_remote_identity_field() {
     let catalog = Catalog::open(tmp.path()).unwrap();
     let entries = catalog.list_messages("acct").unwrap();
 
-    assert_eq!(entries.len(), 1);
-    assert!(entries[0].remote.is_none());
+    assert!(entries.is_empty());
     assert!(catalog_dir.join("storage.sqlite").exists());
 }
 
@@ -123,20 +121,21 @@ fn catalog_duplicate_same_handle_replaces() {
     fs::create_dir_all(&mail_root).unwrap();
 
     let msg_data = b"Subject: dup\r\nFrom: a@b\r\nTo: c@d\r\n\r\ndup content";
+    fs::write(mail_root.join("dup.eml"), msg_data).unwrap();
     let handle = handle_from_bytes(msg_data);
     let mut catalog = Catalog::open(&mail_root).unwrap();
     let mut first = entry(&handle, "INBOX/inbox.eml", "test", "INBOX", "new");
-    first.fingerprint = fingerprint(msg_data);
+    first.blob_path = "dup.eml".into();
     catalog.upsert(&first).unwrap();
 
     let mut second = entry(&handle, "Archive/cur/dup.eml", "test", "Archive", "cur");
-    second.fingerprint = fingerprint(msg_data);
+    second.blob_path = "dup.eml".into();
     catalog.upsert(&second).unwrap();
 
     let entries = catalog.list_messages("test").unwrap();
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].folder, "Archive");
-    assert!(entries[0].raw_path.contains("/blobs/"));
+    assert_eq!(entries[0].local_role, "archive");
+    assert!(entries[0].blob_path.contains("/blobs/"));
 }
 
 #[test]
@@ -151,7 +150,6 @@ fn attach_remote_identity_matches_by_rfc_message_id() {
         "new",
     );
     existing.rfc_message_id = "one@example.com".into();
-    existing.fingerprint = "fingerprint".into();
     catalog.upsert(&existing).unwrap();
 
     let result = catalog
@@ -309,18 +307,19 @@ fn remove_entry_does_not_remove_same_handle_for_other_account() {
 
 fn entry(
     handle: &str,
-    raw_path: &str,
+    blob_path: &str,
     account: &str,
     folder: &str,
     maildir_subdir: &str,
 ) -> CatalogEntry {
     CatalogEntry {
         handle: handle.into(),
-        raw_path: raw_path.into(),
-        fingerprint: "f1".into(),
         account: account.into(),
-        folder: folder.into(),
-        maildir_subdir: maildir_subdir.into(),
+        content_id: String::new(),
+        blob_path: blob_path.into(),
+        local_role: super::local_role_from_folder(folder),
+        read_state: maildir_subdir == "cur",
+        starred: false,
         date: "2025-01-01 00:00".into(),
         from: "a@b".into(),
         to: "c@d".into(),
@@ -329,7 +328,6 @@ fn entry(
         subject: "hi".into(),
         rfc_message_id: String::new(),
         remote: None,
-        is_duplicate: false,
     }
 }
 
