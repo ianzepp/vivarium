@@ -21,27 +21,14 @@ use path::{canonical_folder, display_message_id, is_message_file, maildir_filena
 pub(crate) use secure::secure_create_dir_all;
 use secure::{secure_create_file, secure_file};
 
-/// Local Maildir folders.
+/// Local staging folders retained for draft/outbox file workflows.
 const FOLDERS: &[&str] = &["INBOX", "Archive", "Trash", "Sent", "Drafts", "outbox"];
 const MAILDIR_DIRS: &[&str] = &["tmp", "new", "cur"];
 
-/// File-based mail store for a single account.
+/// Account-local storage facade.
 ///
-/// Layout:
-/// ```text
-/// {root}/
-/// ├── INBOX/
-/// │   ├── tmp/
-/// │   ├── new/
-/// │   └── cur/
-/// ├── Archive/
-/// ├── Sent/
-/// ├── Drafts/
-/// └── outbox/
-/// ```
-///
-/// Each message is stored as a Maildir entry. Vivarium keeps `.eml` in
-/// generated names so the files remain friendly to non-mail tools.
+/// Ordinary message list/read/locate paths resolve through `storage.sqlite`.
+/// File-backed folders remain only for explicit local draft and outbox staging.
 #[derive(Clone)]
 pub struct MailStore {
     root: PathBuf,
@@ -205,58 +192,6 @@ impl MailStore {
         Ok(final_path)
     }
 
-    /// Move a message between folders (e.g. inbox -> archive).
-    pub fn move_message(
-        &self,
-        message_id: &str,
-        from: &str,
-        to: &str,
-    ) -> Result<PathBuf, VivariumError> {
-        let from_folder = resolve_folder(from)?;
-        let to_folder = resolve_folder(to)?;
-        self.ensure_folder(to)?;
-        let src = self
-            .find_message_in_subdirs(message_id, from_folder, MAILDIR_DIRS)?
-            .ok_or_else(|| {
-                VivariumError::Message(format!("message not found in {from}: {message_id}"))
-            })?;
-        let subdir = src
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .ok_or_else(|| VivariumError::Message("message path has no parent".into()))?;
-        if !matches!(subdir, "new" | "cur") {
-            return Err(VivariumError::Message(format!(
-                "cannot move message from unexpected maildir subdirectory '{subdir}': {}",
-                src.display()
-            )));
-        }
-        let filename = src
-            .file_name()
-            .ok_or_else(|| VivariumError::Message("message path has no filename".into()))?;
-        let dst = self.folder_path(to_folder).join(subdir).join(filename);
-
-        fs::rename(&src, &dst)?;
-        tracing::debug!(from = %src.display(), to = %dst.display(), "moved message");
-        Ok(dst)
-    }
-
-    /// Check if a message exists in any folder.
-    pub fn contains(&self, message_id: &str) -> bool {
-        self.find_message(message_id, FOLDERS)
-            .map(|p| p.is_some())
-            .unwrap_or(false)
-    }
-
-    /// Get the file size of a message in a specific folder, if it exists.
-    pub fn file_size(&self, folder: &str, message_id: &str) -> Option<u64> {
-        let folder = resolve_folder(folder).ok()?;
-        self.find_message(message_id, &[folder])
-            .ok()
-            .flatten()
-            .and_then(|path| fs::metadata(&path).ok().map(|m| m.len()))
-    }
-
     /// Build a map of message_id -> file_size for all message files in a folder.
     pub fn local_sizes(&self, folder: &str) -> Result<HashMap<String, u64>, VivariumError> {
         let folder = resolve_folder(folder)?;
@@ -375,20 +310,6 @@ impl MailStore {
             tracing::debug!(path = %subdir.display(), "ensured private maildir subdir");
         }
         Ok(())
-    }
-
-    fn find_message(
-        &self,
-        message_id: &str,
-        folders: &[&str],
-    ) -> Result<Option<PathBuf>, VivariumError> {
-        let wanted = display_message_id(message_id);
-        for folder in folders {
-            if let Some(path) = self.find_message_in_subdirs(&wanted, folder, &["new", "cur"])? {
-                return Ok(Some(path));
-            }
-        }
-        Ok(None)
     }
 
     pub(super) fn find_message_in_subdirs(
