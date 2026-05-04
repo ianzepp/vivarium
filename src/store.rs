@@ -4,8 +4,11 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Utc};
+
 use crate::error::VivariumError;
 use crate::message::{MessageEntry, message_id_from_bytes};
+use crate::storage::Storage;
 
 mod mutate;
 mod path;
@@ -85,6 +88,24 @@ impl MailStore {
     /// List message entries in a folder.
     pub fn list_messages(&self, folder: &str) -> Result<Vec<MessageEntry>, VivariumError> {
         let folder = resolve_folder(folder)?;
+        if folder != "outbox" {
+            let storage = Storage::open(&self.root)?;
+            let stored = storage.list_messages_by_role(&storage_role(folder))?;
+            if !stored.is_empty() {
+                let mut entries: Vec<_> = stored
+                    .into_iter()
+                    .map(|message| MessageEntry {
+                        message_id: message.message_id,
+                        from: message.from_addr,
+                        subject: message.subject,
+                        date: parse_storage_date(&message.date),
+                        path: self.root.join(message.blob_relpath),
+                    })
+                    .collect();
+                entries.sort_by_key(|entry| Reverse(entry.date));
+                return Ok(entries);
+            }
+        }
         let path = self.folder_path(folder);
         if !path.exists() {
             return Ok(vec![]);
@@ -110,12 +131,30 @@ impl MailStore {
 
     /// Read raw message bytes by message ID (looks across all folders).
     pub fn read_message(&self, message_id: &str) -> Result<Vec<u8>, VivariumError> {
+        if let Ok(storage) = Storage::open(&self.root)
+            && let Ok(data) = storage.read_message(message_id)
+        {
+            return Ok(data);
+        }
         let location = self.locate_message(message_id)?;
         Ok(fs::read(location.path)?)
     }
 
     /// Locate a message by handle across all user-facing folders.
     pub fn locate_message(&self, message_id: &str) -> Result<MessageLocation, VivariumError> {
+        if let Ok(storage) = Storage::open(&self.root)
+            && let Ok(Some(message)) = storage.message_by_id(message_id)
+        {
+            return Ok(MessageLocation {
+                folder: display_folder(&message.local_role),
+                maildir_subdir: if message.read_state {
+                    "cur".into()
+                } else {
+                    "new".into()
+                },
+                path: self.root.join(message.blob_relpath),
+            });
+        }
         let wanted = display_message_id(message_id);
         for folder in FOLDERS {
             for subdir in ["new", "cur"] {
@@ -236,6 +275,13 @@ impl MailStore {
     /// Build a map of message_id -> file_size for all message files in a folder.
     pub fn local_sizes(&self, folder: &str) -> Result<HashMap<String, u64>, VivariumError> {
         let folder = resolve_folder(folder)?;
+        if folder != "outbox" {
+            let storage = Storage::open(&self.root)?;
+            let map = storage.local_sizes_by_role(&storage_role(folder))?;
+            if !map.is_empty() {
+                return Ok(map);
+            }
+        }
         let path = self.folder_path(folder);
         let mut map = HashMap::new();
         if !path.exists() {
@@ -268,6 +314,13 @@ impl MailStore {
         folder: &str,
     ) -> Result<HashMap<String, (u32, u64)>, VivariumError> {
         let folder = resolve_folder(folder)?;
+        if folder != "outbox" {
+            let storage = Storage::open(&self.root)?;
+            let map = storage.rfc_index_by_role(&storage_role(folder))?;
+            if !map.is_empty() {
+                return Ok(map);
+            }
+        }
         let path = self.folder_path(folder);
         let mut map = HashMap::new();
         for subdir in ["new", "cur"] {
@@ -397,4 +450,32 @@ pub(super) fn resolve_folder(folder: &str) -> Result<&'static str, VivariumError
             "invalid folder '{folder}', expected inbox, archive, trash, sent, drafts, or outbox"
         ))
     })
+}
+
+fn storage_role(folder: &str) -> String {
+    match folder {
+        "INBOX" => "inbox".into(),
+        "Archive" => "archive".into(),
+        "Trash" => "trash".into(),
+        "Sent" => "sent".into(),
+        "Drafts" => "drafts".into(),
+        other => other.to_ascii_lowercase(),
+    }
+}
+
+fn display_folder(local_role: &str) -> String {
+    match local_role {
+        "inbox" => "INBOX".into(),
+        "archive" => "Archive".into(),
+        "trash" => "Trash".into(),
+        "sent" => "Sent".into(),
+        "drafts" | "draft" => "Drafts".into(),
+        other => other.to_string(),
+    }
+}
+
+fn parse_storage_date(value: &str) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(value)
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_default()
 }

@@ -2,12 +2,12 @@ use futures::TryStreamExt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::identity::remote_identity_candidates;
 use super::query::fetch_remote_messages;
 use super::transport::{CHUNK_SIZE, ImapSession, RemoteMessage, WORKER_COUNT, connect};
+use crate::catalog::CatalogEntry;
 use crate::config::{Account, Provider};
 use crate::error::VivariumError;
-use crate::message::message_id_from_bytes;
+use crate::storage::{MessageIngestRequest, RemoteBindingInput, Storage};
 use crate::store::MailStore;
 use crate::sync::{SyncResult, SyncWindow};
 
@@ -64,7 +64,7 @@ pub async fn sync_messages(
         })
         .await?;
         result.new += r.new;
-        result.remote_identities.extend(r.remote_identities);
+        result.cataloged_entries.extend(r.cataloged_entries);
         if let Some(value) = remaining.as_mut() {
             *value = value.saturating_sub(r.new);
             if *value == 0 {
@@ -231,9 +231,6 @@ async fn sync_folder(request: SyncFolderRequest<'_>) -> Result<SyncResult, Vivar
     if missing.is_empty() {
         return Ok(SyncResult::default());
     }
-    let remote_identities =
-        remote_identity_candidates(request.account, remote_folder, local_folder, &missing);
-
     tracing::info!(
         folder = remote_folder,
         total = remote_messages.len(),
@@ -242,7 +239,7 @@ async fn sync_folder(request: SyncFolderRequest<'_>) -> Result<SyncResult, Vivar
         "downloading new messages"
     );
 
-    let mut result = download_missing(
+    download_missing(
         request.account,
         request.store,
         remote_folder,
@@ -250,9 +247,7 @@ async fn sync_folder(request: SyncFolderRequest<'_>) -> Result<SyncResult, Vivar
         missing,
         request.reject_invalid_certs,
     )
-    .await?;
-    result.remote_identities = remote_identities;
-    Ok(result)
+    .await
 }
 
 fn truncate_missing(missing: &mut Vec<RemoteMessage>, limit: Option<usize>) {
@@ -261,25 +256,43 @@ fn truncate_missing(missing: &mut Vec<RemoteMessage>, limit: Option<usize>) {
     }
 }
 
-/// Store a single parsed message in the local Maildir and update the index.
+/// Store a single parsed message in hash-addressed storage.
 fn store_message(
+    account: &Account,
     store: &MailStore,
+    remote_folder: &str,
     local_folder: &str,
     body: &[u8],
-    uid: u32,
-) -> Result<(), VivariumError> {
+    remote: &RemoteMessage,
+) -> Result<CatalogEntry, VivariumError> {
+    let uid = remote.uid;
     let message_id = format!("{local_folder}-{uid}");
-    let subdir = if local_folder == "inbox" {
-        "new"
-    } else {
-        "cur"
-    };
-    store.store_message_in(local_folder, subdir, &message_id, body)?;
-    if let Some(rfc_message_id) = message_id_from_bytes(body) {
-        let size = u64::try_from(body.len()).unwrap_or(u64::MAX);
-        store.write_message_index(local_folder, &rfc_message_id, uid, size)?;
-    }
-    Ok(())
+    let mut storage = Storage::open(store.root())?;
+    storage.ingest_message(
+        &MessageIngestRequest {
+            account: account.name.clone(),
+            local_role: local_folder.to_string(),
+            read_state: local_folder != "inbox",
+            starred: false,
+            message_id_hint: Some(message_id.clone()),
+            seed_hint: message_id.clone(),
+            remote: remote.uidvalidity.map(|uidvalidity| RemoteBindingInput {
+                account: account.name.clone(),
+                provider: account.provider.to_string(),
+                remote_mailbox: remote_folder.to_string(),
+                remote_uid: uid,
+                remote_uidvalidity: uidvalidity,
+            }),
+        },
+        body,
+    )?;
+    storage
+        .catalog_entry(&account.name, &message_id)?
+        .ok_or_else(|| {
+            VivariumError::Other(format!(
+                "stored message missing from catalog view: {message_id}"
+            ))
+        })
 }
 
 /// Worker: grab chunks from the queue, open a connection, fetch messages.
@@ -311,10 +324,11 @@ async fn worker(
         );
 
         let messages = fetch_messages(&mut session, &uid_set).await?;
-        let new_count = process_messages(&context, &messages)?;
-        if new_count > 0 {
+        let entries = process_messages(&context, &uids, &messages)?;
+        if !entries.is_empty() {
             let mut r = result.lock().await;
-            r.new += new_count;
+            r.new += entries.len();
+            r.cataloged_entries.extend(entries);
         }
     }
 
@@ -340,19 +354,29 @@ async fn fetch_messages(
 /// Parse and store a batch of fetched messages. Returns count of stored messages.
 fn process_messages(
     context: &WorkerContext,
+    chunk: &[RemoteMessage],
     messages: &[async_imap::types::Fetch],
-) -> Result<usize, VivariumError> {
-    let mut new_count = 0;
+) -> Result<Vec<CatalogEntry>, VivariumError> {
+    let mut entries = Vec::new();
     for fetch in messages {
         let uid = fetch.uid.unwrap_or(0);
         let body = match fetch.body() {
             Some(b) => b,
             None => continue,
         };
-        store_message(&context.store, &context.local_folder, body, uid)?;
-        new_count += 1;
+        let Some(remote) = chunk.iter().find(|message| message.uid == uid) else {
+            continue;
+        };
+        entries.push(store_message(
+            &context.account,
+            &context.store,
+            &context.remote_folder,
+            &context.local_folder,
+            body,
+            remote,
+        )?);
     }
-    Ok(new_count)
+    Ok(entries)
 }
 
 fn uid_set_string(uids: &[u32]) -> String {

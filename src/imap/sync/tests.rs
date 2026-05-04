@@ -1,4 +1,5 @@
 use super::*;
+use crate::imap::identity::remote_identity_candidates;
 
 #[test]
 fn find_missing_skips_remote_uid_remap_when_message_id_matches() {

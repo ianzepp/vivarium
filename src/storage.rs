@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -5,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use chrono::Utc;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
 use crate::catalog::{CatalogEntry, RemoteIdentity};
@@ -37,6 +38,7 @@ pub struct MessageIngestRequest {
     pub local_role: String,
     pub read_state: bool,
     pub starred: bool,
+    pub message_id_hint: Option<String>,
     pub seed_hint: String,
     pub remote: Option<RemoteBindingInput>,
 }
@@ -48,6 +50,26 @@ pub struct RemoteBindingInput {
     pub remote_mailbox: String,
     pub remote_uid: u32,
     pub remote_uidvalidity: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredMessageView {
+    pub message_id: String,
+    pub account: String,
+    pub content_id: String,
+    pub blob_relpath: String,
+    pub byte_size: u64,
+    pub local_role: String,
+    pub read_state: bool,
+    pub starred: bool,
+    pub date: String,
+    pub from_addr: String,
+    pub to_addr: String,
+    pub cc_addr: String,
+    pub bcc_addr: String,
+    pub subject: String,
+    pub normalized_message_id: Option<String>,
+    pub remote: Option<RemoteBindingInput>,
 }
 
 pub struct Storage {
@@ -110,6 +132,145 @@ impl Storage {
         fs::read(self.mail_root.join(relpath)).map_err(Into::into)
     }
 
+    pub fn read_message(&self, message_id: &str) -> Result<Vec<u8>, VivariumError> {
+        let Some(view) = self.message_by_id(message_id)? else {
+            return Err(VivariumError::Message(format!(
+                "message not found: {message_id}"
+            )));
+        };
+        fs::read(self.mail_root.join(view.blob_relpath)).map_err(Into::into)
+    }
+
+    pub fn message_by_id(
+        &self,
+        message_id: &str,
+    ) -> Result<Option<StoredMessageView>, VivariumError> {
+        self.conn
+            .query_row(
+                &message_query("WHERE m.message_id = ?1"),
+                params![message_id],
+                stored_message_from_row,
+            )
+            .optional()
+            .map_err(|e| VivariumError::Other(format!("failed to read stored message: {e}")))
+    }
+
+    pub fn list_messages_by_role(
+        &self,
+        local_role: &str,
+    ) -> Result<Vec<StoredMessageView>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!(
+                "{} ORDER BY md.date DESC, m.message_id",
+                message_query("WHERE m.local_role = ?1 AND m.deleted_at IS NULL")
+            ))
+            .map_err(|e| VivariumError::Other(format!("failed to prepare storage listing: {e}")))?;
+        let rows = stmt
+            .query_map(params![local_role], stored_message_from_row)
+            .map_err(|e| VivariumError::Other(format!("failed to list stored messages: {e}")))?;
+        rows.map(|row| {
+            row.map_err(|e| VivariumError::Other(format!("failed to read stored message row: {e}")))
+        })
+        .collect()
+    }
+
+    pub fn list_catalog_entries(&self, account: &str) -> Result<Vec<CatalogEntry>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!(
+                "{} ORDER BY md.date DESC, m.message_id",
+                message_query("WHERE m.account = ?1 AND m.deleted_at IS NULL")
+            ))
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to prepare catalog view listing: {e}"))
+            })?;
+        let rows = stmt
+            .query_map(params![account], stored_message_from_row)
+            .map_err(|e| VivariumError::Other(format!("failed to query catalog view: {e}")))?;
+        let messages: Result<Vec<_>, _> = rows
+            .map(|row| {
+                row.map_err(|e| {
+                    VivariumError::Other(format!("failed to read catalog view row: {e}"))
+                })
+            })
+            .collect();
+        messages?
+            .into_iter()
+            .map(|message| self.catalog_entry_from_view(message))
+            .collect()
+    }
+
+    pub fn catalog_entry(
+        &self,
+        account: &str,
+        handle_or_id: &str,
+    ) -> Result<Option<CatalogEntry>, VivariumError> {
+        let Some(view) = self
+            .conn
+            .query_row(
+                &format!(
+                    "{} WHERE m.account = ?1 AND m.deleted_at IS NULL AND m.message_id = ?2",
+                    message_query("")
+                ),
+                params![account, handle_or_id],
+                stored_message_from_row,
+            )
+            .optional()
+            .map_err(|e| VivariumError::Other(format!("failed to read catalog entry: {e}")))?
+        else {
+            return Ok(None);
+        };
+        self.catalog_entry_from_view(view).map(Some)
+    }
+
+    pub fn count_messages_for_account(&self, account: &str) -> Result<usize, VivariumError> {
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE account = ?1 AND deleted_at IS NULL",
+                params![account],
+                |row| row.get(0),
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to count stored messages: {e}")))
+    }
+
+    pub fn local_sizes_by_role(
+        &self,
+        local_role: &str,
+    ) -> Result<HashMap<String, u64>, VivariumError> {
+        let messages = self.list_messages_by_role(local_role)?;
+        Ok(messages
+            .into_iter()
+            .map(|message| (message.message_id, message.byte_size))
+            .collect())
+    }
+
+    pub fn rfc_index_by_role(
+        &self,
+        local_role: &str,
+    ) -> Result<HashMap<String, (u32, u64)>, VivariumError> {
+        let messages = self.list_messages_by_role(local_role)?;
+        let mut map = HashMap::new();
+        for message in messages {
+            let Some(rfc_message_id) = message.normalized_message_id.clone() else {
+                continue;
+            };
+            let uid = message
+                .remote
+                .as_ref()
+                .map(|remote| remote.remote_uid)
+                .or_else(|| {
+                    message
+                        .message_id
+                        .rsplit_once('-')
+                        .and_then(|(_, uid)| uid.parse().ok())
+                })
+                .unwrap_or(0);
+            map.insert(rfc_message_id, (uid, message.byte_size));
+        }
+        Ok(map)
+    }
+
     #[cfg(test)]
     fn blob_count(&self) -> Result<usize, VivariumError> {
         self.conn
@@ -141,13 +302,20 @@ impl Storage {
         let blob_abspath = self.mail_root.join(&blob_relpath);
         let created_blob = write_blob_if_absent(&blob_abspath, data)?;
         let metadata = parse_metadata(data);
-        let message_id = request
-            .remote
-            .as_ref()
-            .map(|remote| {
-                remote_bound_message_id(&request.account, &request.local_role, &content_id, remote)
-            })
-            .unwrap_or_else(|| fallback_message_id(request, &content_id));
+        let message_id = request.message_id_hint.clone().unwrap_or_else(|| {
+            request
+                .remote
+                .as_ref()
+                .map(|remote| {
+                    remote_bound_message_id(
+                        &request.account,
+                        &request.local_role,
+                        &content_id,
+                        remote,
+                    )
+                })
+                .unwrap_or_else(|| fallback_message_id(request, &content_id))
+        });
         let now = Utc::now().to_rfc3339();
 
         let tx = self.conn.transaction().map_err(|e| {
@@ -325,6 +493,70 @@ fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
     .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))
 }
 
+fn message_query(where_clause: &str) -> String {
+    format!(
+        "SELECT
+            m.message_id,
+            m.account,
+            m.content_id,
+            b.blob_relpath,
+            b.byte_size,
+            m.local_role,
+            m.read_state,
+            m.starred,
+            md.date,
+            md.from_addr,
+            md.to_addr,
+            md.cc_addr,
+            md.bcc_addr,
+            md.subject,
+            md.normalized_message_id,
+            rb.account,
+            rb.provider,
+            rb.remote_mailbox,
+            rb.remote_uid,
+            rb.remote_uidvalidity
+         FROM messages m
+         JOIN blobs b ON b.content_id = m.content_id
+         JOIN message_metadata md ON md.content_id = m.content_id
+         LEFT JOIN remote_bindings rb ON rb.message_id = m.message_id
+         {where_clause}"
+    )
+}
+
+fn stored_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredMessageView> {
+    let remote_account: Option<String> = row.get(15)?;
+    let remote = if let Some(account) = remote_account {
+        Some(RemoteBindingInput {
+            account,
+            provider: row.get(16)?,
+            remote_mailbox: row.get(17)?,
+            remote_uid: row.get(18)?,
+            remote_uidvalidity: row.get(19)?,
+        })
+    } else {
+        None
+    };
+    Ok(StoredMessageView {
+        message_id: row.get(0)?,
+        account: row.get(1)?,
+        content_id: row.get(2)?,
+        blob_relpath: row.get(3)?,
+        byte_size: row.get::<_, i64>(4)? as u64,
+        local_role: row.get(5)?,
+        read_state: row.get::<_, i64>(6)? != 0,
+        starred: row.get::<_, i64>(7)? != 0,
+        date: row.get(8)?,
+        from_addr: row.get(9)?,
+        to_addr: row.get(10)?,
+        cc_addr: row.get(11)?,
+        bcc_addr: row.get(12)?,
+        subject: row.get(13)?,
+        normalized_message_id: row.get(14)?,
+        remote,
+    })
+}
+
 fn blob_relpath(content_id: &str) -> String {
     format!(
         "{}/{}/{}/{}.eml",
@@ -399,6 +631,7 @@ fn request_from_catalog_entry(entry: &CatalogEntry) -> MessageIngestRequest {
         local_role: local_role(&entry.folder),
         read_state: entry.maildir_subdir == "cur",
         starred: path_has_maildir_flag(&entry.raw_path, 'F'),
+        message_id_hint: Some(entry.handle.clone()),
         seed_hint: entry.handle.clone(),
         remote: entry.remote.as_ref().map(remote_binding_from_catalog),
     }
@@ -411,6 +644,62 @@ fn remote_binding_from_catalog(remote: &RemoteIdentity) -> RemoteBindingInput {
         remote_mailbox: remote.remote_mailbox.clone(),
         remote_uid: remote.uid,
         remote_uidvalidity: remote.uidvalidity,
+    }
+}
+
+impl Storage {
+    fn catalog_entry_from_view(
+        &self,
+        message: StoredMessageView,
+    ) -> Result<CatalogEntry, VivariumError> {
+        let data = self.read_blob(&message.content_id)?;
+        let remote = message.remote.as_ref().map(|binding| RemoteIdentity {
+            account: binding.account.clone(),
+            provider: binding.provider.clone(),
+            remote_mailbox: binding.remote_mailbox.clone(),
+            local_folder: message.local_role.clone(),
+            uid: binding.remote_uid,
+            uidvalidity: binding.remote_uidvalidity,
+            rfc_message_id: message.normalized_message_id.clone().unwrap_or_default(),
+            size: message.byte_size,
+            content_fingerprint: message.content_id.clone(),
+        });
+        Ok(CatalogEntry {
+            handle: message.message_id.clone(),
+            raw_path: self
+                .mail_root
+                .join(&message.blob_relpath)
+                .to_string_lossy()
+                .to_string(),
+            fingerprint: sha256_hex(&data),
+            account: message.account,
+            folder: folder_name(&message.local_role),
+            maildir_subdir: if message.read_state {
+                "cur".into()
+            } else {
+                "new".into()
+            },
+            date: message.date,
+            from: message.from_addr,
+            to: message.to_addr,
+            cc: message.cc_addr,
+            bcc: message.bcc_addr,
+            subject: message.subject,
+            rfc_message_id: message.normalized_message_id.unwrap_or_default(),
+            remote,
+            is_duplicate: false,
+        })
+    }
+}
+
+fn folder_name(local_role: &str) -> String {
+    match local_role {
+        "inbox" => "INBOX".into(),
+        "archive" => "Archive".into(),
+        "trash" => "Trash".into(),
+        "sent" => "Sent".into(),
+        "drafts" | "draft" => "Drafts".into(),
+        other => other.to_string(),
     }
 }
 
@@ -566,6 +855,7 @@ mod tests {
             local_role: "inbox".into(),
             read_state: false,
             starred: false,
+            message_id_hint: None,
             seed_hint: "uid:99".into(),
             remote: Some(RemoteBindingInput {
                 account: "acct".into(),

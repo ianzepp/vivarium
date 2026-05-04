@@ -124,17 +124,28 @@ impl Catalog {
                 [handle] => {
                     if let Some(entry) = self.entry(&candidate.account, handle) {
                         let remote = remote_identity_for_entry(&entry, candidate, uidvalidity);
-                        let remote_json = serde_json::to_string(&remote).map_err(|e| {
-                            VivariumError::Other(format!(
-                                "failed to serialize remote identity: {e}"
-                            ))
-                        })?;
                         self.conn
                             .execute(
-                                "UPDATE catalog_entries
-                                 SET remote_json = ?3
-                                 WHERE account = ?1 AND handle = ?2",
-                                params![candidate.account, handle, remote_json],
+                                "INSERT INTO remote_bindings (
+                                   message_id, account, provider, remote_mailbox, remote_uid,
+                                   remote_uidvalidity, last_verified_at, stale
+                                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP, 0)
+                                 ON CONFLICT(message_id) DO UPDATE SET
+                                   account = excluded.account,
+                                   provider = excluded.provider,
+                                   remote_mailbox = excluded.remote_mailbox,
+                                   remote_uid = excluded.remote_uid,
+                                   remote_uidvalidity = excluded.remote_uidvalidity,
+                                   last_verified_at = excluded.last_verified_at,
+                                   stale = 0",
+                                params![
+                                    handle,
+                                    remote.account,
+                                    remote.provider,
+                                    remote.remote_mailbox,
+                                    remote.uid,
+                                    remote.uidvalidity,
+                                ],
                             )
                             .map_err(|e| {
                                 VivariumError::Other(format!(
@@ -180,10 +191,16 @@ fn rfc_matches(
     folder: &str,
 ) -> Option<Vec<String>> {
     candidate.rfc_message_id.as_ref().map(|rfc_message_id| {
+        let local_role = super::local_role_from_folder(folder);
         let mut stmt = match catalog.conn.prepare(
-            "SELECT handle FROM catalog_entries
-             WHERE account = ?1 AND folder = ?2 AND rfc_message_id = ?3
-             ORDER BY handle",
+            "SELECT m.message_id
+             FROM messages m
+             JOIN message_metadata md ON md.content_id = m.content_id
+             WHERE m.account = ?1
+               AND m.local_role = ?2
+               AND m.deleted_at IS NULL
+               AND md.normalized_message_id = ?3
+             ORDER BY m.message_id",
         ) {
             Ok(stmt) => stmt,
             Err(e) => {
@@ -191,9 +208,10 @@ fn rfc_matches(
                 return Vec::new();
             }
         };
-        let rows = match stmt.query_map(params![candidate.account, folder, rfc_message_id], |row| {
-            row.get::<_, String>(0)
-        }) {
+        let rows = match stmt.query_map(
+            params![candidate.account, local_role, rfc_message_id],
+            |row| row.get::<_, String>(0),
+        ) {
             Ok(rows) => rows,
             Err(e) => {
                 tracing::warn!("failed to query remote rfc matches: {e}");
@@ -214,40 +232,21 @@ fn filename_matches(
     folder: &str,
 ) -> Vec<String> {
     let expected_id = format!("{}-{}", candidate.local_folder, candidate.uid);
-    let mut stmt = match catalog.conn.prepare(
-        "SELECT handle, raw_path FROM catalog_entries
-         WHERE account = ?1 AND folder = ?2
-         ORDER BY handle",
-    ) {
-        Ok(stmt) => stmt,
-        Err(e) => {
-            tracing::warn!("failed to prepare remote filename match query: {e}");
-            return Vec::new();
-        }
-    };
-    let rows = match stmt.query_map(params![candidate.account, folder], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    }) {
-        Ok(rows) => rows,
+    match catalog.list_messages(&candidate.account) {
+        Ok(entries) => entries
+            .into_iter()
+            .filter(|entry| entry.folder == folder)
+            .filter(|entry| {
+                message_id_from_path(Path::new(&entry.raw_path)).as_deref()
+                    == Some(expected_id.as_str())
+            })
+            .map(|entry| entry.handle)
+            .collect(),
         Err(e) => {
             tracing::warn!("failed to query remote filename matches: {e}");
-            return Vec::new();
+            Vec::new()
         }
-    };
-    rows.filter_map(|row| match row {
-        Ok((handle, raw_path))
-            if message_id_from_path(Path::new(&raw_path)).as_deref()
-                == Some(expected_id.as_str()) =>
-        {
-            Some(handle)
-        }
-        Ok(_) => None,
-        Err(e) => {
-            tracing::warn!("failed to read remote filename match: {e}");
-            None
-        }
-    })
-    .collect()
+    }
 }
 
 fn remote_identity_for_entry(

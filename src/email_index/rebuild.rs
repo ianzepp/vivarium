@@ -52,10 +52,7 @@ fn index_entry(
     seen: &mut BTreeSet<String>,
     stats: &mut IndexStats,
 ) -> Result<(), VivariumError> {
-    let Some(handle) = message_id_from_path(Path::new(&entry.raw_path)) else {
-        stats.errors += 1;
-        return Ok(());
-    };
+    let handle = derived_handle(entry);
     seen.insert(handle.clone());
     update_reuse_stats(tx, account, &handle, entry, stats)?;
     let data = match fs::read(&entry.raw_path) {
@@ -68,6 +65,20 @@ fn index_entry(
     let links = links_from_raw(&data);
     upsert_message(tx, account, &handle, entry, &links, now)?;
     replace_links(tx, account, &handle, &links)
+}
+
+fn derived_handle(entry: &CatalogEntry) -> String {
+    let parsed = message_id_from_path(Path::new(&entry.raw_path));
+    match parsed.as_deref() {
+        Some(candidate) if candidate == entry.fingerprint => entry.handle.clone(),
+        Some(candidate) if looks_like_content_hash(candidate) => entry.handle.clone(),
+        Some(candidate) => candidate.to_string(),
+        None => entry.handle.clone(),
+    }
+}
+
+fn looks_like_content_hash(value: &str) -> bool {
+    value.len() == 64 && value.chars().all(|ch| ch.is_ascii_hexdigit())
 }
 
 fn update_reuse_stats(

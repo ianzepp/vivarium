@@ -76,12 +76,8 @@ pub fn prepare_mutation(
             entry.handle
         ))
     })?;
-    let local_message_id = message_id_from_path(Path::new(&entry.raw_path)).ok_or_else(|| {
-        VivariumError::Message(format!(
-            "catalog entry has no local message id: {}",
-            entry.handle
-        ))
-    })?;
+    let local_message_id =
+        message_id_from_path(Path::new(&entry.raw_path)).unwrap_or_else(|| entry.handle.clone());
     let plan = mutation_plan(account, &action, capabilities)?;
     let target = target_folders(account, &action)?;
     let preview = MutationPreview {

@@ -252,7 +252,7 @@ mod tests {
         assert_eq!(results[0].account, "acct");
         assert_eq!(results[0].folder, "INBOX");
         assert_eq!(results[0].maildir_subdir, "new");
-        assert_eq!(results[0].from, "Agent");
+        assert_eq!(results[0].from, "Agent <agent@example.com>");
         assert_eq!(results[0].subject, "Release notice");
         assert!(results[0].raw_path.ends_with("inbox-1.eml"));
     }

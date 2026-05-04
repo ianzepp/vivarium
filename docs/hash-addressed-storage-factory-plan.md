@@ -104,14 +104,16 @@ cutover in the next phase.
 #### Goal
 
 Make sync and catalog source their truth from the new storage engine rather than
-Maildir scans and path-based catalog rows.
+Maildir scans and path-based catalog rows, including the minimum read surfaces
+required to keep Vivi coherent after sync stops writing Maildir.
 
 ### Storage Phase 02: Read, Search, And Thread Cutover
 
 #### Goal
 
-Move `list`, `show`, `thread`, search, and index rebuild off directory scans and
-onto `storage.sqlite` + blob reads.
+Move the remaining indexed and search-driven surfaces fully off compatibility
+views and onto native `storage.sqlite` + blob reads, including handle-model
+cleanup.
 
 ### Storage Phase 03: Mutation And Reconciliation Cutover
 
