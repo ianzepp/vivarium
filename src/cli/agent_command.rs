@@ -4,33 +4,24 @@ use clap::{ArgGroup, Subcommand};
 
 #[derive(Debug, Subcommand)]
 pub enum AgentCommand {
-    /// Plan or execute an archive mutation
+    /// Plan an archive mutation
     Archive {
-        handle: String,
-        #[arg(long)]
-        execute: bool,
+        #[arg(required = true)]
+        handles: Vec<String>,
     },
 
-    /// Plan or execute a delete mutation
+    /// Plan a delete mutation
     Delete {
-        handle: String,
+        #[arg(required = true)]
+        handles: Vec<String>,
         #[arg(long)]
         expunge: bool,
-        #[arg(long)]
-        confirm: bool,
-        #[arg(long)]
-        execute: bool,
     },
 
-    /// Plan or execute a move mutation
-    Move {
-        handle: String,
-        folder: String,
-        #[arg(long)]
-        execute: bool,
-    },
+    /// Plan a move mutation
+    Move { handle: String, folder: String },
 
-    /// Plan or execute a flag mutation
+    /// Plan a flag mutation
     #[command(group(
         ArgGroup::new("agent_flag_mode")
             .args(["read", "unread", "star", "unstar"])
@@ -47,23 +38,15 @@ pub enum AgentCommand {
         star: bool,
         #[arg(long)]
         unstar: bool,
-        #[arg(long)]
-        execute: bool,
     },
 
-    /// Plan or execute sending an explicit .eml file
-    Send {
-        path: PathBuf,
-        #[arg(long)]
-        execute: bool,
-    },
+    /// Plan sending an explicit .eml file
+    Send { path: PathBuf },
 
-    /// Plan or execute local reply draft creation
+    /// Plan local reply draft creation
     Reply {
         handle: String,
         #[arg(long)]
         body: String,
-        #[arg(long)]
-        execute: bool,
     },
 }

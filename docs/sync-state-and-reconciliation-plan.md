@@ -11,7 +11,8 @@ A simple `last_sync_at` timestamp is not enough. Other processes can mutate the
 mailbox between Vivi runs:
 
 - another `vivi` process can archive, delete, move, flag, draft, or send
-- a local agent can run `vivi agent ... --execute`
+- a local agent can plan a write with `vivi agent ...` and a reviewed second
+  pass can execute the corresponding human command
 - a phone or Proton client can read, archive, delete, or move messages
 - SMTP/provider behavior can create Sent copies outside Vivi's local state
 

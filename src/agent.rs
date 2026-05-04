@@ -37,17 +37,15 @@ pub fn plan_json(
     operation: &str,
     target: &str,
     external_write: bool,
-    execute: bool,
     preview: serde_json::Value,
 ) -> serde_json::Value {
     serde_json::json!({
-        "status": if execute { "approved" } else { "planned" },
+        "status": "planned",
         "account": account,
         "operation": operation,
         "target": target,
         "external_write": external_write,
-        "approval_required": external_write && !execute,
-        "execute": execute,
+        "approval_required": external_write,
         "preview": preview,
     })
 }
@@ -136,5 +134,14 @@ mod tests {
         assert_eq!(record.operation, "send");
         assert!(record.external_write);
         assert!(!record.execute);
+    }
+
+    #[test]
+    fn plan_json_does_not_advertise_execution() {
+        let plan = plan_json("acct", "send", "draft.eml", true, serde_json::json!({}));
+
+        assert_eq!(plan["status"], "planned");
+        assert_eq!(plan["approval_required"], true);
+        assert!(plan.get("execute").is_none());
     }
 }

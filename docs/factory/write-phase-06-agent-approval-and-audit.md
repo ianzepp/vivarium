@@ -5,7 +5,8 @@
 Phases 03 through 05 made remote mutation, draft creation, and SMTP sending
 available, but the command surface is still human-oriented. Agents need a
 plan-first interface that can describe intended external effects as JSON without
-executing them, then execute only after an explicit approval flag.
+executing them. Reviewed plans are executed through the ordinary human command
+surface as a deliberate second pass.
 
 ## Normalized Phase Spec
 
@@ -24,10 +25,10 @@ without silent external side effects.
 ### Expected Outputs
 
 - `vivi agent` command surface for archive/delete/move/flag/send/reply.
-- Agent commands plan by default and require `--execute` for external writes.
+- Agent commands only plan; they do not expose an execution flag.
 - JSON plan output for archive/delete/move/flag/send/reply.
-- Audit records for planned, approved, executed, failed, and reconciled states.
-- Agent defaults that keep hard delete disabled unless configured otherwise.
+- Audit records for planned agent operations and mutation execution through the
+  ordinary command surface.
 - Bounded draft/body previews in agent-facing JSON.
 - Agent-safe workflow documentation and tests.
 
@@ -50,12 +51,13 @@ without silent external side effects.
 
 1. Agent CLI surface
    - Add `vivi agent <operation>`.
-   - Plan by default; execute only with `--execute`.
+   - Plan only; execution belongs to reviewed second-pass commands.
 
 2. Audit hardening
    - Preserve planned audit records.
-   - Add approved and reconciled statuses around successful execution.
-   - Add outbound agent audit for send/reply plans and execution.
+   - Keep approved/executed/reconciled audit states on the ordinary mutation
+     execution path.
+   - Add outbound agent audit for send/reply plans.
 
 3. Bounded JSON outputs
    - Emit operation, approval, external-write, and preview metadata.
@@ -63,7 +65,6 @@ without silent external side effects.
 
 4. Agent defaults
    - Add config defaults for agent preview limits.
-   - Keep agent hard delete disabled unless explicitly enabled.
 
 5. Tests and gates
    - Parser tests for agent commands.
@@ -73,8 +74,7 @@ without silent external side effects.
 ## Checkpoint Target
 
 A local agent can prepare mailbox changes or outbound replies as auditable JSON
-plans. External writes happen only through explicit `--execute`, with hard
-delete still disabled by default.
+plans. External writes happen only through reviewed second-pass human commands.
 
 ## Safety Stop
 
@@ -93,29 +93,28 @@ Do not execute live agent send or remote mutation commands during this phase.
    - `vivi agent reply <handle> --body "Thanks"`
    - `vivi agent send <draft.eml>`
 3. Review the JSON plan and audit record.
-4. Execute only after approval:
-   - `vivi agent archive <handle> --execute`
-   - `vivi agent send <draft.eml> --execute`
+4. Execute only after approval with the corresponding non-agent command:
+   - `vivi archive <handle>`
+   - `vivi send <draft.eml>`
 
 ## Delivered Outputs
 
 - Added `vivi agent archive|delete|move|flag|send|reply`.
-- Agent commands plan by default; execution requires `--execute`.
-- Mutation agent commands reuse the existing dry-run JSON plan path by default.
+- Agent commands only plan and no longer expose `--execute`.
+- Mutation agent commands reuse the existing dry-run JSON plan path.
 - Send/reply agent commands emit JSON plans and write agent audit records.
 - Mutation execution audit now records `approved`, `executed`, and
-  `reconciled` in addition to `planned` and `failed`.
+  `reconciled` in addition to `planned` and `failed` on ordinary mutation
+  commands.
 - Config defaults now include `agent_max_body_bytes`, `agent_max_results`, and
-  `agent_allow_hard_delete`; hard delete is disabled by default for agent mode.
+  `agent_allow_hard_delete`.
 - Reply draft previews are bounded with truncation metadata.
 
 ## Correctness Pass
 
 - Existing human commands remain behaviorally unchanged.
-- Agent mutation execution delegates to the existing mutation runner, preserving
-  remote-first then local-reconcile ordering.
-- Agent send execution delegates to the existing explicit `.eml` send path.
-- Agent reply execution creates a local draft only; it does not remote-append.
+- Agent mutation plans delegate to the existing mutation runner dry-run path.
+- Agent send and reply do not create drafts or send mail; they only emit plans.
 - No live SMTP send, remote APPEND, or remote IMAP mutation was executed.
 
 ## Verification

@@ -332,7 +332,7 @@ silently changing external email state.
 #### Expected Outputs
 
 - JSON plan output for archive/delete/move/flag/send/reply
-- explicit execution command or `--execute` flow separated from planning
+- explicit non-agent execution command separated from agent planning
 - audit log entries for planned, approved, executed, failed, and reconciled
   operations
 - config defaults that disable hard delete and automatic send for agent mode

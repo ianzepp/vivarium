@@ -175,25 +175,59 @@ fn parses_agent_archive_plan_by_default() {
 
     match cli.command {
         Command::Agent {
-            command: AgentCommand::Archive { handle, execute },
+            command: AgentCommand::Archive { handles },
         } => {
-            assert_eq!(handle, "handle-1");
-            assert!(!execute);
+            assert_eq!(handles, vec!["handle-1"]);
         }
         other => panic!("unexpected command: {other:?}"),
     }
 }
 
 #[test]
-fn parses_agent_send_execute() {
-    let cli = Cli::try_parse_from(["vivi", "agent", "send", "draft.eml", "--execute"]).unwrap();
+fn parses_agent_archive_batch() {
+    let cli = Cli::try_parse_from(["vivi", "agent", "archive", "one", "two"]).unwrap();
 
     match cli.command {
         Command::Agent {
-            command: AgentCommand::Send { path, execute },
+            command: AgentCommand::Archive { handles },
+        } => {
+            assert_eq!(handles, vec!["one", "two"]);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_agent_execute_flag() {
+    let err = Cli::try_parse_from(["vivi", "agent", "archive", "one", "--execute"]).unwrap_err();
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
+}
+
+#[test]
+fn parses_agent_delete_batch_expunge_plan() {
+    let cli = Cli::try_parse_from(["vivi", "agent", "delete", "one", "two", "--expunge"]).unwrap();
+
+    match cli.command {
+        Command::Agent {
+            command: AgentCommand::Delete { handles, expunge },
+        } => {
+            assert_eq!(handles, vec!["one", "two"]);
+            assert!(expunge);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_agent_send_plan() {
+    let cli = Cli::try_parse_from(["vivi", "agent", "send", "draft.eml"]).unwrap();
+
+    match cli.command {
+        Command::Agent {
+            command: AgentCommand::Send { path },
         } => {
             assert_eq!(path, PathBuf::from("draft.eml"));
-            assert!(execute);
         }
         other => panic!("unexpected command: {other:?}"),
     }
@@ -206,16 +240,10 @@ fn parses_agent_reply_body_plan() {
 
     match cli.command {
         Command::Agent {
-            command:
-                AgentCommand::Reply {
-                    handle,
-                    body,
-                    execute,
-                },
+            command: AgentCommand::Reply { handle, body },
         } => {
             assert_eq!(handle, "handle-1");
             assert_eq!(body, "thanks");
-            assert!(!execute);
         }
         other => panic!("unexpected command: {other:?}"),
     }
