@@ -15,8 +15,8 @@ pub(crate) const MAX_EMBED_INPUT_CHARS: usize = 1000;
 pub(crate) struct EmailChunk {
     pub(crate) chunk_id: String,
     pub(crate) account: String,
-    pub(crate) handle: String,
-    pub(crate) fingerprint: String,
+    pub(crate) message_id: String,
+    pub(crate) content_id: String,
     pub(crate) extractor_version: String,
     pub(crate) chunker_version: String,
     pub(crate) chunk_kind: String,
@@ -140,8 +140,8 @@ fn chunk(message: &IndexedMessage, kind: &str, ordinal: usize, text: String) -> 
         format!(
             "{}:{}:{}:{}:{}:{}:{}",
             message.account,
-            message.handle,
-            message.fingerprint,
+            message.message_id,
+            message.content_id,
             EXTRACTOR_VERSION,
             CHUNKER_VERSION,
             kind,
@@ -152,8 +152,8 @@ fn chunk(message: &IndexedMessage, kind: &str, ordinal: usize, text: String) -> 
     EmailChunk {
         chunk_id,
         account: message.account.clone(),
-        handle: message.handle.clone(),
-        fingerprint: message.fingerprint.clone(),
+        message_id: message.message_id.clone(),
+        content_id: message.content_id.clone(),
         extractor_version: EXTRACTOR_VERSION.to_string(),
         chunker_version: CHUNKER_VERSION.to_string(),
         chunk_kind: kind.to_string(),

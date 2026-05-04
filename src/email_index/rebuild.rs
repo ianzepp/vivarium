@@ -7,15 +7,14 @@ use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::links::{MessageLink, links_from_raw};
 use super::{EmailIndex, IndexStats};
-use crate::catalog::{Catalog, CatalogEntry};
+use crate::catalog::CatalogEntry;
 use crate::error::VivariumError;
 use crate::message::normalize_message_id;
-use crate::store::message_id_from_path;
+use crate::storage::Storage;
 
 pub(crate) fn rebuild(mail_root: &Path, account: &str) -> Result<IndexStats, VivariumError> {
     let mut index = EmailIndex::open(mail_root)?;
-    let catalog = Catalog::open(mail_root)?;
-    let entries = catalog.list_messages(account)?;
+    let entries = Storage::open(mail_root)?.list_catalog_entries(account)?;
     let now = Utc::now().to_rfc3339();
     let mut seen = BTreeSet::new();
     let mut stats = IndexStats::default();
@@ -52,10 +51,11 @@ fn index_entry(
     seen: &mut BTreeSet<String>,
     stats: &mut IndexStats,
 ) -> Result<(), VivariumError> {
-    let handle = derived_handle(entry);
-    seen.insert(handle.clone());
-    update_reuse_stats(tx, account, &handle, entry, stats)?;
-    let data = match fs::read(&entry.raw_path) {
+    let message_id = entry.handle.clone();
+    seen.insert(message_id.clone());
+    let blob_path = entry.raw_path.clone();
+    update_reuse_stats(tx, account, &message_id, entry, &blob_path, stats)?;
+    let data = match fs::read(&blob_path) {
         Ok(data) => data,
         Err(_) => {
             stats.errors += 1;
@@ -63,32 +63,19 @@ fn index_entry(
         }
     };
     let links = links_from_raw(&data);
-    upsert_message(tx, account, &handle, entry, &links, now)?;
-    replace_links(tx, account, &handle, &links)
-}
-
-fn derived_handle(entry: &CatalogEntry) -> String {
-    let parsed = message_id_from_path(Path::new(&entry.raw_path));
-    match parsed.as_deref() {
-        Some(candidate) if candidate == entry.fingerprint => entry.handle.clone(),
-        Some(candidate) if looks_like_content_hash(candidate) => entry.handle.clone(),
-        Some(candidate) => candidate.to_string(),
-        None => entry.handle.clone(),
-    }
-}
-
-fn looks_like_content_hash(value: &str) -> bool {
-    value.len() == 64 && value.chars().all(|ch| ch.is_ascii_hexdigit())
+    upsert_message(tx, account, &message_id, entry, &blob_path, &links, now)?;
+    replace_links(tx, account, &message_id, &links)
 }
 
 fn update_reuse_stats(
     tx: &Transaction<'_>,
     account: &str,
-    handle: &str,
+    message_id: &str,
     entry: &CatalogEntry,
+    blob_path: &str,
     stats: &mut IndexStats,
 ) -> Result<(), VivariumError> {
-    if unchanged_existing_row(tx, account, handle, entry)? {
+    if unchanged_existing_row(tx, account, message_id, entry, blob_path)? {
         stats.reused += 1;
     } else {
         stats.updated += 1;
@@ -99,40 +86,67 @@ fn update_reuse_stats(
 fn unchanged_existing_row(
     tx: &Transaction<'_>,
     account: &str,
-    handle: &str,
+    message_id: &str,
     entry: &CatalogEntry,
+    blob_path: &str,
 ) -> Result<bool, VivariumError> {
     let existing = tx
         .query_row(
-            "SELECT fingerprint, raw_path, folder, maildir_subdir
-             FROM messages WHERE account = ?1 AND handle = ?2",
-            params![account, handle],
+            "SELECT content_id, blob_path, local_role, date,
+                    from_addr, to_addr, cc_addr, bcc_addr, subject, rfc_message_id
+             FROM messages
+             WHERE account = ?1 AND message_id = ?2",
+            params![account, message_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, Option<String>>(9)?,
                 ))
             },
         )
         .optional()
         .map_err(|e| VivariumError::Other(format!("failed to read index row: {e}")))?;
-    Ok(existing
-        .as_ref()
-        .is_some_and(|(fingerprint, raw_path, folder, subdir)| {
-            fingerprint == &entry.fingerprint
-                && raw_path == &entry.raw_path
-                && folder == &entry.folder
-                && subdir == &entry.maildir_subdir
-        }))
+    Ok(existing.as_ref().is_some_and(
+        |(
+            content_id,
+            existing_blob_path,
+            local_role,
+            date,
+            from_addr,
+            to_addr,
+            cc_addr,
+            bcc_addr,
+            subject,
+            rfc_message_id,
+        )| {
+            content_id == &entry.fingerprint
+                && existing_blob_path == blob_path
+                && local_role == &local_role_from_folder(&entry.folder)
+                && date == &entry.date
+                && from_addr == &entry.from
+                && to_addr == &entry.to
+                && cc_addr == &entry.cc
+                && bcc_addr == &entry.bcc
+                && subject == &entry.subject
+                && *rfc_message_id == normalized_rfc_message_id(entry)
+        },
+    ))
 }
 
 fn upsert_message(
     tx: &Transaction<'_>,
     account: &str,
-    handle: &str,
+    message_id: &str,
     entry: &CatalogEntry,
+    blob_path: &str,
     links: &[MessageLink],
     now: &str,
 ) -> Result<(), VivariumError> {
@@ -145,51 +159,22 @@ fn upsert_message(
         .remote
         .as_ref()
         .map(|remote| i64::from(remote.uidvalidity));
-    let rfc_message_id = normalize_optional(&entry.rfc_message_id).or_else(|| {
+    let rfc_message_id = normalized_rfc_message_id(entry).or_else(|| {
         links
             .iter()
             .find(|link| link.kind == "message_id")
             .map(|link| link.rfc_message_id.clone())
     });
-    execute_upsert(
-        tx,
-        UpsertMessage {
-            account,
-            handle,
-            entry,
-            rfc_message_id,
-            remote_mailbox,
-            remote_uid,
-            remote_uidvalidity,
-            now,
-        },
-    )
-}
-
-struct UpsertMessage<'a> {
-    account: &'a str,
-    handle: &'a str,
-    entry: &'a CatalogEntry,
-    rfc_message_id: Option<String>,
-    remote_mailbox: Option<&'a str>,
-    remote_uid: Option<i64>,
-    remote_uidvalidity: Option<i64>,
-    now: &'a str,
-}
-
-fn execute_upsert(tx: &Transaction<'_>, message: UpsertMessage<'_>) -> Result<(), VivariumError> {
     tx.execute(
         "INSERT INTO messages (
-            account, handle, catalog_handle, fingerprint, raw_path, folder, maildir_subdir,
+            account, message_id, content_id, blob_path, local_role,
             date, from_addr, to_addr, cc_addr, bcc_addr, subject, rfc_message_id,
             remote_mailbox, remote_uid, remote_uidvalidity, indexed_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
-        ON CONFLICT(account, handle) DO UPDATE SET
-            catalog_handle = excluded.catalog_handle,
-            fingerprint = excluded.fingerprint,
-            raw_path = excluded.raw_path,
-            folder = excluded.folder,
-            maildir_subdir = excluded.maildir_subdir,
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+        ON CONFLICT(account, message_id) DO UPDATE SET
+            content_id = excluded.content_id,
+            blob_path = excluded.blob_path,
+            local_role = excluded.local_role,
             date = excluded.date,
             from_addr = excluded.from_addr,
             to_addr = excluded.to_addr,
@@ -202,24 +187,22 @@ fn execute_upsert(tx: &Transaction<'_>, message: UpsertMessage<'_>) -> Result<()
             remote_uidvalidity = excluded.remote_uidvalidity,
             indexed_at = excluded.indexed_at",
         params![
-            message.account,
-            message.handle,
-            message.entry.handle,
-            message.entry.fingerprint,
-            message.entry.raw_path,
-            message.entry.folder,
-            message.entry.maildir_subdir,
-            message.entry.date,
-            message.entry.from,
-            message.entry.to,
-            message.entry.cc,
-            message.entry.bcc,
-            message.entry.subject,
-            message.rfc_message_id,
-            message.remote_mailbox,
-            message.remote_uid,
-            message.remote_uidvalidity,
-            message.now,
+            account,
+            message_id,
+            entry.fingerprint,
+            blob_path,
+            local_role_from_folder(&entry.folder),
+            entry.date,
+            entry.from,
+            entry.to,
+            entry.cc,
+            entry.bcc,
+            entry.subject,
+            rfc_message_id,
+            remote_mailbox,
+            remote_uid,
+            remote_uidvalidity,
+            now,
         ],
     )
     .map_err(|e| VivariumError::Other(format!("failed to upsert index row: {e}")))?;
@@ -229,19 +212,19 @@ fn execute_upsert(tx: &Transaction<'_>, message: UpsertMessage<'_>) -> Result<()
 fn replace_links(
     tx: &Transaction<'_>,
     account: &str,
-    handle: &str,
+    message_id: &str,
     links: &[MessageLink],
 ) -> Result<(), VivariumError> {
     tx.execute(
-        "DELETE FROM message_links WHERE account = ?1 AND handle = ?2",
-        params![account, handle],
+        "DELETE FROM message_links WHERE account = ?1 AND message_id = ?2",
+        params![account, message_id],
     )
     .map_err(|e| VivariumError::Other(format!("failed to clear index links: {e}")))?;
     for link in links {
         tx.execute(
-            "INSERT OR IGNORE INTO message_links (account, handle, link_kind, rfc_message_id)
+            "INSERT OR IGNORE INTO message_links (account, message_id, link_kind, normalized_message_id)
              VALUES (?1, ?2, ?3, ?4)",
-            params![account, handle, link.kind, link.rfc_message_id],
+            params![account, message_id, link.kind, link.rfc_message_id],
         )
         .map_err(|e| VivariumError::Other(format!("failed to upsert index link: {e}")))?;
     }
@@ -254,13 +237,13 @@ fn prune_stale(
     seen: &BTreeSet<String>,
     stats: &mut IndexStats,
 ) -> Result<(), VivariumError> {
-    for handle in existing_handles(tx, account)? {
-        if seen.contains(&handle) {
+    for message_id in existing_message_ids(tx, account)? {
+        if seen.contains(&message_id) {
             continue;
         }
         tx.execute(
-            "DELETE FROM messages WHERE account = ?1 AND handle = ?2",
-            params![account, handle],
+            "DELETE FROM messages WHERE account = ?1 AND message_id = ?2",
+            params![account, message_id],
         )
         .map_err(|e| VivariumError::Other(format!("failed to remove stale index row: {e}")))?;
         stats.stale += 1;
@@ -268,8 +251,8 @@ fn prune_stale(
     Ok(())
 }
 
-fn existing_handles(tx: &Transaction<'_>, account: &str) -> Result<Vec<String>, VivariumError> {
-    tx.prepare("SELECT handle FROM messages WHERE account = ?1")
+fn existing_message_ids(tx: &Transaction<'_>, account: &str) -> Result<Vec<String>, VivariumError> {
+    tx.prepare("SELECT message_id FROM messages WHERE account = ?1")
         .and_then(|mut stmt| {
             stmt.query_map(params![account], |row| row.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()
@@ -277,10 +260,25 @@ fn existing_handles(tx: &Transaction<'_>, account: &str) -> Result<Vec<String>, 
         .map_err(|e| VivariumError::Other(format!("failed to load stale index rows: {e}")))
 }
 
+fn normalized_rfc_message_id(entry: &CatalogEntry) -> Option<String> {
+    normalize_optional(&entry.rfc_message_id)
+}
+
 fn normalize_optional(value: &str) -> Option<String> {
     if value.is_empty() {
         None
     } else {
         normalize_message_id(value)
+    }
+}
+
+fn local_role_from_folder(folder: &str) -> String {
+    match folder.to_ascii_lowercase().as_str() {
+        "inbox" => "inbox".into(),
+        "archive" | "all" => "archive".into(),
+        "trash" => "trash".into(),
+        "sent" => "sent".into(),
+        "drafts" | "draft" => "drafts".into(),
+        other => other.to_string(),
     }
 }

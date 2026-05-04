@@ -47,9 +47,9 @@ fn indexed_message_json(
     indexed: IndexedMessage,
     account: &str,
 ) -> Result<serde_json::Value, VivariumError> {
-    let data = fs::read(&indexed.raw_path)?;
-    let mut json = message::to_json_message(&indexed.handle, &data)?;
-    json["citation"] = citation_json(&indexed.handle, account, &indexed.location());
+    let data = fs::read(&indexed.blob_path)?;
+    let mut json = message::to_json_message(&indexed.message_id, &data)?;
+    json["citation"] = citation_json(&indexed.message_id, account, &indexed.location());
     Ok(json)
 }
 
@@ -79,8 +79,8 @@ mod tests {
                 b"Message-ID: <reply@example.com>\r\nIn-Reply-To: <root@example.com>\r\nReferences: <root@example.com>\r\nFrom: B <b@example.com>\r\nTo: A <a@example.com>\r\nDate: Sat, 2 May 2026 12:01:00 +0000\r\nSubject: Re: root\r\n\r\nreply body",
             )
             .unwrap();
-        catalog(tmp.path(), "acct", "cat-root", &root, "INBOX", "new");
-        catalog(tmp.path(), "acct", "cat-reply", &reply, "Sent", "cur");
+        catalog(tmp.path(), "acct", "inbox-1", &root, "INBOX", "new");
+        catalog(tmp.path(), "acct", "sent-2", &reply, "Sent", "cur");
         crate::email_index::rebuild(tmp.path(), "acct").unwrap();
 
         let json = thread_json(&store, "acct", "inbox-1", 50).unwrap();
@@ -88,7 +88,7 @@ mod tests {
         assert_eq!(json["total"], 2);
         assert_eq!(json["messages"][0]["handle"], "inbox-1");
         assert_eq!(json["messages"][1]["handle"], "sent-2");
-        assert_eq!(json["messages"][1]["citation"]["folder"], "Sent");
+        assert_eq!(json["messages"][1]["citation"]["local_role"], "sent");
 
         let limited = thread_json(&store, "acct", "inbox-1", 1).unwrap();
         assert_eq!(limited["total"], 2);

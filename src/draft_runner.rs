@@ -145,7 +145,7 @@ fn source_is_local_draft(store: &MailStore, source_path: &Path, message_id: &str
     let Ok(location) = store.locate_message(message_id) else {
         return false;
     };
-    location.folder == "Drafts" && same_file(&location.path, source_path)
+    location.local_role == "drafts" && same_file(&location.path, source_path)
 }
 
 pub(crate) fn read_by_handle_or_id(
@@ -160,10 +160,7 @@ pub(crate) fn read_by_handle_or_id(
     let entry = catalog
         .resolve_entry(account, handle)
         .ok_or_else(|| VivariumError::Message(format!("message not found for reply: {handle}")))?;
-    let id = message_id_from_path(Path::new(&entry.raw_path)).ok_or_else(|| {
-        VivariumError::Message(format!("catalog entry has no local message id: {handle}"))
-    })?;
-    store.read_message(&id)
+    store.read_message(&entry.handle)
 }
 
 fn edit_if_needed(

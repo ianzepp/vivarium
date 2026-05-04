@@ -16,7 +16,7 @@ fn rebuild_indexes_messages_and_links_without_text() {
             b"Message-ID: <Root@Example.COM>\r\nReferences: <parent@example.com>\r\nSubject: root\r\n\r\nsecret body",
         )
         .unwrap();
-    catalog(tmp.path(), "acct", "cat-1", &path, "inbox", "new");
+    catalog(tmp.path(), "acct", "inbox-1", &path, "inbox", "new");
 
     let stats = EmailIndex::rebuild(tmp.path(), "acct").unwrap();
     let index = EmailIndex::open(tmp.path()).unwrap();
@@ -25,6 +25,7 @@ fn rebuild_indexes_messages_and_links_without_text() {
 
     assert_eq!(stats.scanned, 1);
     assert_eq!(message.rfc_message_id.as_deref(), Some("root@example.com"));
+    assert_eq!(message.content_id, crate::catalog::fingerprint(b"Message-ID: <Root@Example.COM>\r\nReferences: <parent@example.com>\r\nSubject: root\r\n\r\nsecret body"));
     assert!(ids.contains("root@example.com"));
     assert!(ids.contains("parent@example.com"));
 
@@ -51,8 +52,8 @@ fn thread_messages_finds_reply_by_reference() {
             b"Message-ID: <reply@example.com>\r\nIn-Reply-To: <root@example.com>\r\nReferences: <root@example.com>\r\nDate: Sat, 2 May 2026 12:01:00 +0000\r\nSubject: Re: root\r\n\r\nreply body",
         )
         .unwrap();
-    catalog(tmp.path(), "acct", "cat-root", &root, "INBOX", "new");
-    catalog(tmp.path(), "acct", "cat-reply", &reply, "Sent", "cur");
+    catalog(tmp.path(), "acct", "inbox-1", &root, "INBOX", "new");
+    catalog(tmp.path(), "acct", "sent-2", &reply, "Sent", "cur");
 
     EmailIndex::rebuild(tmp.path(), "acct").unwrap();
     let index = EmailIndex::open(tmp.path()).unwrap();
@@ -61,7 +62,7 @@ fn thread_messages_finds_reply_by_reference() {
     assert_eq!(
         messages
             .iter()
-            .map(|m| m.handle.as_str())
+            .map(|m| m.message_id.as_str())
             .collect::<Vec<_>>(),
         vec!["inbox-1", "sent-2"]
     );

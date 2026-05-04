@@ -10,6 +10,8 @@ use super::chunk::EmailChunk;
 use crate::error::VivariumError;
 use crate::store::secure_create_dir_all;
 
+const EMBEDDING_SCHEMA_VERSION: &str = "2";
+
 pub(crate) struct EmbeddingStore {
     conn: Connection,
 }
@@ -18,8 +20,8 @@ pub(crate) struct EmbeddingStore {
 pub(crate) struct StoredEmbedding {
     pub(crate) chunk_id: String,
     pub(crate) account: String,
-    pub(crate) handle: String,
-    pub(crate) fingerprint: String,
+    pub(crate) message_id: String,
+    pub(crate) content_id: String,
     pub(crate) chunk_ordinal: usize,
     pub(crate) text_hash: String,
     pub(crate) vector: Vec<f32>,
@@ -120,7 +122,7 @@ impl EmbeddingStore {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT c.chunk_id, c.account, c.handle, c.fingerprint, c.chunk_ordinal,
+                "SELECT c.chunk_id, c.account, c.message_id, c.content_id, c.chunk_ordinal,
                     c.text_hash, e.vector
              FROM chunks c
              JOIN embeddings e ON e.chunk_id = c.chunk_id
@@ -152,6 +154,27 @@ impl EmbeddingStore {
     }
 
     fn ensure_schema(&self) -> Result<(), VivariumError> {
+        let existing_version: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM embedding_metadata WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+        if existing_version.as_deref() != Some(EMBEDDING_SCHEMA_VERSION) {
+            self.conn
+                .execute_batch(
+                    "
+                    DROP TABLE IF EXISTS embeddings;
+                    DROP TABLE IF EXISTS chunks;
+                    DROP TABLE IF EXISTS embedding_metadata;
+                    ",
+                )
+                .map_err(|e| {
+                    VivariumError::Other(format!("failed to reset embedding DB schema: {e}"))
+                })?;
+        }
         self.conn
             .execute_batch(
                 "
@@ -163,8 +186,8 @@ impl EmbeddingStore {
                 CREATE TABLE IF NOT EXISTS chunks (
                   chunk_id TEXT PRIMARY KEY,
                   account TEXT NOT NULL,
-                  handle TEXT NOT NULL,
-                  fingerprint TEXT NOT NULL,
+                  message_id TEXT NOT NULL,
+                  content_id TEXT NOT NULL,
                   extractor_version TEXT NOT NULL,
                   chunker_version TEXT NOT NULL,
                   chunk_kind TEXT NOT NULL,
@@ -181,11 +204,19 @@ impl EmbeddingStore {
                   vector BLOB NOT NULL,
                   indexed_at TEXT NOT NULL
                 );
-                CREATE INDEX IF NOT EXISTS chunks_handle_idx ON chunks(account, handle);
-                CREATE INDEX IF NOT EXISTS chunks_fingerprint_idx ON chunks(account, fingerprint);
+                CREATE INDEX IF NOT EXISTS chunks_message_id_idx ON chunks(account, message_id);
+                CREATE INDEX IF NOT EXISTS chunks_content_id_idx ON chunks(account, content_id);
                 ",
             )
             .map_err(|e| VivariumError::Other(format!("failed to initialize embedding DB: {e}")))?;
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO embedding_metadata (key, value) VALUES ('schema_version', ?1)",
+                params![EMBEDDING_SCHEMA_VERSION],
+            )
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to write embedding schema version: {e}"))
+            })?;
         Ok(())
     }
 
@@ -210,14 +241,14 @@ fn upsert_chunk(
 ) -> Result<(), VivariumError> {
     tx.execute(
         "INSERT OR REPLACE INTO chunks
-         (chunk_id, account, handle, fingerprint, extractor_version, chunker_version,
+         (chunk_id, account, message_id, content_id, extractor_version, chunker_version,
           chunk_kind, chunk_ordinal, text_hash, token_count, indexed_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             chunk.chunk_id,
             chunk.account,
-            chunk.handle,
-            chunk.fingerprint,
+            chunk.message_id,
+            chunk.content_id,
             chunk.extractor_version,
             chunk.chunker_version,
             chunk.chunk_kind,
@@ -344,8 +375,8 @@ fn stored_embedding_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Stored
     Ok(StoredEmbedding {
         chunk_id: row.get(0)?,
         account: row.get(1)?,
-        handle: row.get(2)?,
-        fingerprint: row.get(3)?,
+        message_id: row.get(2)?,
+        content_id: row.get(3)?,
         chunk_ordinal: usize::try_from(ordinal).unwrap_or_default(),
         text_hash: row.get(5)?,
         vector,

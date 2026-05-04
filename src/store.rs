@@ -49,8 +49,8 @@ pub struct MailStore {
 
 #[derive(Debug, Clone)]
 pub struct MessageLocation {
-    pub folder: String,
-    pub maildir_subdir: String,
+    pub local_role: String,
+    pub content_id: Option<String>,
     pub path: PathBuf,
 }
 
@@ -146,12 +146,8 @@ impl MailStore {
             && let Ok(Some(message)) = storage.message_by_id(message_id)
         {
             return Ok(MessageLocation {
-                folder: display_folder(&message.local_role),
-                maildir_subdir: if message.read_state {
-                    "cur".into()
-                } else {
-                    "new".into()
-                },
+                local_role: message.local_role,
+                content_id: Some(message.content_id),
                 path: self.root.join(message.blob_relpath),
             });
         }
@@ -167,8 +163,8 @@ impl MailStore {
                     let file_path = entry.path();
                     if message_id_from_path(&file_path).as_deref() == Some(wanted.as_str()) {
                         return Ok(MessageLocation {
-                            folder: (*folder).to_string(),
-                            maildir_subdir: subdir.to_string(),
+                            local_role: storage_role(folder),
+                            content_id: None,
                             path: file_path,
                         });
                     }
@@ -460,17 +456,6 @@ fn storage_role(folder: &str) -> String {
         "Sent" => "sent".into(),
         "Drafts" => "drafts".into(),
         other => other.to_ascii_lowercase(),
-    }
-}
-
-fn display_folder(local_role: &str) -> String {
-    match local_role {
-        "inbox" => "INBOX".into(),
-        "archive" => "Archive".into(),
-        "trash" => "Trash".into(),
-        "sent" => "Sent".into(),
-        "drafts" | "draft" => "Drafts".into(),
-        other => other.to_string(),
     }
 }
 

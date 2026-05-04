@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -29,12 +29,10 @@ pub struct IndexStats {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexedMessage {
     pub account: String,
-    pub handle: String,
-    pub catalog_handle: String,
-    pub fingerprint: String,
-    pub raw_path: String,
-    pub folder: String,
-    pub maildir_subdir: String,
+    pub message_id: String,
+    pub content_id: String,
+    pub blob_path: String,
+    pub local_role: String,
     pub date: String,
     pub from_addr: String,
     pub to_addr: String,
@@ -47,9 +45,9 @@ pub struct IndexedMessage {
 impl IndexedMessage {
     pub fn location(&self) -> MessageLocation {
         MessageLocation {
-            folder: self.folder.clone(),
-            maildir_subdir: self.maildir_subdir.clone(),
-            path: PathBuf::from(&self.raw_path),
+            local_role: self.local_role.clone(),
+            content_id: Some(self.content_id.clone()),
+            path: Path::new(&self.blob_path).to_path_buf(),
         }
     }
 }
@@ -79,16 +77,16 @@ impl EmailIndex {
     pub fn message(
         &self,
         account: &str,
-        handle: &str,
+        message_id: &str,
     ) -> Result<Option<IndexedMessage>, VivariumError> {
         self.conn
             .query_row(
-                "SELECT account, handle, catalog_handle, fingerprint, raw_path, folder,
-                        maildir_subdir, date, from_addr, to_addr, cc_addr, bcc_addr,
+                "SELECT account, message_id, content_id, blob_path, local_role,
+                        date, from_addr, to_addr, cc_addr, bcc_addr,
                         subject, rfc_message_id
                  FROM messages
-                 WHERE account = ?1 AND handle = ?2",
-                params![account, handle],
+                 WHERE account = ?1 AND message_id = ?2",
+                params![account, message_id],
                 indexed_message_from_row,
             )
             .optional()
@@ -98,16 +96,16 @@ impl EmailIndex {
     pub fn thread_messages(
         &self,
         account: &str,
-        seed_handle: &str,
+        seed_message_id: &str,
         _limit: usize,
     ) -> Result<Vec<IndexedMessage>, VivariumError> {
-        let Some(seed) = self.message(account, seed_handle)? else {
+        let Some(seed) = self.message(account, seed_message_id)? else {
             return Err(VivariumError::Message(format!(
-                "message not found in index: {seed_handle}"
+                "message not found in index: {seed_message_id}"
             )));
         };
-        let handles = self.thread_handles(account, seed_handle, &seed)?;
-        self.messages_for_handles(account, handles)
+        let message_ids = self.thread_message_ids(account, seed_message_id, &seed)?;
+        self.messages_for_message_ids(account, message_ids)
     }
 
     pub fn count_messages(&self, account: &str) -> Result<usize, VivariumError> {
@@ -124,12 +122,12 @@ impl EmailIndex {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT account, handle, catalog_handle, fingerprint, raw_path, folder,
-                    maildir_subdir, date, from_addr, to_addr, cc_addr, bcc_addr,
+                "SELECT account, message_id, content_id, blob_path, local_role,
+                    date, from_addr, to_addr, cc_addr, bcc_addr,
                     subject, rfc_message_id
              FROM messages
              WHERE account = ?1
-             ORDER BY date, handle",
+             ORDER BY date, message_id",
             )
             .map_err(|e| VivariumError::Other(format!("failed to prepare index listing: {e}")))?;
         let rows = stmt
@@ -141,48 +139,48 @@ impl EmailIndex {
         .collect()
     }
 
-    fn thread_handles(
+    fn thread_message_ids(
         &self,
         account: &str,
-        seed_handle: &str,
+        seed_message_id: &str,
         seed: &IndexedMessage,
     ) -> Result<BTreeSet<String>, VivariumError> {
-        let mut thread_ids = self.related_ids(account, seed_handle)?;
+        let mut thread_ids = self.related_ids(account, seed_message_id)?;
         if let Some(message_id) = &seed.rfc_message_id {
             thread_ids.insert(message_id.clone());
         }
-        let mut handles = BTreeSet::from([seed_handle.to_string()]);
+        let mut message_ids = BTreeSet::from([seed_message_id.to_string()]);
         let mut queue: VecDeque<String> = thread_ids.iter().cloned().collect();
         let mut seen_ids = thread_ids;
 
         while let Some(message_id) = queue.pop_front() {
-            if seen_ids.len() > THREAD_WALK_LIMIT || handles.len() > THREAD_WALK_LIMIT {
+            if seen_ids.len() > THREAD_WALK_LIMIT || message_ids.len() > THREAD_WALK_LIMIT {
                 break;
             }
             self.expand_thread_id(
                 account,
                 &message_id,
-                &mut handles,
+                &mut message_ids,
                 &mut seen_ids,
                 &mut queue,
             )?;
         }
-        Ok(handles)
+        Ok(message_ids)
     }
 
     fn expand_thread_id(
         &self,
         account: &str,
         message_id: &str,
-        handles: &mut BTreeSet<String>,
+        message_ids: &mut BTreeSet<String>,
         seen_ids: &mut BTreeSet<String>,
         queue: &mut VecDeque<String>,
     ) -> Result<(), VivariumError> {
-        for handle in self.handles_linking_to(account, message_id)? {
-            if !handles.insert(handle.clone()) {
+        for indexed_message_id in self.message_ids_linking_to(account, message_id)? {
+            if !message_ids.insert(indexed_message_id.clone()) {
                 continue;
             }
-            for related_id in self.related_ids(account, &handle)? {
+            for related_id in self.related_ids(account, &indexed_message_id)? {
                 if seen_ids.insert(related_id.clone()) {
                     queue.push_back(related_id);
                 }
@@ -191,31 +189,42 @@ impl EmailIndex {
         Ok(())
     }
 
-    fn messages_for_handles(
+    fn messages_for_message_ids(
         &self,
         account: &str,
-        handles: BTreeSet<String>,
+        message_ids: BTreeSet<String>,
     ) -> Result<Vec<IndexedMessage>, VivariumError> {
         let mut messages = Vec::new();
-        for handle in handles {
-            if let Some(message) = self.message(account, &handle)? {
+        for message_id in message_ids {
+            if let Some(message) = self.message(account, &message_id)? {
                 messages.push(message);
             }
         }
-        messages.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.handle.cmp(&b.handle)));
+        messages.sort_by(|a, b| {
+            a.date
+                .cmp(&b.date)
+                .then_with(|| a.message_id.cmp(&b.message_id))
+        });
         Ok(messages)
     }
 
-    fn related_ids(&self, account: &str, handle: &str) -> Result<BTreeSet<String>, VivariumError> {
+    fn related_ids(
+        &self,
+        account: &str,
+        message_id: &str,
+    ) -> Result<BTreeSet<String>, VivariumError> {
         let mut ids = BTreeSet::new();
         let mut stmt = self
             .conn
-            .prepare("SELECT rfc_message_id FROM message_links WHERE account = ?1 AND handle = ?2")
+            .prepare(
+                "SELECT normalized_message_id FROM message_links
+                 WHERE account = ?1 AND message_id = ?2",
+            )
             .map_err(|e| {
                 VivariumError::Other(format!("failed to prepare related id query: {e}"))
             })?;
         let rows = stmt
-            .query_map(params![account, handle], |row| row.get::<_, String>(0))
+            .query_map(params![account, message_id], |row| row.get::<_, String>(0))
             .map_err(|e| VivariumError::Other(format!("failed to query related ids: {e}")))?;
         for row in rows {
             ids.insert(
@@ -225,14 +234,18 @@ impl EmailIndex {
         Ok(ids)
     }
 
-    fn handles_linking_to(
+    fn message_ids_linking_to(
         &self,
         account: &str,
         message_id: &str,
     ) -> Result<Vec<String>, VivariumError> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT handle FROM message_links WHERE account = ?1 AND rfc_message_id = ?2",
-        ).map_err(|e| VivariumError::Other(format!("failed to prepare thread query: {e}")))?;
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT DISTINCT message_id FROM message_links
+             WHERE account = ?1 AND normalized_message_id = ?2",
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to prepare thread query: {e}")))?;
         let rows = stmt
             .query_map(params![account, message_id], |row| row.get::<_, String>(0))
             .map_err(|e| VivariumError::Other(format!("failed to query thread handles: {e}")))?;
@@ -246,19 +259,17 @@ impl EmailIndex {
 fn indexed_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<IndexedMessage> {
     Ok(IndexedMessage {
         account: row.get(0)?,
-        handle: row.get(1)?,
-        catalog_handle: row.get(2)?,
-        fingerprint: row.get(3)?,
-        raw_path: row.get(4)?,
-        folder: row.get(5)?,
-        maildir_subdir: row.get(6)?,
-        date: row.get(7)?,
-        from_addr: row.get(8)?,
-        to_addr: row.get(9)?,
-        cc_addr: row.get(10)?,
-        bcc_addr: row.get(11)?,
-        subject: row.get(12)?,
-        rfc_message_id: row.get(13)?,
+        message_id: row.get(1)?,
+        content_id: row.get(2)?,
+        blob_path: row.get(3)?,
+        local_role: row.get(4)?,
+        date: row.get(5)?,
+        from_addr: row.get(6)?,
+        to_addr: row.get(7)?,
+        cc_addr: row.get(8)?,
+        bcc_addr: row.get(9)?,
+        subject: row.get(10)?,
+        rfc_message_id: row.get(11)?,
     })
 }
 

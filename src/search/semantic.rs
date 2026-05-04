@@ -57,11 +57,10 @@ async fn semantic_results(
 
 fn semantic_result(result: SemanticMatch) -> SearchResult {
     SearchResult {
-        handle: result.handle,
-        raw_path: result.raw_path,
+        message_id: result.message_id,
         account: result.account,
-        folder: result.folder,
-        maildir_subdir: result.maildir_subdir,
+        content_id: result.content_id,
+        local_role: result.local_role,
         date: result.date,
         from: result.from,
         subject: result.subject,
@@ -95,7 +94,7 @@ fn merge_hybrid(
 fn merge_semantic_result(results: &mut Vec<SearchResult>, semantic: SearchResult) {
     if let Some(existing) = results
         .iter_mut()
-        .find(|result| result.handle == semantic.handle)
+        .find(|result| result.message_id == semantic.message_id)
     {
         existing.semantic_score = semantic.semantic_score;
         existing.chunk_id = semantic.chunk_id;

@@ -74,7 +74,7 @@ async fn inconsistent_provider_dimensions_are_rejected() {
 }
 
 #[tokio::test]
-async fn changed_raw_fingerprint_is_stale_and_not_embedded() {
+async fn changed_maildir_copy_does_not_change_storage_backed_embeddings() {
     let tmp = tempfile::tempdir().unwrap();
     let provider = MockProvider::new(vec![vec![0.1, 0.2, 0.3]; 2]);
     let path = build_indexed_message(tmp.path(), "original body");
@@ -90,8 +90,8 @@ async fn changed_raw_fingerprint_is_stale_and_not_embedded() {
             .unwrap();
 
     assert_eq!(stats.scanned, 1);
-    assert_eq!(stats.stale, 1);
-    assert_eq!(stats.embedded, 0);
+    assert_eq!(stats.stale, 0);
+    assert_eq!(stats.embedded, 2);
 }
 
 #[tokio::test]
@@ -221,8 +221,8 @@ async fn deleted_local_message_counts_error_without_panic() {
             .unwrap();
 
     assert_eq!(stats.scanned, 1);
-    assert_eq!(stats.errors, 1);
-    assert_eq!(stats.embedded, 0);
+    assert_eq!(stats.errors, 0);
+    assert_eq!(stats.embedded, 2);
 }
 
 fn build_indexed_message(mail_root: &Path, body: &str) -> PathBuf {
@@ -276,18 +276,16 @@ fn catalog(mail_root: &Path, account: &str, path: &Path) {
 
 fn indexed_message(
     account: &str,
-    handle: &str,
-    fingerprint: &str,
+    message_id: &str,
+    content_id: &str,
     subject: &str,
 ) -> IndexedMessage {
     IndexedMessage {
         account: account.into(),
-        handle: handle.into(),
-        catalog_handle: "cat".into(),
-        fingerprint: fingerprint.into(),
-        raw_path: "unused".into(),
-        folder: "INBOX".into(),
-        maildir_subdir: "new".into(),
+        message_id: message_id.into(),
+        content_id: content_id.into(),
+        blob_path: "unused".into(),
+        local_role: "inbox".into(),
         date: "2026-05-02 12:00".into(),
         from_addr: String::new(),
         to_addr: String::new(),

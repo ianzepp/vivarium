@@ -47,14 +47,16 @@ pub fn json_message(
 }
 
 pub fn citation_json(handle: &str, account: &str, location: &MessageLocation) -> serde_json::Value {
-    serde_json::json!({
+    let mut citation = serde_json::json!({
         "handle": handle,
         "account": account,
-        "folder": location.folder,
-        "maildir_subdir": location.maildir_subdir,
-        "raw_path": location.path.to_string_lossy(),
+        "local_role": location.local_role,
         "source_type": "rfc5322",
-    })
+    });
+    if let Some(content_id) = &location.content_id {
+        citation["content_id"] = serde_json::Value::String(content_id.clone());
+    }
+    citation
 }
 
 #[cfg(test)]
@@ -77,14 +79,7 @@ mod tests {
 
         assert_eq!(json["handle"], "inbox-1");
         assert_eq!(json["citation"]["account"], "acct");
-        assert_eq!(json["citation"]["folder"], "INBOX");
-        assert_eq!(json["citation"]["maildir_subdir"], "new");
-        assert!(
-            json["citation"]["raw_path"]
-                .as_str()
-                .unwrap()
-                .ends_with("inbox-1.eml")
-        );
+        assert_eq!(json["citation"]["local_role"], "inbox");
     }
 
     #[test]

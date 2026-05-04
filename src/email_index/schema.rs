@@ -2,9 +2,26 @@ use rusqlite::{Connection, params};
 
 use crate::error::VivariumError;
 
-const INDEX_SCHEMA_VERSION: &str = "1";
+const INDEX_SCHEMA_VERSION: &str = "2";
 
 pub(crate) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
+    let existing_version: Option<String> = conn
+        .query_row(
+            "SELECT value FROM index_metadata WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    if existing_version.as_deref() != Some(INDEX_SCHEMA_VERSION) {
+        conn.execute_batch(
+            "
+            DROP TABLE IF EXISTS message_links;
+            DROP TABLE IF EXISTS messages;
+            DROP TABLE IF EXISTS index_metadata;
+            ",
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to reset email index schema: {e}")))?;
+    }
     conn.execute_batch(
         "
         PRAGMA foreign_keys = ON;
@@ -16,12 +33,10 @@ pub(crate) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
 
         CREATE TABLE IF NOT EXISTS messages (
           account TEXT NOT NULL,
-          handle TEXT NOT NULL,
-          catalog_handle TEXT NOT NULL,
-          fingerprint TEXT NOT NULL,
-          raw_path TEXT NOT NULL,
-          folder TEXT NOT NULL,
-          maildir_subdir TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          content_id TEXT NOT NULL,
+          blob_path TEXT NOT NULL,
+          local_role TEXT NOT NULL,
           date TEXT NOT NULL,
           from_addr TEXT NOT NULL,
           to_addr TEXT NOT NULL,
@@ -33,21 +48,21 @@ pub(crate) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
           remote_uid INTEGER,
           remote_uidvalidity INTEGER,
           indexed_at TEXT NOT NULL,
-          PRIMARY KEY (account, handle)
+          PRIMARY KEY (account, message_id)
         );
 
         CREATE TABLE IF NOT EXISTS message_links (
           account TEXT NOT NULL,
-          handle TEXT NOT NULL,
+          message_id TEXT NOT NULL,
           link_kind TEXT NOT NULL,
-          rfc_message_id TEXT NOT NULL,
-          PRIMARY KEY (account, handle, link_kind, rfc_message_id),
-          FOREIGN KEY (account, handle) REFERENCES messages(account, handle) ON DELETE CASCADE
+          normalized_message_id TEXT NOT NULL,
+          PRIMARY KEY (account, message_id, link_kind, normalized_message_id),
+          FOREIGN KEY (account, message_id) REFERENCES messages(account, message_id) ON DELETE CASCADE
         );
 
-        CREATE INDEX IF NOT EXISTS messages_account_folder_idx ON messages(account, folder, date);
+        CREATE INDEX IF NOT EXISTS messages_account_role_idx ON messages(account, local_role, date);
         CREATE INDEX IF NOT EXISTS messages_rfc_message_id_idx ON messages(account, rfc_message_id);
-        CREATE INDEX IF NOT EXISTS message_links_rfc_idx ON message_links(account, rfc_message_id);
+        CREATE INDEX IF NOT EXISTS message_links_rfc_idx ON message_links(account, normalized_message_id);
         ",
     )
     .map_err(|e| VivariumError::Other(format!("failed to initialize email index: {e}")))?;

@@ -13,11 +13,10 @@ pub use semantic::semantic_or_hybrid_search;
 /// A search result with handle and citation metadata.
 #[derive(Debug, Clone)]
 pub struct SearchResult {
-    pub handle: String,
-    pub raw_path: String,
+    pub message_id: String,
     pub account: String,
-    pub folder: String,
-    pub maildir_subdir: String,
+    pub content_id: String,
+    pub local_role: String,
     pub date: String,
     pub from: String,
     pub subject: String,
@@ -53,11 +52,11 @@ pub fn keyword_search(
 
 pub fn canonical_search_folder(folder: &str) -> Result<String, VivariumError> {
     match folder.to_ascii_lowercase().as_str() {
-        "inbox" => Ok("INBOX".into()),
-        "archive" | "all" => Ok("Archive".into()),
-        "trash" | "deleted" => Ok("Trash".into()),
-        "sent" => Ok("Sent".into()),
-        "draft" | "drafts" => Ok("Drafts".into()),
+        "inbox" => Ok("inbox".into()),
+        "archive" | "all" => Ok("archive".into()),
+        "trash" | "deleted" => Ok("trash".into()),
+        "sent" => Ok("sent".into()),
+        "draft" | "drafts" => Ok("drafts".into()),
         _ => Err(VivariumError::Message(format!(
             "unsupported search folder '{folder}'; expected inbox, archive, trash, sent, or drafts"
         ))),
@@ -73,7 +72,7 @@ pub(crate) fn filter_by_folder(
     };
     results
         .into_iter()
-        .filter(|result| result.folder.eq_ignore_ascii_case(folder))
+        .filter(|result| result.local_role.eq_ignore_ascii_case(folder))
         .collect()
 }
 
@@ -97,12 +96,9 @@ pub(crate) fn indexed_lexical_results(
         if score <= 0.0 {
             continue;
         }
-        let Ok(data) = std::fs::read(&message.raw_path) else {
+        let Ok(data) = std::fs::read(&message.blob_path) else {
             continue;
         };
-        if crate::catalog::fingerprint(&data) != message.fingerprint {
-            continue;
-        }
         results.push(search_result(message, &data, score));
     }
 
@@ -170,8 +166,8 @@ fn trim_snippet_line(body: &str, max_len: usize) -> String {
 
 fn indexed_lexical_text(message: &IndexedMessage) -> String {
     [
-        message.handle.as_str(),
-        message.folder.as_str(),
+        message.message_id.as_str(),
+        message.local_role.as_str(),
         message.date.as_str(),
         message.from_addr.as_str(),
         message.to_addr.as_str(),
@@ -185,11 +181,10 @@ fn indexed_lexical_text(message: &IndexedMessage) -> String {
 
 fn search_result(message: IndexedMessage, data: &[u8], score: f64) -> SearchResult {
     SearchResult {
-        handle: message.handle,
-        raw_path: message.raw_path,
+        message_id: message.message_id,
         account: message.account,
-        folder: message.folder,
-        maildir_subdir: message.maildir_subdir,
+        content_id: message.content_id,
+        local_role: message.local_role,
         date: message.date,
         from: message.from_addr,
         subject: message.subject,
@@ -248,13 +243,12 @@ mod tests {
         let (results, total) = keyword_search(tmp.path(), "acct", "release", 10, 0, None).unwrap();
 
         assert_eq!(total, 1);
-        assert_eq!(results[0].handle, "inbox-1");
+        assert_eq!(results[0].message_id, "inbox-1");
         assert_eq!(results[0].account, "acct");
-        assert_eq!(results[0].folder, "INBOX");
-        assert_eq!(results[0].maildir_subdir, "new");
+        assert_eq!(results[0].local_role, "inbox");
         assert_eq!(results[0].from, "Agent <agent@example.com>");
         assert_eq!(results[0].subject, "Release notice");
-        assert!(results[0].raw_path.ends_with("inbox-1.eml"));
+        assert!(!results[0].content_id.is_empty());
     }
 
     #[test]
@@ -294,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn indexed_lexical_results_skip_stale_raw_files() {
+    fn indexed_lexical_results_use_indexed_blob_content() {
         let tmp = tempfile::tempdir().unwrap();
         let store = MailStore::new(tmp.path());
         let path = store
@@ -310,17 +304,16 @@ mod tests {
 
         let results = indexed_lexical_results(tmp.path(), "acct", "release").unwrap();
 
-        assert!(results.is_empty());
+        assert_eq!(results.len(), 1);
     }
 
     #[test]
     fn json_result_includes_citation() {
         let result = SearchResult {
-            handle: "inbox-1".into(),
-            raw_path: "/tmp/inbox-1.eml".into(),
+            message_id: "inbox-1".into(),
             account: "acct".into(),
-            folder: "INBOX".into(),
-            maildir_subdir: "new".into(),
+            content_id: "content-1".into(),
+            local_role: "inbox".into(),
             date: "2026-05-02 12:00".into(),
             from: "Agent".into(),
             subject: "Subject".into(),
@@ -340,10 +333,11 @@ mod tests {
 
     fn catalog(mail_root: &Path, account: &str, path: &Path, folder: &str) {
         let data = std::fs::read(path).unwrap();
+        let handle = path.file_stem().unwrap().to_string_lossy().to_string();
         let mut catalog = Catalog::open(mail_root).unwrap();
         catalog
             .upsert(&CatalogEntry {
-                handle: "cat-1".into(),
+                handle,
                 raw_path: path.to_string_lossy().to_string(),
                 fingerprint: crate::catalog::fingerprint(&data),
                 account: account.into(),

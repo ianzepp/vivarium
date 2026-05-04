@@ -57,11 +57,10 @@ pub struct EmbeddingStats {
 
 #[derive(Debug, Clone)]
 pub struct SemanticMatch {
-    pub handle: String,
+    pub message_id: String,
     pub account: String,
-    pub folder: String,
-    pub maildir_subdir: String,
-    pub raw_path: String,
+    pub content_id: String,
+    pub local_role: String,
     pub date: String,
     pub from: String,
     pub subject: String,
@@ -152,7 +151,7 @@ fn filtered_messages(
     Ok(index
         .list_messages(account)?
         .into_iter()
-        .filter(|message| catalog_handles.contains(&message.catalog_handle))
+        .filter(|message| catalog_handles.contains(&message.message_id))
         .collect())
 }
 
@@ -218,17 +217,13 @@ fn message_chunks(
     message: &IndexedMessage,
     stats: &mut EmbeddingStats,
 ) -> Result<Option<Vec<EmailChunk>>, VivariumError> {
-    let data = match fs::read(&message.raw_path) {
+    let data = match fs::read(&message.blob_path) {
         Ok(data) => data,
         Err(_) => {
             stats.errors += 1;
             return Ok(None);
         }
     };
-    if crate::catalog::fingerprint(&data) != message.fingerprint {
-        stats.stale += 1;
-        return Ok(None);
-    }
     match chunk::chunks_for_message(message, &data) {
         Ok(chunks) => Ok(Some(chunks)),
         Err(_) => {
@@ -304,7 +299,7 @@ fn hydrate_matches(
 ) -> Result<Vec<SemanticMatch>, VivariumError> {
     let mut matches = Vec::new();
     for (embedding, score) in scored.into_iter().skip(offset).take(limit) {
-        if let Some(message) = index.message(account, &embedding.handle)?
+        if let Some(message) = index.message(account, &embedding.message_id)?
             && let Some(snippet) = snippet_for_embedding(&message, &embedding)?
         {
             matches.push(match_from_message(message, embedding, score, snippet));
@@ -320,11 +315,10 @@ fn match_from_message(
     snippet: String,
 ) -> SemanticMatch {
     SemanticMatch {
-        handle: message.handle,
+        message_id: message.message_id,
         account: message.account,
-        folder: message.folder,
-        maildir_subdir: message.maildir_subdir,
-        raw_path: message.raw_path,
+        content_id: message.content_id,
+        local_role: message.local_role,
         date: message.date,
         from: message.from_addr,
         subject: message.subject,
@@ -338,10 +332,10 @@ fn snippet_for_embedding(
     message: &IndexedMessage,
     embedding: &store::StoredEmbedding,
 ) -> Result<Option<String>, VivariumError> {
-    if message.fingerprint != embedding.fingerprint || message.account != embedding.account {
+    if message.content_id != embedding.content_id || message.account != embedding.account {
         return Ok(None);
     }
-    let data = fs::read(&message.raw_path)?;
+    let data = fs::read(&message.blob_path)?;
     let chunks = chunk::chunks_for_message(message, &data)?;
     let snippet = chunks
         .into_iter()
