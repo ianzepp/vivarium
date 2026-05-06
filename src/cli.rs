@@ -3,8 +3,10 @@ use std::path::PathBuf;
 use clap::{ArgGroup, Parser, Subcommand};
 
 mod agent_command;
+mod draft_command;
 mod index_command;
 pub use agent_command::AgentCommand;
+pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
 
 #[derive(Debug, Parser)]
@@ -170,45 +172,10 @@ pub enum Command {
     },
 
     /// Create a reply draft for a message
-    Reply {
-        /// Message handle or local message identifier to reply to
-        handle: String,
-
-        /// Reply body text
-        #[arg(long)]
-        body: Option<String>,
-
-        /// Append the created draft to the remote Drafts folder
-        #[arg(long)]
-        append_remote: bool,
-    },
+    Reply(ReplyCommand),
 
     /// Compose a new local draft
-    Compose {
-        /// Recipient address
-        #[arg(long)]
-        to: Vec<String>,
-
-        /// Cc recipient address
-        #[arg(long)]
-        cc: Vec<String>,
-
-        /// Bcc recipient address
-        #[arg(long)]
-        bcc: Vec<String>,
-
-        /// Subject line
-        #[arg(long)]
-        subject: String,
-
-        /// Plain-text body
-        #[arg(long)]
-        body: Option<String>,
-
-        /// Append the created draft to the remote Drafts folder
-        #[arg(long)]
-        append_remote: bool,
-    },
+    Compose(ComposeCommand),
 
     /// Archive one or more messages remotely, then update the local mirror
     Archive {

@@ -19,21 +19,37 @@ impl Runtime {
     ) -> Result<DraftDispatch, VivariumError> {
         match command {
             Command::Send { path } => self.send(&path).await?,
-            Command::Reply {
+            Command::Reply(vivarium::cli::ReplyCommand {
                 handle,
                 body,
+                html_body,
+                html_body_auto,
                 append_remote,
-            } => self.reply(&handle, body, append_remote).await?,
-            Command::Compose {
+            }) => {
+                self.reply(&handle, body, html_body, html_body_auto, append_remote)
+                    .await?
+            }
+            Command::Compose(vivarium::cli::ComposeCommand {
                 to,
                 cc,
                 bcc,
                 subject,
                 body,
+                html_body,
+                html_body_auto,
                 append_remote,
-            } => {
-                self.compose(to, cc, bcc, subject, body, append_remote)
-                    .await?
+            }) => {
+                self.compose(
+                    to,
+                    cc,
+                    bcc,
+                    subject,
+                    body,
+                    html_body,
+                    html_body_auto,
+                    append_remote,
+                )
+                .await?
             }
             other => return Ok(DraftDispatch::Unhandled(other)),
         }
@@ -60,16 +76,20 @@ impl Runtime {
         bcc: Vec<String>,
         subject: String,
         body: Option<String>,
+        html_body: Option<String>,
+        html_body_auto: bool,
         append_remote: bool,
     ) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.account.clone())?;
+        let body = body.unwrap_or_default();
         let draft = ComposeDraft {
             from: acct.email.clone(),
             to,
             cc,
             bcc,
             subject,
-            body: body.unwrap_or_default(),
+            html_body: resolve_html_body(&body, html_body, html_body_auto),
+            body,
         };
         let initial = message::build_compose_draft(&draft)?;
         let Some(data) = edit_if_needed("compose", initial, draft.body.is_empty())? else {
@@ -85,17 +105,21 @@ impl Runtime {
         &self,
         handle: &str,
         body: Option<String>,
+        html_body: Option<String>,
+        html_body_auto: bool,
         append_remote: bool,
     ) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.account.clone())?;
         let store = MailStore::new(&acct.mail_path(&self.config));
         let original = read_by_handle_or_id(&store, &acct.name, handle)?;
         let should_edit = body.is_none();
+        let body = body.unwrap_or_default();
         let initial = message::build_reply(
             &original,
             &ReplyDraft {
                 from: acct.email.clone(),
-                body: body.unwrap_or_default(),
+                html_body: resolve_html_body(&body, html_body, html_body_auto),
+                body,
             },
         )?;
         let Some(data) = edit_if_needed("reply", initial, should_edit)? else {
@@ -105,6 +129,18 @@ impl Runtime {
         let path = store_draft(self, data.as_bytes(), append_remote).await?;
         println!("reply draft created: {}", path.display());
         Ok(())
+    }
+}
+
+fn resolve_html_body(
+    body: &str,
+    html_body: Option<String>,
+    html_body_auto: bool,
+) -> Option<String> {
+    if html_body_auto {
+        Some(message::auto_html_body(body))
+    } else {
+        html_body
     }
 }
 

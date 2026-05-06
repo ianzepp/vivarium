@@ -8,12 +8,14 @@ pub struct ComposeDraft {
     pub bcc: Vec<String>,
     pub subject: String,
     pub body: String,
+    pub html_body: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ReplyDraft {
     pub from: String,
     pub body: String,
+    pub html_body: Option<String>,
 }
 
 pub fn build_compose_draft(draft: &ComposeDraft) -> Result<String, VivariumError> {
@@ -22,12 +24,23 @@ pub fn build_compose_draft(draft: &ComposeDraft) -> Result<String, VivariumError
             "draft needs at least one To, Cc, or Bcc recipient".into(),
         ));
     }
-    let mut eml = base_headers(&draft.from, &draft.subject);
-    push_address_header(&mut eml, "To", &draft.to);
-    push_address_header(&mut eml, "Cc", &draft.cc);
-    push_address_header(&mut eml, "Bcc", &draft.bcc);
-    eml.push_str("\r\n");
-    eml.push_str(&normalize_body(&draft.body));
+    let mut builder = mail_builder::MessageBuilder::new()
+        .from(draft.from.clone())
+        .subject(draft.subject.clone())
+        .text_body(normalize_body(&draft.body));
+    if !draft.to.is_empty() {
+        builder = builder.to(draft.to.clone());
+    }
+    if !draft.cc.is_empty() {
+        builder = builder.cc(draft.cc.clone());
+    }
+    if !draft.bcc.is_empty() {
+        builder = builder.bcc(draft.bcc.clone());
+    }
+    if let Some(html_body) = &draft.html_body {
+        builder = builder.html_body(html_body.clone());
+    }
+    let eml = builder.write_to_string()?;
     validate_message_headers(eml.as_bytes())?;
     Ok(eml)
 }
@@ -42,16 +55,21 @@ pub fn build_reply(original: &[u8], draft: &ReplyDraft) -> Result<String, Vivari
         .and_then(|a| a.address())
         .ok_or_else(|| VivariumError::Message("original has no From address".into()))?;
     let subject = reply_subject(parsed.subject().unwrap_or("(no subject)"));
-    let mut eml = base_headers(&draft.from, &subject);
-    push_address_header(&mut eml, "To", &[reply_to.to_string()]);
+    let text_body = format!("{}{}", normalize_body(&draft.body), quoted_body(&parsed));
+    let mut builder = mail_builder::MessageBuilder::new()
+        .from(draft.from.clone())
+        .to(reply_to.to_string())
+        .subject(subject)
+        .text_body(text_body);
     if let Some(message_id) = parsed.message_id() {
-        let message_id = format!("<{message_id}>");
-        eml.push_str(&format!("In-Reply-To: {message_id}\r\n"));
-        eml.push_str(&format!("References: {message_id}\r\n"));
+        builder = builder
+            .in_reply_to(message_id.to_string())
+            .references(message_id.to_string());
     }
-    eml.push_str("\r\n");
-    eml.push_str(&normalize_body(&draft.body));
-    eml.push_str(&quoted_body(&parsed));
+    if let Some(html_body) = &draft.html_body {
+        builder = builder.html_body(reply_html_body(html_body, &parsed));
+    }
+    let eml = builder.write_to_string()?;
     validate_message_headers(eml.as_bytes())?;
     Ok(eml)
 }
@@ -62,6 +80,7 @@ pub fn build_reply_template(original: &[u8], from: &str) -> Result<String, Vivar
         &ReplyDraft {
             from: from.into(),
             body: String::new(),
+            html_body: None,
         },
     )
 }
@@ -82,31 +101,6 @@ pub fn validate_message_headers(data: &[u8]) -> Result<(), VivariumError> {
         ));
     }
     Ok(())
-}
-
-fn base_headers(from: &str, subject: &str) -> String {
-    let date = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S %z");
-    let message_id = generated_message_id(from);
-    format!("From: {from}\r\nSubject: {subject}\r\nDate: {date}\r\nMessage-ID: <{message_id}>\r\n")
-}
-
-fn generated_message_id(from: &str) -> String {
-    let domain = from
-        .rsplit_once('@')
-        .map(|(_, domain)| domain)
-        .unwrap_or("local");
-    format!(
-        "{}.{}@{}",
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default(),
-        std::process::id(),
-        domain.trim_matches('>')
-    )
-}
-
-fn push_address_header(eml: &mut String, name: &str, addresses: &[String]) {
-    if !addresses.is_empty() {
-        eml.push_str(&format!("{name}: {}\r\n", addresses.join(", ")));
-    }
 }
 
 fn normalize_body(body: &str) -> String {
@@ -131,6 +125,65 @@ fn quoted_body(parsed: &mail_parser::Message<'_>) -> String {
         .unwrap_or_default()
 }
 
+fn reply_html_body(html_body: &str, parsed: &mail_parser::Message<'_>) -> String {
+    let mut html = html_body.to_string();
+    if let Some(body) = parsed.body_text(0) {
+        html.push_str("\n<hr style=\"border:0;border-top:1px solid #d7dde5;margin:24px 0;\">\n");
+        html.push_str("<blockquote style=\"margin:0;padding-left:16px;border-left:3px solid #c5ced9;color:#4b5563;\">");
+        html.push_str(&plain_text_to_html(&body));
+        html.push_str("</blockquote>\n");
+    }
+    html
+}
+
+pub fn auto_html_body(body: &str) -> String {
+    format!(
+        concat!(
+            "<!doctype html>\n",
+            "<html>\n",
+            "<body style=\"margin:0;padding:0;background:#f6f8fb;color:#111827;\">",
+            "<div style=\"max-width:680px;margin:0 auto;padding:32px 24px;\">",
+            "<div style=\"font:16px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;",
+            "background:#ffffff;border:1px solid #d7dde5;padding:24px;\">",
+            "{}",
+            "</div>",
+            "</div>",
+            "</body>\n",
+            "</html>\n"
+        ),
+        plain_text_to_html(body)
+    )
+}
+
+fn plain_text_to_html(body: &str) -> String {
+    body.split("\n\n")
+        .map(str::trim)
+        .filter(|paragraph| !paragraph.is_empty())
+        .map(|paragraph| {
+            format!(
+                "<p style=\"margin:0 0 16px 0;\">{}</p>",
+                escape_html(paragraph).replace('\n', "<br>\n")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn escape_html(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
 fn reply_subject(subject: &str) -> String {
     if subject.starts_with("Re:") {
         subject.to_string()
@@ -153,15 +206,28 @@ mod tests {
             bcc: vec!["c@example.com".into()],
             subject: "hello".into(),
             body: "body".into(),
+            html_body: None,
         })
         .unwrap();
 
         assert!(eml.contains("Date: "));
         assert!(eml.contains("Message-ID: <"));
-        assert!(eml.contains("To: a@example.com"));
-        assert!(eml.contains("Cc: b@example.com"));
-        assert!(eml.contains("Bcc: c@example.com"));
         assert!(message_id_from_bytes(eml.as_bytes()).is_some());
+        let parsed = mail_parser::MessageParser::default()
+            .parse(eml.as_bytes())
+            .unwrap();
+        assert_eq!(
+            parsed.to().unwrap().first().unwrap().address(),
+            Some("a@example.com")
+        );
+        assert_eq!(
+            parsed.cc().unwrap().first().unwrap().address(),
+            Some("b@example.com")
+        );
+        assert_eq!(
+            parsed.bcc().unwrap().first().unwrap().address(),
+            Some("c@example.com")
+        );
     }
 
     #[test]
@@ -173,6 +239,7 @@ mod tests {
             &ReplyDraft {
                 from: "me@example.com".into(),
                 body: "thanks".into(),
+                html_body: None,
             },
         )
         .unwrap();
@@ -181,5 +248,54 @@ mod tests {
         assert!(eml.contains("In-Reply-To: <root@example.com>"));
         assert!(eml.contains("References: <root@example.com>"));
         assert!(eml.contains("> hello"));
+    }
+
+    #[test]
+    fn compose_draft_can_include_html_alternative() {
+        let eml = build_compose_draft(&ComposeDraft {
+            from: "me@example.com".into(),
+            to: vec!["a@example.com".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "hello".into(),
+            body: "plain body".into(),
+            html_body: Some("<p>HTML body</p>".into()),
+        })
+        .unwrap();
+        let parsed = mail_parser::MessageParser::default()
+            .parse(eml.as_bytes())
+            .unwrap();
+
+        assert_eq!(parsed.body_text(0).as_deref(), Some("plain body\r\n"));
+        assert_eq!(parsed.body_html(0).as_deref(), Some("<p>HTML body</p>"));
+    }
+
+    #[test]
+    fn auto_html_body_escapes_and_paragraphs_plain_text() {
+        let html = auto_html_body("Hello <there>\n\nNext & last");
+
+        assert!(html.contains("Hello &lt;there&gt;"));
+        assert!(html.contains("Next &amp; last"));
+        assert!(html.contains("<p style="));
+    }
+
+    #[test]
+    fn reply_draft_can_include_html_alternative_with_quote() {
+        let original = b"Message-ID: <root@example.com>\r\nFrom: A <a@example.com>\r\nTo: me@example.com\r\nSubject: root\r\n\r\nhello";
+        let eml = build_reply(
+            original,
+            &ReplyDraft {
+                from: "me@example.com".into(),
+                body: "thanks".into(),
+                html_body: Some(auto_html_body("thanks")),
+            },
+        )
+        .unwrap();
+        let parsed = mail_parser::MessageParser::default()
+            .parse(eml.as_bytes())
+            .unwrap();
+
+        assert!(parsed.body_text(0).unwrap().contains("> hello"));
+        assert!(parsed.body_html(0).unwrap().contains("<blockquote"));
     }
 }

@@ -117,23 +117,71 @@ fn parses_default_compose_command() {
     .unwrap();
 
     match cli.command {
-        Command::Compose {
+        Command::Compose(vivarium::cli::ComposeCommand {
             to,
             cc,
             bcc,
             subject,
             body,
+            html_body,
+            html_body_auto,
             append_remote,
-        } => {
+        }) => {
             assert_eq!(to, vec!["a@example.com"]);
             assert_eq!(cc, vec!["b@example.com"]);
             assert_eq!(bcc, vec!["c@example.com"]);
             assert_eq!(subject, "hello");
             assert_eq!(body.as_deref(), Some("body"));
+            assert_eq!(html_body, None);
+            assert!(!html_body_auto);
             assert!(append_remote);
         }
         other => panic!("unexpected command: {other:?}"),
     }
+}
+
+#[test]
+fn parses_compose_html_body_auto() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "compose",
+        "--to",
+        "a@example.com",
+        "--subject",
+        "hello",
+        "--body",
+        "body",
+        "--html-body-auto",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Compose(vivarium::cli::ComposeCommand {
+            html_body,
+            html_body_auto,
+            ..
+        }) => {
+            assert_eq!(html_body, None);
+            assert!(html_body_auto);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_compose_html_body_auto_without_body() {
+    let err = Cli::try_parse_from([
+        "vivi",
+        "compose",
+        "--to",
+        "a@example.com",
+        "--subject",
+        "hello",
+        "--html-body-auto",
+    ])
+    .unwrap_err();
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::MissingRequiredArgument);
 }
 
 #[test]
@@ -149,17 +197,38 @@ fn parses_default_reply_command() {
     .unwrap();
 
     match cli.command {
-        Command::Reply {
+        Command::Reply(vivarium::cli::ReplyCommand {
             handle,
             body,
+            html_body,
+            html_body_auto,
             append_remote,
-        } => {
+        }) => {
             assert_eq!(handle, "handle-1");
             assert_eq!(body.as_deref(), Some("thanks"));
+            assert_eq!(html_body, None);
+            assert!(!html_body_auto);
             assert!(append_remote);
         }
         other => panic!("unexpected command: {other:?}"),
     }
+}
+
+#[test]
+fn rejects_reply_html_body_and_auto_together() {
+    let err = Cli::try_parse_from([
+        "vivi",
+        "reply",
+        "handle-1",
+        "--body",
+        "thanks",
+        "--html-body",
+        "<p>thanks</p>",
+        "--html-body-auto",
+    ])
+    .unwrap_err();
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
 }
 
 #[test]

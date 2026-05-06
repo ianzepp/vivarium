@@ -118,8 +118,15 @@ vivi search "invoice" --json                   # JSON search output with citatio
 vivi search "DoorDash" --folder inbox --count  # print only the inbox match count
 vivi index rebuild --account proton            # rebuild deterministic local index state
 vivi reply 4f8c2d1                             # draft a reply from a local message
-vivi compose                                   # create a new local draft
+vivi compose --to you@example.com --subject hi # create a new local draft
+vivi compose --to you@example.com --subject hi --body "Plain text" --html-body-auto
 ```
+
+`compose` and `reply` can create multipart drafts with both plain text and HTML.
+Use `--html-body <html>` for explicit HTML, or `--html-body-auto` with `--body`
+to generate a simple styled HTML alternative from the plain-text body. Drafts
+are still local-first; use `vivi send path/to/draft.eml` only after reviewing
+the generated `.eml`.
 
 All commands accept `--account <name>` to target a specific account. Without it, account-scoped commands use the first account in `accounts.toml`; `sync` and `list` operate on all accounts.
 

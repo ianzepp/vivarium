@@ -118,6 +118,7 @@ impl Runtime {
             &ReplyDraft {
                 from: acct.email.clone(),
                 body: body.clone(),
+                html_body: None,
             },
         )?;
         let preview = reply_preview(&draft, self.agent_max_body_bytes());

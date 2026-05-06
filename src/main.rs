@@ -124,7 +124,7 @@ impl Runtime {
             Command::Index { command } => self.index(command).await,
             #[cfg(feature = "outbox")]
             Command::Watch { account } => self.watch(account).await,
-            Command::Send { .. } | Command::Reply { .. } | Command::Compose { .. } => {
+            Command::Send { .. } | Command::Reply(_) | Command::Compose(_) => {
                 unreachable!()
             }
             Command::Agent { .. } => unreachable!(),

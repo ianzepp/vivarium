@@ -8,8 +8,8 @@ use crate::store::message_id_from_path;
 
 mod compose;
 pub use compose::{
-    ComposeDraft, ReplyDraft, build_compose_draft, build_reply, build_reply_template,
-    validate_message_headers,
+    ComposeDraft, ReplyDraft, auto_html_body, build_compose_draft, build_reply,
+    build_reply_template, validate_message_headers,
 };
 
 #[derive(Debug)]
