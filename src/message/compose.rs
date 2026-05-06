@@ -141,12 +141,9 @@ pub fn auto_html_body(body: &str) -> String {
         concat!(
             "<!doctype html>\n",
             "<html>\n",
-            "<body style=\"margin:0;padding:0;background:#f6f8fb;color:#111827;\">",
-            "<div style=\"max-width:680px;margin:0 auto;padding:32px 24px;\">",
-            "<div style=\"font:16px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;",
-            "background:#ffffff;border:1px solid #d7dde5;padding:24px;\">",
+            "<body style=\"margin:0;padding:0;color:#111827;\">",
+            "<div style=\"font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;\">",
             "{}",
-            "</div>",
             "</div>",
             "</body>\n",
             "</html>\n"
@@ -277,6 +274,9 @@ mod tests {
         assert!(html.contains("Hello &lt;there&gt;"));
         assert!(html.contains("Next &amp; last"));
         assert!(html.contains("<p style="));
+        assert!(!html.contains("background:"));
+        assert!(!html.contains("border:"));
+        assert!(!html.contains("max-width:"));
     }
 
     #[test]
