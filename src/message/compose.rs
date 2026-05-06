@@ -137,33 +137,11 @@ fn reply_html_body(html_body: &str, parsed: &mail_parser::Message<'_>) -> String
 }
 
 pub fn auto_html_body(body: &str) -> String {
-    format!(
-        concat!(
-            "<!doctype html>\n",
-            "<html>\n",
-            "<body style=\"margin:0;padding:0;color:#111827;\">",
-            "<div style=\"font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;\">",
-            "{}",
-            "</div>",
-            "</body>\n",
-            "</html>\n"
-        ),
-        plain_text_to_html(body)
-    )
+    format!("<div dir=\"ltr\">{}</div>\n", plain_text_to_html(body))
 }
 
 fn plain_text_to_html(body: &str) -> String {
-    body.split("\n\n")
-        .map(str::trim)
-        .filter(|paragraph| !paragraph.is_empty())
-        .map(|paragraph| {
-            format!(
-                "<p style=\"margin:0 0 16px 0;\">{}</p>",
-                escape_html(paragraph).replace('\n', "<br>\n")
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    escape_html(body).replace('\n', "<br>\n")
 }
 
 fn escape_html(text: &str) -> String {
@@ -271,9 +249,13 @@ mod tests {
     fn auto_html_body_escapes_and_paragraphs_plain_text() {
         let html = auto_html_body("Hello <there>\n\nNext & last");
 
+        assert!(html.starts_with("<div dir=\"ltr\">"));
         assert!(html.contains("Hello &lt;there&gt;"));
+        assert!(html.contains("<br>\n<br>\nNext"));
         assert!(html.contains("Next &amp; last"));
-        assert!(html.contains("<p style="));
+        assert!(!html.contains("<!doctype"));
+        assert!(!html.contains("<body"));
+        assert!(!html.contains("<p style="));
         assert!(!html.contains("background:"));
         assert!(!html.contains("border:"));
         assert!(!html.contains("max-width:"));
