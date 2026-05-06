@@ -11,6 +11,7 @@ use crate::store::MessageLocation;
 mod links;
 mod rebuild;
 mod schema;
+mod search;
 #[cfg(test)]
 mod tests;
 
@@ -159,127 +160,6 @@ impl EmailIndex {
         Ok(messages)
     }
 
-    pub fn search_messages(
-        &self,
-        account: &str,
-        query: &str,
-        limit: usize,
-        offset: usize,
-        folder: Option<&str>,
-    ) -> Result<(Vec<(IndexedMessage, f64)>, usize), VivariumError> {
-        let Some(fts_query) = fts_query(query) else {
-            return Ok((Vec::new(), 0));
-        };
-        let total = self.count_search_matches(account, &fts_query, folder)?;
-        let rows = self.page_search_matches(account, &fts_query, limit, offset, folder)?;
-        Ok((rows, total))
-    }
-
-    fn count_search_matches(
-        &self,
-        account: &str,
-        fts_query: &str,
-        folder: Option<&str>,
-    ) -> Result<usize, VivariumError> {
-        let count = if let Some(folder) = folder {
-            self.conn.query_row(
-                "SELECT COUNT(*)
-                 FROM message_search_fts
-                 JOIN messages m
-                   ON m.account = message_search_fts.account
-                  AND m.message_id = message_search_fts.message_id
-                 WHERE message_search_fts.account = ?1
-                   AND message_search_fts MATCH ?2
-                   AND m.local_role = ?3
-                   AND m.deleted_at IS NULL",
-                params![account, fts_query, folder],
-                |row| row.get::<_, usize>(0),
-            )
-        } else {
-            self.conn.query_row(
-                "SELECT COUNT(*)
-                 FROM message_search_fts
-                 JOIN messages m
-                   ON m.account = message_search_fts.account
-                  AND m.message_id = message_search_fts.message_id
-                 WHERE message_search_fts.account = ?1
-                   AND message_search_fts MATCH ?2
-                   AND m.deleted_at IS NULL",
-                params![account, fts_query],
-                |row| row.get::<_, usize>(0),
-            )
-        };
-        count.map_err(|e| VivariumError::Other(format!("failed to count search matches: {e}")))
-    }
-
-    fn page_search_matches(
-        &self,
-        account: &str,
-        fts_query: &str,
-        limit: usize,
-        offset: usize,
-        folder: Option<&str>,
-    ) -> Result<Vec<(IndexedMessage, f64)>, VivariumError> {
-        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
-        let offset = i64::try_from(offset).unwrap_or(i64::MAX);
-        let mut rows = if let Some(folder) = folder {
-            let mut stmt = self
-                .conn
-                .prepare(&format!(
-                    "{}
-                     WHERE message_search_fts.account = ?1
-                       AND message_search_fts MATCH ?2
-                       AND m.local_role = ?3
-                       AND m.deleted_at IS NULL
-                     ORDER BY rank, md.date DESC, m.message_id
-                     LIMIT ?4 OFFSET ?5",
-                    indexed_search_query()
-                ))
-                .map_err(|e| {
-                    VivariumError::Other(format!("failed to prepare search query: {e}"))
-                })?;
-            stmt.query_map(params![account, fts_query, folder, limit, offset], |row| {
-                let message = raw_indexed_message_from_row(row, &self.mail_root)?;
-                let rank = row.get::<_, f64>(12)?;
-                Ok((message, 0.0 - rank))
-            })
-            .map_err(|e| VivariumError::Other(format!("failed to query search rows: {e}")))?
-            .collect::<rusqlite::Result<Vec<_>>>()
-        } else {
-            let mut stmt = self
-                .conn
-                .prepare(&format!(
-                    "{}
-                     WHERE message_search_fts.account = ?1
-                       AND message_search_fts MATCH ?2
-                       AND m.deleted_at IS NULL
-                     ORDER BY rank, md.date DESC, m.message_id
-                     LIMIT ?3 OFFSET ?4",
-                    indexed_search_query()
-                ))
-                .map_err(|e| {
-                    VivariumError::Other(format!("failed to prepare search query: {e}"))
-                })?;
-            stmt.query_map(params![account, fts_query, limit, offset], |row| {
-                let message = raw_indexed_message_from_row(row, &self.mail_root)?;
-                let rank = row.get::<_, f64>(12)?;
-                Ok((message, 0.0 - rank))
-            })
-            .map_err(|e| VivariumError::Other(format!("failed to query search rows: {e}")))?
-            .collect::<rusqlite::Result<Vec<_>>>()
-        }
-        .map_err(|e| VivariumError::Other(format!("failed to read search row: {e}")))?;
-        let storage = Storage::open(&self.mail_root)?;
-        let handle_map = storage.handle_map()?;
-        for (message, _) in &mut rows {
-            message.handle = handle_map
-                .get(&message.message_id)
-                .cloned()
-                .unwrap_or_else(|| message.message_id.clone());
-        }
-        Ok(rows)
-    }
-
     fn thread_message_ids(
         &self,
         account: &str,
@@ -394,28 +274,6 @@ impl EmailIndex {
             row.map_err(|e| VivariumError::Other(format!("failed to read thread handle: {e}")))
         })
         .collect()
-    }
-}
-
-fn fts_query(query: &str) -> Option<String> {
-    let terms = query
-        .split_whitespace()
-        .flat_map(|term| term.split(|ch: char| !ch.is_alphanumeric()))
-        .filter_map(fts_term)
-        .collect::<Vec<_>>();
-    if terms.is_empty() {
-        None
-    } else {
-        Some(terms.join(" OR "))
-    }
-}
-
-fn fts_term(term: &str) -> Option<String> {
-    let normalized = term.trim();
-    if normalized.is_empty() {
-        None
-    } else {
-        Some(format!("{normalized}*"))
     }
 }
 

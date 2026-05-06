@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use vivarium::VivariumError;
-use vivarium::cli::Command;
+use vivarium::cli::{Command, ComposeCommand};
 use vivarium::message::{self, ComposeDraft, ReplyDraft};
 use vivarium::store::{MailStore, message_id_from_path};
 
@@ -29,28 +29,7 @@ impl Runtime {
                 self.reply(&handle, body, html_body, html_body_auto, append_remote)
                     .await?
             }
-            Command::Compose(vivarium::cli::ComposeCommand {
-                to,
-                cc,
-                bcc,
-                subject,
-                body,
-                html_body,
-                html_body_auto,
-                append_remote,
-            }) => {
-                self.compose(
-                    to,
-                    cc,
-                    bcc,
-                    subject,
-                    body,
-                    html_body,
-                    html_body_auto,
-                    append_remote,
-                )
-                .await?
-            }
+            Command::Compose(command) => self.compose(command).await?,
             other => return Ok(DraftDispatch::Unhandled(other)),
         }
         Ok(DraftDispatch::Handled)
@@ -69,17 +48,17 @@ impl Runtime {
         Ok(())
     }
 
-    async fn compose(
-        &self,
-        to: Vec<String>,
-        cc: Vec<String>,
-        bcc: Vec<String>,
-        subject: String,
-        body: Option<String>,
-        html_body: Option<String>,
-        html_body_auto: bool,
-        append_remote: bool,
-    ) -> Result<(), VivariumError> {
+    async fn compose(&self, command: ComposeCommand) -> Result<(), VivariumError> {
+        let ComposeCommand {
+            to,
+            cc,
+            bcc,
+            subject,
+            body,
+            html_body,
+            html_body_auto,
+            append_remote,
+        } = command;
         let acct = self.resolve_account(self.account.clone())?;
         let body = body.unwrap_or_default();
         let draft = ComposeDraft {

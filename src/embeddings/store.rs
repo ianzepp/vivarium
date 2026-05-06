@@ -6,9 +6,15 @@ use std::path::Path;
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, params};
 
+mod helpers;
+
 use super::chunk::EmailChunk;
 use crate::error::VivariumError;
 use crate::store::secure_create_dir_all;
+use helpers::{
+    encode_vector, safe_name, stored_embedding_from_row, validate_dimensions,
+    validate_row_dimensions,
+};
 
 const EMBEDDING_SCHEMA_VERSION: &str = "2";
 
@@ -154,27 +160,36 @@ impl EmbeddingStore {
     }
 
     fn ensure_schema(&self) -> Result<(), VivariumError> {
-        let existing_version: Option<String> = self
-            .conn
+        if self.schema_version().as_deref() != Some(EMBEDDING_SCHEMA_VERSION) {
+            self.reset_schema()?;
+        }
+        self.initialize_schema()?;
+        self.write_schema_version()
+    }
+
+    fn schema_version(&self) -> Option<String> {
+        self.conn
             .query_row(
                 "SELECT value FROM embedding_metadata WHERE key = 'schema_version'",
                 [],
                 |row| row.get(0),
             )
-            .ok();
-        if existing_version.as_deref() != Some(EMBEDDING_SCHEMA_VERSION) {
-            self.conn
-                .execute_batch(
-                    "
-                    DROP TABLE IF EXISTS embeddings;
-                    DROP TABLE IF EXISTS chunks;
-                    DROP TABLE IF EXISTS embedding_metadata;
-                    ",
-                )
-                .map_err(|e| {
-                    VivariumError::Other(format!("failed to reset embedding DB schema: {e}"))
-                })?;
-        }
+            .ok()
+    }
+
+    fn reset_schema(&self) -> Result<(), VivariumError> {
+        self.conn
+            .execute_batch(
+                "
+                DROP TABLE IF EXISTS embeddings;
+                DROP TABLE IF EXISTS chunks;
+                DROP TABLE IF EXISTS embedding_metadata;
+                ",
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to reset embedding DB schema: {e}")))
+    }
+
+    fn initialize_schema(&self) -> Result<(), VivariumError> {
         self.conn
             .execute_batch(
                 "
@@ -208,7 +223,10 @@ impl EmbeddingStore {
                 CREATE INDEX IF NOT EXISTS chunks_content_id_idx ON chunks(account, content_id);
                 ",
             )
-            .map_err(|e| VivariumError::Other(format!("failed to initialize embedding DB: {e}")))?;
+            .map_err(|e| VivariumError::Other(format!("failed to initialize embedding DB: {e}")))
+    }
+
+    fn write_schema_version(&self) -> Result<(), VivariumError> {
         self.conn
             .execute(
                 "INSERT OR REPLACE INTO embedding_metadata (key, value) VALUES ('schema_version', ?1)",
@@ -216,8 +234,8 @@ impl EmbeddingStore {
             )
             .map_err(|e| {
                 VivariumError::Other(format!("failed to write embedding schema version: {e}"))
-            })?;
-        Ok(())
+            })
+            .map(|_| ())
     }
 
     fn write_metadata(&self, provider: &str, model: &str) -> Result<(), VivariumError> {
@@ -319,79 +337,4 @@ fn retain_account_chunks(
     )
     .map_err(|e| VivariumError::Other(format!("failed to prune embedding chunks: {e}")))?;
     Ok(())
-}
-
-fn validate_dimensions(chunks: &[EmailChunk], vectors: &[Vec<f32>]) -> Result<(), VivariumError> {
-    if chunks.len() != vectors.len() {
-        return Err(VivariumError::Other(format!(
-            "embedding provider returned {} vectors for {} chunks",
-            vectors.len(),
-            chunks.len()
-        )));
-    }
-    let Some(dimensions) = vectors.first().map(Vec::len) else {
-        return Ok(());
-    };
-    if dimensions == 0 || vectors.iter().any(|vector| vector.len() != dimensions) {
-        return Err(VivariumError::Other(
-            "embedding provider returned inconsistent dimensions".into(),
-        ));
-    }
-    Ok(())
-}
-
-fn validate_row_dimensions(rows: &[(EmailChunk, Vec<f32>)]) -> Result<(), VivariumError> {
-    let Some(dimensions) = rows.first().map(|(_, vector)| vector.len()) else {
-        return Ok(());
-    };
-    if dimensions == 0 || rows.iter().any(|(_, vector)| vector.len() != dimensions) {
-        return Err(VivariumError::Other(
-            "embedding provider returned inconsistent dimensions".into(),
-        ));
-    }
-    Ok(())
-}
-
-fn encode_vector(vector: &[f32]) -> Vec<u8> {
-    vector
-        .iter()
-        .flat_map(|value| value.to_le_bytes())
-        .collect::<Vec<_>>()
-}
-
-fn decode_vector(data: Vec<u8>) -> rusqlite::Result<Vec<f32>> {
-    if !data.len().is_multiple_of(4) {
-        return Err(rusqlite::Error::InvalidQuery);
-    }
-    Ok(data
-        .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-        .collect())
-}
-
-fn stored_embedding_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredEmbedding> {
-    let ordinal = row.get::<_, i64>(4)?;
-    let vector = decode_vector(row.get::<_, Vec<u8>>(6)?)?;
-    Ok(StoredEmbedding {
-        chunk_id: row.get(0)?,
-        account: row.get(1)?,
-        message_id: row.get(2)?,
-        content_id: row.get(3)?,
-        chunk_ordinal: usize::try_from(ordinal).unwrap_or_default(),
-        text_hash: row.get(5)?,
-        vector,
-    })
-}
-
-fn safe_name(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-                ch
-            } else {
-                '-'
-            }
-        })
-        .collect()
 }

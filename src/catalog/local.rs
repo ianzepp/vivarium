@@ -40,6 +40,19 @@ impl Catalog {
         starred: bool,
         remote: Option<RemoteIdentity>,
     ) -> Result<(), VivariumError> {
+        self.update_local_state(account, handle, local_role, read_state, starred)?;
+        self.update_remote_binding(handle, remote)?;
+        self.flush()
+    }
+
+    fn update_local_state(
+        &self,
+        account: &str,
+        handle: &str,
+        local_role: &str,
+        read_state: bool,
+        starred: bool,
+    ) -> Result<(), VivariumError> {
         let changes = self
             .conn
             .execute(
@@ -65,44 +78,60 @@ impl Catalog {
                 "message not found in catalog for account '{account}': {handle}"
             )));
         }
-        if let Some(remote) = remote {
-            self.conn
-                .execute(
-                    "INSERT INTO remote_bindings (
-                       message_id, account, provider, remote_mailbox, remote_uid,
-                       remote_uidvalidity, last_verified_at, stale
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP, 0)
-                     ON CONFLICT(message_id) DO UPDATE SET
-                       account = excluded.account,
-                       provider = excluded.provider,
-                       remote_mailbox = excluded.remote_mailbox,
-                       remote_uid = excluded.remote_uid,
-                       remote_uidvalidity = excluded.remote_uidvalidity,
-                       last_verified_at = excluded.last_verified_at,
-                       stale = 0",
-                    params![
-                        handle,
-                        remote.account,
-                        remote.provider,
-                        remote.remote_mailbox,
-                        remote.uid,
-                        remote.uidvalidity,
-                    ],
-                )
-                .map_err(|e| {
-                    VivariumError::Other(format!("failed to update remote binding: {e}"))
-                })?;
-        } else {
-            self.conn
-                .execute(
-                    "DELETE FROM remote_bindings WHERE message_id = ?1",
-                    params![handle],
-                )
-                .map_err(|e| {
-                    VivariumError::Other(format!("failed to clear remote binding: {e}"))
-                })?;
+        Ok(())
+    }
+
+    fn update_remote_binding(
+        &self,
+        handle: &str,
+        remote: Option<RemoteIdentity>,
+    ) -> Result<(), VivariumError> {
+        match remote {
+            Some(remote) => self.upsert_remote_binding(handle, &remote),
+            None => self.clear_remote_binding(handle),
         }
-        self.flush()
+    }
+
+    fn upsert_remote_binding(
+        &self,
+        handle: &str,
+        remote: &RemoteIdentity,
+    ) -> Result<(), VivariumError> {
+        self.conn
+            .execute(
+                "INSERT INTO remote_bindings (
+                   message_id, account, provider, remote_mailbox, remote_uid,
+                   remote_uidvalidity, last_verified_at, stale
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP, 0)
+                 ON CONFLICT(message_id) DO UPDATE SET
+                   account = excluded.account,
+                   provider = excluded.provider,
+                   remote_mailbox = excluded.remote_mailbox,
+                   remote_uid = excluded.remote_uid,
+                   remote_uidvalidity = excluded.remote_uidvalidity,
+                   last_verified_at = excluded.last_verified_at,
+                   stale = 0",
+                params![
+                    handle,
+                    remote.account,
+                    remote.provider,
+                    remote.remote_mailbox,
+                    remote.uid,
+                    remote.uidvalidity,
+                ],
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to update remote binding: {e}")))?;
+        Ok(())
+    }
+
+    fn clear_remote_binding(&self, handle: &str) -> Result<(), VivariumError> {
+        self.conn
+            .execute(
+                "DELETE FROM remote_bindings WHERE message_id = ?1",
+                params![handle],
+            )
+            .map(|_| ())
+            .map_err(|e| VivariumError::Other(format!("failed to clear remote binding: {e}")))
     }
 
     pub fn remove_entry(&mut self, account: &str, handle: &str) -> Result<(), VivariumError> {
