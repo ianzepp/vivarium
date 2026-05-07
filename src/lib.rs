@@ -1,4 +1,3 @@
-pub mod agent;
 pub mod catalog;
 pub mod cli;
 pub mod config;
@@ -13,6 +12,7 @@ pub mod list;
 pub mod message;
 pub mod mutation_command;
 pub mod oauth;
+pub mod queue;
 pub mod retrieve;
 pub mod search;
 pub mod storage;

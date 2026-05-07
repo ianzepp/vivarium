@@ -1,62 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use vivarium::cli::{AgentCommand, Cli, Command, IndexCommand};
-
-#[test]
-fn parses_archive_dry_run_json() {
-    let cli = Cli::try_parse_from(["vivi", "archive", "abc123", "--dry-run", "--json"]).unwrap();
-
-    match cli.command {
-        Command::Archive {
-            handles,
-            dry_run,
-            json,
-        } => {
-            assert_eq!(handles, vec!["abc123"]);
-            assert!(dry_run);
-            assert!(json);
-        }
-        other => panic!("unexpected command: {other:?}"),
-    }
-}
-
-#[test]
-fn parses_delete_expunge_confirm() {
-    let cli = Cli::try_parse_from([
-        "vivi",
-        "delete",
-        "abc123",
-        "def456",
-        "--expunge",
-        "--confirm",
-    ])
-    .unwrap();
-
-    match cli.command {
-        Command::Delete {
-            handles,
-            expunge,
-            confirm,
-            ..
-        } => {
-            assert_eq!(handles, vec!["abc123", "def456"]);
-            assert!(expunge);
-            assert!(confirm);
-        }
-        other => panic!("unexpected command: {other:?}"),
-    }
-}
-
-#[test]
-fn parses_default_send_command() {
-    let cli = Cli::try_parse_from(["vivi", "send", "message.eml"]).unwrap();
-
-    match cli.command {
-        Command::Send { path } => assert_eq!(path, PathBuf::from("message.eml")),
-        other => panic!("unexpected command: {other:?}"),
-    }
-}
+use vivarium::cli::{Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, QueueCommand};
 
 #[test]
 fn parses_sync_index_and_embed() {
@@ -232,19 +177,20 @@ fn rejects_reply_html_body_and_auto_together() {
 }
 
 #[test]
-fn rejects_multiple_flag_modes() {
-    let err = Cli::try_parse_from(["vivi", "flag", "abc123", "--read", "--unread"]).unwrap_err();
+fn rejects_multiple_exec_flag_modes() {
+    let err =
+        Cli::try_parse_from(["vivi", "exec", "flag", "abc123", "--read", "--unread"]).unwrap_err();
 
     assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
 }
 
 #[test]
-fn parses_agent_archive_plan_by_default() {
-    let cli = Cli::try_parse_from(["vivi", "agent", "archive", "handle-1"]).unwrap();
+fn parses_enqueue_archive() {
+    let cli = Cli::try_parse_from(["vivi", "enqueue", "archive", "handle-1"]).unwrap();
 
     match cli.command {
-        Command::Agent {
-            command: AgentCommand::Archive { handles },
+        Command::Enqueue {
+            command: EnqueueCommand::Archive { handles },
         } => {
             assert_eq!(handles, vec!["handle-1"]);
         }
@@ -253,12 +199,12 @@ fn parses_agent_archive_plan_by_default() {
 }
 
 #[test]
-fn parses_agent_archive_batch() {
-    let cli = Cli::try_parse_from(["vivi", "agent", "archive", "one", "two"]).unwrap();
+fn parses_enqueue_archive_batch() {
+    let cli = Cli::try_parse_from(["vivi", "enqueue", "archive", "one", "two"]).unwrap();
 
     match cli.command {
-        Command::Agent {
-            command: AgentCommand::Archive { handles },
+        Command::Enqueue {
+            command: EnqueueCommand::Archive { handles },
         } => {
             assert_eq!(handles, vec!["one", "two"]);
         }
@@ -267,19 +213,22 @@ fn parses_agent_archive_batch() {
 }
 
 #[test]
-fn rejects_agent_execute_flag() {
-    let err = Cli::try_parse_from(["vivi", "agent", "archive", "one", "--execute"]).unwrap_err();
+fn rejects_removed_agent_surface() {
+    let err = Cli::try_parse_from(["vivi", "agent", "archive", "one"]).unwrap_err();
 
-    assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
+    assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
 }
 
 #[test]
-fn parses_agent_delete_batch_expunge_plan() {
-    let cli = Cli::try_parse_from(["vivi", "agent", "delete", "one", "two", "--expunge"]).unwrap();
+fn parses_enqueue_delete_batch_expunge() {
+    let cli =
+        Cli::try_parse_from(["vivi", "enqueue", "delete", "one", "two", "--expunge"]).unwrap();
 
     match cli.command {
-        Command::Agent {
-            command: AgentCommand::Delete { handles, expunge },
+        Command::Enqueue {
+            command: EnqueueCommand::Delete {
+                handles, expunge, ..
+            },
         } => {
             assert_eq!(handles, vec!["one", "two"]);
             assert!(expunge);
@@ -289,12 +238,12 @@ fn parses_agent_delete_batch_expunge_plan() {
 }
 
 #[test]
-fn parses_agent_send_plan() {
-    let cli = Cli::try_parse_from(["vivi", "agent", "send", "draft.eml"]).unwrap();
+fn parses_enqueue_send() {
+    let cli = Cli::try_parse_from(["vivi", "enqueue", "send", "draft.eml"]).unwrap();
 
     match cli.command {
-        Command::Agent {
-            command: AgentCommand::Send { path },
+        Command::Enqueue {
+            command: EnqueueCommand::Send { path },
         } => {
             assert_eq!(path, PathBuf::from("draft.eml"));
         }
@@ -303,16 +252,96 @@ fn parses_agent_send_plan() {
 }
 
 #[test]
-fn parses_agent_reply_body_plan() {
+fn parses_enqueue_reply_body() {
     let cli =
-        Cli::try_parse_from(["vivi", "agent", "reply", "handle-1", "--body", "thanks"]).unwrap();
+        Cli::try_parse_from(["vivi", "enqueue", "reply", "handle-1", "--body", "thanks"]).unwrap();
 
     match cli.command {
-        Command::Agent {
-            command: AgentCommand::Reply { handle, body },
+        Command::Enqueue {
+            command: EnqueueCommand::Reply { handle, body },
         } => {
             assert_eq!(handle, "handle-1");
             assert_eq!(body, "thanks");
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_exec_archive_json() {
+    let cli = Cli::try_parse_from(["vivi", "exec", "archive", "one", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Exec {
+            command: ExecCommand::Archive { handles, json },
+        } => {
+            assert_eq!(handles, vec!["one"]);
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_exec_delete_expunge_confirm() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "exec",
+        "delete",
+        "abc123",
+        "def456",
+        "--expunge",
+        "--confirm",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Exec {
+            command:
+                ExecCommand::Delete {
+                    handles,
+                    expunge,
+                    confirm,
+                    ..
+                },
+        } => {
+            assert_eq!(handles, vec!["abc123", "def456"]);
+            assert!(expunge);
+            assert!(confirm);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_exec_send() {
+    let cli = Cli::try_parse_from(["vivi", "exec", "send", "message.eml"]).unwrap();
+
+    match cli.command {
+        Command::Exec {
+            command: ExecCommand::Send { path },
+        } => assert_eq!(path, PathBuf::from("message.eml")),
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_removed_top_level_write_surface() {
+    let err = Cli::try_parse_from(["vivi", "archive", "abc123"]).unwrap_err();
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
+}
+
+#[test]
+fn parses_queue_run_all() {
+    let cli = Cli::try_parse_from(["vivi", "queue", "run", "--all"]).unwrap();
+
+    match cli.command {
+        Command::Queue {
+            command: QueueCommand::Run { ids, all },
+        } => {
+            assert!(ids.is_empty());
+            assert!(all);
         }
         other => panic!("unexpected command: {other:?}"),
     }

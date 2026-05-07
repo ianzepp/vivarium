@@ -18,7 +18,6 @@ impl Runtime {
         command: Command,
     ) -> Result<DraftDispatch, VivariumError> {
         match command {
-            Command::Send { path } => self.send(&path).await?,
             Command::Reply(vivarium::cli::ReplyCommand {
                 handle,
                 body,
@@ -35,7 +34,7 @@ impl Runtime {
         Ok(DraftDispatch::Handled)
     }
 
-    async fn send(&self, path: &Path) -> Result<(), VivariumError> {
+    pub(super) async fn send_path(&self, path: &Path) -> Result<(), VivariumError> {
         require_eml_path(path)?;
         let acct = self.resolve_account(self.account.clone())?;
         let store = MailStore::new(&acct.mail_path(&self.config));
@@ -108,6 +107,10 @@ impl Runtime {
         let path = store_draft(self, data.as_bytes(), append_remote).await?;
         println!("reply draft created: {}", path.display());
         Ok(())
+    }
+
+    pub(super) async fn reply_body(&self, handle: &str, body: String) -> Result<(), VivariumError> {
+        self.reply(handle, Some(body), None, false, false).await
     }
 }
 

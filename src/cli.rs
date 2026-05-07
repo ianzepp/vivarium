@@ -2,12 +2,12 @@ use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser, Subcommand};
 
-mod agent_command;
 mod draft_command;
 mod index_command;
-pub use agent_command::AgentCommand;
+mod write_command;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
+pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
 
 #[derive(Debug, Parser)]
 #[command(name = "vivi", version, about = "Local-first IMAP email sync for LLMs")]
@@ -117,12 +117,6 @@ pub enum Command {
         account: Option<String>,
     },
 
-    /// Send a raw .eml message from an explicit file
-    Send {
-        /// Path to the .eml file
-        path: PathBuf,
-    },
-
     /// List messages in a folder (inbox, archive, trash, sent, drafts)
     List {
         /// Folder name
@@ -177,102 +171,6 @@ pub enum Command {
     /// Compose a new local draft
     Compose(ComposeCommand),
 
-    /// Archive one or more messages remotely, then update the local mirror
-    Archive {
-        /// Message handles or local message identifiers
-        #[arg(required = true)]
-        handles: Vec<String>,
-
-        /// Preview the remote mutation without changing mailbox state
-        #[arg(long)]
-        dry_run: bool,
-
-        /// Output an agent-readable JSON plan/result
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Delete one or more messages remotely, trashing by default
-    #[command(group(
-        ArgGroup::new("delete_mode")
-            .args(["trash", "expunge"])
-            .multiple(false)
-    ))]
-    Delete {
-        /// Message handles or local message identifiers
-        #[arg(required = true)]
-        handles: Vec<String>,
-
-        /// Move to Trash; this is the default delete behavior
-        #[arg(long)]
-        trash: bool,
-
-        /// Permanently expunge the remote message
-        #[arg(long)]
-        expunge: bool,
-
-        /// Required with --expunge for non-dry-run hard delete
-        #[arg(long)]
-        confirm: bool,
-
-        /// Preview the remote mutation without changing mailbox state
-        #[arg(long)]
-        dry_run: bool,
-
-        /// Output an agent-readable JSON plan/result
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Move one message to a supported folder role
-    Move {
-        /// Message handle or local message identifier
-        handle: String,
-
-        /// Destination folder role: inbox, archive, trash, sent, or drafts
-        folder: String,
-
-        /// Preview the remote mutation without changing mailbox state
-        #[arg(long)]
-        dry_run: bool,
-
-        /// Output an agent-readable JSON plan/result
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Mutate read/star flags on one message
-    #[command(group(
-        ArgGroup::new("flag_mode")
-            .args(["read", "unread", "star", "unstar"])
-            .required(true)
-            .multiple(false)
-    ))]
-    Flag {
-        /// Message handle or local message identifier
-        handle: String,
-
-        #[arg(long)]
-        read: bool,
-
-        #[arg(long)]
-        unread: bool,
-
-        #[arg(long)]
-        star: bool,
-
-        #[arg(long)]
-        unstar: bool,
-
-        /// Preview the remote mutation without changing mailbox state
-        #[arg(long)]
-        dry_run: bool,
-
-        /// Output an agent-readable JSON plan/result
-        #[arg(long)]
-        json: bool,
-    },
-
     /// Export one raw .eml message by ID
     Export {
         /// Message identifier (filename stem)
@@ -323,10 +221,22 @@ pub enum Command {
         command: IndexCommand,
     },
 
-    /// Agent-safe plan-first commands
-    Agent {
+    /// Execute external writes immediately
+    Exec {
         #[command(subcommand)]
-        command: AgentCommand,
+        command: ExecCommand,
+    },
+
+    /// Add external writes to the durable review queue
+    Enqueue {
+        #[command(subcommand)]
+        command: EnqueueCommand,
+    },
+
+    /// Inspect, drop, or run queued writes
+    Queue {
+        #[command(subcommand)]
+        command: QueueCommand,
     },
 
     /// Show provider label support for the selected account

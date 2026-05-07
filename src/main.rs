@@ -9,18 +9,17 @@ use vivarium::config::{Account, AccountsFile, Config};
 use vivarium::message;
 use vivarium::store::MailStore;
 
-mod agent_runner;
 mod draft_runner;
 mod folders_command;
 mod index_runner;
 mod label_runner;
 mod mutation_runner;
+mod queue_runner;
 mod sync_command;
 
-use agent_runner::AgentDispatch;
 use draft_runner::DraftDispatch;
 use label_runner::LabelDispatch;
-use mutation_runner::MutationDispatch;
+use queue_runner::QueueDispatch;
 
 struct SearchRequest<'a> {
     query: &'a str,
@@ -115,19 +114,15 @@ impl Runtime {
                 json,
                 limit,
             } => self.thread(&message_id, json, limit),
-            Command::Archive { .. }
-            | Command::Delete { .. }
-            | Command::Move { .. }
-            | Command::Flag { .. } => unreachable!(),
             Command::Export { message_id, text } => self.export(&message_id, text),
             command @ Command::Search { .. } => self.run_search_command(command).await,
             Command::Index { command } => self.index(command).await,
             #[cfg(feature = "outbox")]
             Command::Watch { account } => self.watch(account).await,
-            Command::Send { .. } | Command::Reply(_) | Command::Compose(_) => {
+            Command::Reply(_) | Command::Compose(_) => unreachable!(),
+            Command::Exec { .. } | Command::Enqueue { .. } | Command::Queue { .. } => {
                 unreachable!()
             }
-            Command::Agent { .. } => unreachable!(),
             Command::Labels { .. } | Command::Label { .. } => unreachable!(),
         }
     }
@@ -136,17 +131,13 @@ impl Runtime {
         &self,
         command: Command,
     ) -> Result<Option<Command>, VivariumError> {
-        let command = match self.run_agent_command(command).await? {
-            AgentDispatch::Handled => return Ok(None),
-            AgentDispatch::Unhandled(command) => command,
+        let command = match self.run_queue_command(command).await? {
+            QueueDispatch::Handled => return Ok(None),
+            QueueDispatch::Unhandled(command) => command,
         };
         let command = match self.run_label_command(command).await? {
             LabelDispatch::Handled => return Ok(None),
             LabelDispatch::Unhandled(command) => command,
-        };
-        let command = match self.run_mutation_command(command).await? {
-            MutationDispatch::Handled => return Ok(None),
-            MutationDispatch::Unhandled(command) => command,
         };
         match self.run_draft_command(command).await? {
             DraftDispatch::Handled => Ok(None),

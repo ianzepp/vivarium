@@ -1,18 +1,13 @@
 use vivarium::VivariumError;
-use vivarium::cli::Command;
 use vivarium::config::Account;
 use vivarium::imap::{FlagMutation, MutationCapabilities, MutationResult, MutationTarget};
 use vivarium::mutation_command::{
     LocalReconciliation, MutationAction, MutationPreview, PreparedMutation, append_audit,
     output_json, prepare_mutation, reconcile_success,
 };
+use vivarium::queue::QueuedCommand;
 
 use super::Runtime;
-
-pub(super) enum MutationDispatch {
-    Handled,
-    Unhandled(Command),
-}
 
 #[derive(Debug, Clone, Copy)]
 struct MutationRunOptions {
@@ -22,30 +17,24 @@ struct MutationRunOptions {
 }
 
 impl Runtime {
-    pub(super) async fn run_mutation_command(
+    pub(super) async fn run_queued_mutation(
         &self,
-        command: Command,
-    ) -> Result<MutationDispatch, VivariumError> {
+        command: QueuedCommand,
+        json: bool,
+    ) -> Result<(), VivariumError> {
         match command {
-            Command::Archive {
-                handles,
-                dry_run,
-                json,
-            } => {
+            QueuedCommand::Archive { handles } => {
                 self.run_mutations(
                     handles,
                     |_| Ok(MutationAction::Archive),
-                    options(dry_run, json),
+                    options(false, json),
                 )
                 .await?;
             }
-            Command::Delete {
+            QueuedCommand::Delete {
                 handles,
-                trash: _,
                 expunge,
                 confirm,
-                dry_run,
-                json,
             } => {
                 let action = if expunge {
                     MutationAction::Expunge
@@ -56,19 +45,14 @@ impl Runtime {
                     handles,
                     |_| Ok(action.clone()),
                     MutationRunOptions {
-                        dry_run,
+                        dry_run: false,
                         json,
                         confirm,
                     },
                 )
                 .await?;
             }
-            Command::Move {
-                handle,
-                folder,
-                dry_run,
-                json,
-            } => {
+            QueuedCommand::Move { handle, folder } => {
                 self.run_mutations(
                     vec![handle],
                     |_| {
@@ -76,18 +60,16 @@ impl Runtime {
                             folder: folder.clone(),
                         })
                     },
-                    options(dry_run, json),
+                    options(false, json),
                 )
                 .await?;
             }
-            Command::Flag {
+            QueuedCommand::Flag {
                 handle,
                 read,
                 unread,
                 star,
                 unstar,
-                dry_run,
-                json,
             } => {
                 let mutation = flag_mutation(read, unread, star, unstar)?;
                 self.run_mutations(
@@ -97,13 +79,13 @@ impl Runtime {
                             mutation: mutation.clone(),
                         })
                     },
-                    options(dry_run, json),
+                    options(false, json),
                 )
                 .await?;
             }
-            other => return Ok(MutationDispatch::Unhandled(other)),
+            QueuedCommand::Send { .. } | QueuedCommand::Reply { .. } => unreachable!(),
         }
-        Ok(MutationDispatch::Handled)
+        Ok(())
     }
 
     async fn run_mutations<F>(

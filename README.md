@@ -111,8 +111,13 @@ vivi show 4f8c2d1 --json                       # read a message as JSON with cit
 vivi thread 4f8c2d1 --json                     # read local thread context as JSON
 vivi export 4f8c2d1 > message.eml              # export the raw RFC 5322 message
 vivi export 4f8c2d1 --text                     # export normalized local text
-vivi archive 4f8c2d1                           # move from inbox to archive
-vivi delete 4f8c2d1 a91be44 --dry-run          # preview deleting multiple messages
+vivi exec archive 4f8c2d1                      # immediately move from inbox to archive
+vivi exec delete 4f8c2d1 a91be44 --json        # immediately delete multiple messages
+vivi enqueue archive 4f8c2d1                   # queue an archive for later review
+vivi queue list                                # list pending queued writes
+vivi queue show q123                           # inspect one queued write
+vivi queue run q123                            # execute one reviewed queued write
+vivi queue run --all                           # execute all pending queued writes in FIFO order
 vivi search "invoice"                          # keyword search
 vivi search "invoice" --json                   # JSON search output with citation metadata
 vivi search "DoorDash" --folder inbox --count  # print only the inbox match count
@@ -125,8 +130,14 @@ vivi compose --to you@example.com --subject hi --body "Plain text" --html-body-a
 `compose` and `reply` can create multipart drafts with both plain text and HTML.
 Use `--html-body <html>` for explicit HTML, or `--html-body-auto` with `--body`
 to generate a simple styled HTML alternative from the plain-text body. Drafts
-are still local-first; use `vivi send path/to/draft.eml` only after reviewing
+are still local-first; use `vivi exec send path/to/draft.eml` only after reviewing
 the generated `.eml`.
+
+Write commands are split by effect. `vivi exec ...` performs the external write
+now. `vivi enqueue ...` records a durable pending item under the selected
+account's Vivi state, and `vivi queue run ...` is the explicit later execution
+step. The older `vivi agent ...` planning surface has been removed because it
+named the caller rather than the effect.
 
 All commands accept `--account <name>` to target a specific account. Without it, account-scoped commands use the first account in `accounts.toml`; `sync` and `list` operate on all accounts.
 

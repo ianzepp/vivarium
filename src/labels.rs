@@ -43,7 +43,8 @@ pub fn support(account: &Account) -> LabelSupport {
         mutation_supported: false,
         mode: mode.into(),
         reason: reason.into(),
-        safe_alternative: "Use `vivi move <handle> <folder>` for supported folder roles.".into(),
+        safe_alternative: "Use `vivi exec move <handle> <folder>` for supported folder roles."
+            .into(),
     }
 }
 
