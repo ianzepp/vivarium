@@ -7,6 +7,7 @@ mod index_command;
 mod write_command;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
+use std::ffi::OsString;
 pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
 
 #[derive(Debug, Parser)]
@@ -229,6 +230,12 @@ pub enum Command {
         command: IndexCommand,
     },
 
+    /// Poll locally downloaded mail for trusted agent instructions
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommand,
+    },
+
     /// Execute external writes immediately
     Exec {
         #[command(subcommand)]
@@ -280,5 +287,35 @@ pub enum Command {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentCommand {
+    /// Claim one trusted inbox thread and process it with Codex
+    Poll {
+        /// Exact sender email address allowed to issue agent instructions
+        #[arg(long = "from")]
+        from_addr: String,
+
+        /// Folder role to scan
+        #[arg(long, default_value = "inbox")]
+        folder: String,
+
+        /// Preview the next thread without claiming or invoking Codex
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Codex executable to run
+        #[arg(long, default_value = "codex")]
+        codex_command: OsString,
+
+        /// Argument passed to the Codex command; defaults to `exec -`
+        #[arg(long = "codex-arg", default_values = ["exec", "-"])]
+        codex_args: Vec<OsString>,
     },
 }

@@ -9,6 +9,7 @@ use vivarium::config::{Account, AccountsFile, Config};
 use vivarium::message;
 use vivarium::store::MailStore;
 
+mod agent_runner;
 mod draft_runner;
 mod folders_command;
 mod index_runner;
@@ -17,6 +18,7 @@ mod mutation_runner;
 mod queue_runner;
 mod sync_command;
 
+use agent_runner::{AgentContext, AgentDispatch, AgentRunner};
 use draft_runner::DraftDispatch;
 use label_runner::LabelDispatch;
 use queue_runner::QueueDispatch;
@@ -119,6 +121,7 @@ impl Runtime {
             Command::Export { message_id, text } => self.export(&message_id, text),
             command @ Command::Search { .. } => self.run_search_command(command).await,
             Command::Index { command } => self.index(command).await,
+            Command::Agent { .. } => unreachable!(),
             #[cfg(feature = "outbox")]
             Command::Watch { account } => self.watch(account).await,
             Command::Reply(_) | Command::Compose(_) => unreachable!(),
@@ -141,10 +144,23 @@ impl Runtime {
             LabelDispatch::Handled => return Ok(None),
             LabelDispatch::Unhandled(command) => command,
         };
+        let command = match self.run_agent_command(command)? {
+            AgentDispatch::Handled => return Ok(None),
+            AgentDispatch::Unhandled(command) => command,
+        };
         match self.run_draft_command(command).await? {
             DraftDispatch::Handled => Ok(None),
             DraftDispatch::Unhandled(command) => Ok(Some(command)),
         }
+    }
+
+    fn run_agent_command(&self, command: Command) -> Result<AgentDispatch, VivariumError> {
+        let acct = self.resolve_account(self.account.clone())?;
+        AgentContext {
+            config: &self.config,
+            account: &acct,
+        }
+        .run_agent_command(command)
     }
 
     fn resolve_account(&self, name: Option<String>) -> Result<Account, VivariumError> {

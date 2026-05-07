@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use vivarium::cli::{Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, QueueCommand};
+use vivarium::cli::{
+    AgentCommand, Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, QueueCommand,
+};
 
 #[test]
 fn parses_sync_index_and_embed() {
@@ -239,10 +241,37 @@ fn parses_enqueue_archive_batch() {
 }
 
 #[test]
-fn rejects_removed_agent_surface() {
+fn rejects_unknown_agent_subcommand() {
     let err = Cli::try_parse_from(["vivi", "agent", "archive", "one"]).unwrap_err();
 
     assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
+}
+
+#[test]
+fn parses_agent_poll_defaults() {
+    let cli = Cli::try_parse_from(["vivi", "agent", "poll", "--from", "ian@example.com"]).unwrap();
+
+    match cli.command {
+        Command::Agent {
+            command:
+                AgentCommand::Poll {
+                    from_addr,
+                    folder,
+                    dry_run,
+                    json,
+                    codex_command,
+                    codex_args,
+                },
+        } => {
+            assert_eq!(from_addr, "ian@example.com");
+            assert_eq!(folder, "inbox");
+            assert!(!dry_run);
+            assert!(!json);
+            assert_eq!(codex_command, "codex");
+            assert_eq!(codex_args, vec!["exec", "-"]);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
 }
 
 #[test]
