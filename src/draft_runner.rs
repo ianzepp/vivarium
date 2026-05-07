@@ -20,13 +20,21 @@ impl Runtime {
         match command {
             Command::Reply(vivarium::cli::ReplyCommand {
                 handle,
+                from,
                 body,
                 html_body,
                 html_body_auto,
                 append_remote,
             }) => {
-                self.reply(&handle, body, html_body, html_body_auto, append_remote)
-                    .await?
+                self.reply(
+                    &handle,
+                    from,
+                    body,
+                    html_body,
+                    html_body_auto,
+                    append_remote,
+                )
+                .await?
             }
             Command::Compose(command) => self.compose(command).await?,
             other => return Ok(DraftDispatch::Unhandled(other)),
@@ -34,11 +42,18 @@ impl Runtime {
         Ok(DraftDispatch::Handled)
     }
 
-    pub(super) async fn send_path(&self, path: &Path) -> Result<(), VivariumError> {
+    pub(super) async fn send_path(
+        &self,
+        path: &Path,
+        from: Option<&str>,
+    ) -> Result<(), VivariumError> {
         require_eml_path(path)?;
         let acct = self.resolve_account(self.account.clone())?;
         let store = MailStore::new(&acct.mail_path(&self.config));
-        let data = std::fs::read(path)?;
+        let mut data = std::fs::read(path)?;
+        if let Some(from) = from {
+            data = message::replace_from_header(&data, from)?;
+        }
         let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
         vivarium::smtp::send_raw(&acct, &data, reject_invalid_certs).await?;
         let sent = reconcile_sent(&store, path, &data)?;
@@ -50,6 +65,7 @@ impl Runtime {
     async fn compose(&self, command: ComposeCommand) -> Result<(), VivariumError> {
         let ComposeCommand {
             to,
+            from,
             cc,
             bcc,
             subject,
@@ -61,7 +77,7 @@ impl Runtime {
         let acct = self.resolve_account(self.account.clone())?;
         let body = body.unwrap_or_default();
         let draft = ComposeDraft {
-            from: acct.email.clone(),
+            from: from.unwrap_or_else(|| acct.email.clone()),
             to,
             cc,
             bcc,
@@ -82,6 +98,7 @@ impl Runtime {
     async fn reply(
         &self,
         handle: &str,
+        from: Option<String>,
         body: Option<String>,
         html_body: Option<String>,
         html_body_auto: bool,
@@ -95,7 +112,7 @@ impl Runtime {
         let initial = message::build_reply(
             &original,
             &ReplyDraft {
-                from: acct.email.clone(),
+                from: from.unwrap_or_else(|| acct.email.clone()),
                 html_body: resolve_html_body(&body, html_body, html_body_auto),
                 body,
             },
@@ -110,7 +127,8 @@ impl Runtime {
     }
 
     pub(super) async fn reply_body(&self, handle: &str, body: String) -> Result<(), VivariumError> {
-        self.reply(handle, Some(body), None, false, false).await
+        self.reply(handle, None, Some(body), None, false, false)
+            .await
     }
 }
 

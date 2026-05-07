@@ -75,7 +75,13 @@ pub enum ExecCommand {
     },
 
     /// Send an explicit .eml file immediately
-    Send { path: PathBuf },
+    Send {
+        path: PathBuf,
+
+        /// Sender address to set before sending
+        #[arg(long)]
+        from: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -132,7 +138,13 @@ pub enum EnqueueCommand {
     },
 
     /// Queue sending an explicit .eml file
-    Send { path: PathBuf },
+    Send {
+        path: PathBuf,
+
+        /// Sender address to set before sending
+        #[arg(long)]
+        from: Option<String>,
+    },
 
     /// Queue local reply draft creation
     Reply {

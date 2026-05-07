@@ -66,6 +66,7 @@ fn parses_default_compose_command() {
             to,
             cc,
             bcc,
+            from,
             subject,
             body,
             html_body,
@@ -75,6 +76,7 @@ fn parses_default_compose_command() {
             assert_eq!(to, vec!["a@example.com"]);
             assert_eq!(cc, vec!["b@example.com"]);
             assert_eq!(bcc, vec!["c@example.com"]);
+            assert_eq!(from, None);
             assert_eq!(subject, "hello");
             assert_eq!(body.as_deref(), Some("body"));
             assert_eq!(html_body, None);
@@ -114,6 +116,28 @@ fn parses_compose_html_body_auto() {
 }
 
 #[test]
+fn parses_compose_from() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "compose",
+        "--from",
+        "Alias <alias@example.com>",
+        "--to",
+        "a@example.com",
+        "--subject",
+        "hello",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Compose(vivarium::cli::ComposeCommand { from, .. }) => {
+            assert_eq!(from.as_deref(), Some("Alias <alias@example.com>"));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn rejects_compose_html_body_auto_without_body() {
     let err = Cli::try_parse_from([
         "vivi",
@@ -144,12 +168,14 @@ fn parses_default_reply_command() {
     match cli.command {
         Command::Reply(vivarium::cli::ReplyCommand {
             handle,
+            from,
             body,
             html_body,
             html_body_auto,
             append_remote,
         }) => {
             assert_eq!(handle, "handle-1");
+            assert_eq!(from, None);
             assert_eq!(body.as_deref(), Some("thanks"));
             assert_eq!(html_body, None);
             assert!(!html_body_auto);
@@ -243,9 +269,33 @@ fn parses_enqueue_send() {
 
     match cli.command {
         Command::Enqueue {
-            command: EnqueueCommand::Send { path },
+            command: EnqueueCommand::Send { path, from },
         } => {
             assert_eq!(path, PathBuf::from("draft.eml"));
+            assert_eq!(from, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_enqueue_send_from() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "enqueue",
+        "send",
+        "draft.eml",
+        "--from",
+        "alias@example.com",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Enqueue {
+            command: EnqueueCommand::Send { path, from },
+        } => {
+            assert_eq!(path, PathBuf::from("draft.eml"));
+            assert_eq!(from.as_deref(), Some("alias@example.com"));
         }
         other => panic!("unexpected command: {other:?}"),
     }
@@ -319,8 +369,34 @@ fn parses_exec_send() {
 
     match cli.command {
         Command::Exec {
-            command: ExecCommand::Send { path },
-        } => assert_eq!(path, PathBuf::from("message.eml")),
+            command: ExecCommand::Send { path, from },
+        } => {
+            assert_eq!(path, PathBuf::from("message.eml"));
+            assert_eq!(from, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_exec_send_from() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "exec",
+        "send",
+        "message.eml",
+        "--from",
+        "alias@example.com",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Exec {
+            command: ExecCommand::Send { path, from },
+        } => {
+            assert_eq!(path, PathBuf::from("message.eml"));
+            assert_eq!(from.as_deref(), Some("alias@example.com"));
+        }
         other => panic!("unexpected command: {other:?}"),
     }
 }

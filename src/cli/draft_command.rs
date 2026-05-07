@@ -10,6 +10,10 @@ pub struct ReplyCommand {
     /// Message handle or local message identifier to reply to
     pub handle: String,
 
+    /// Sender address to use for this draft
+    #[arg(long)]
+    pub from: Option<String>,
+
     /// Reply body text
     #[arg(long)]
     pub body: Option<String>,
@@ -34,6 +38,10 @@ pub struct ReplyCommand {
         .multiple(false)
 ))]
 pub struct ComposeCommand {
+    /// Sender address to use for this draft
+    #[arg(long)]
+    pub from: Option<String>,
+
     /// Recipient address
     #[arg(long)]
     pub to: Vec<String>,

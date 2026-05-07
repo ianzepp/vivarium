@@ -145,7 +145,7 @@ impl Runtime {
             | QueuedCommand::Delete { .. }
             | QueuedCommand::Move { .. }
             | QueuedCommand::Flag { .. } => self.run_queued_mutation(command, json).await,
-            QueuedCommand::Send { path } => self.send_path(&path).await,
+            QueuedCommand::Send { path, from } => self.send_path(&path, from.as_deref()).await,
             QueuedCommand::Reply { handle, body } => self.reply_body(&handle, body).await,
         }
     }
@@ -190,9 +190,9 @@ fn queued_from_exec(command: ExecCommand) -> Result<(QueuedCommand, bool), Vivar
             },
             json,
         )),
-        ExecCommand::Send { path } => {
+        ExecCommand::Send { path, from } => {
             require_eml_path(&path)?;
-            Ok((QueuedCommand::Send { path }, false))
+            Ok((QueuedCommand::Send { path, from }, false))
         }
     }
 }
@@ -224,9 +224,9 @@ fn queued_from_enqueue(command: EnqueueCommand) -> Result<QueuedCommand, Vivariu
             star,
             unstar,
         }),
-        EnqueueCommand::Send { path } => {
+        EnqueueCommand::Send { path, from } => {
             require_eml_path(&path)?;
-            Ok(QueuedCommand::Send { path })
+            Ok(QueuedCommand::Send { path, from })
         }
         EnqueueCommand::Reply { handle, body } => Ok(QueuedCommand::Reply { handle, body }),
     }

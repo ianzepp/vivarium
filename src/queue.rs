@@ -54,6 +54,8 @@ pub enum QueuedCommand {
     },
     Send {
         path: PathBuf,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<String>,
     },
     Reply {
         handle: String,

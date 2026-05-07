@@ -103,6 +103,51 @@ pub fn validate_message_headers(data: &[u8]) -> Result<(), VivariumError> {
     Ok(())
 }
 
+pub fn replace_from_header(data: &[u8], from: &str) -> Result<Vec<u8>, VivariumError> {
+    let from = from.trim();
+    if from.is_empty() {
+        return Err(VivariumError::Message("--from cannot be empty".into()));
+    }
+    let _: lettre::message::Mailbox = from
+        .parse()
+        .map_err(|e| VivariumError::Message(format!("invalid --from address: {e}")))?;
+    let text = std::str::from_utf8(data)
+        .map_err(|e| VivariumError::Message(format!("message is not UTF-8: {e}")))?;
+    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let separator = format!("{newline}{newline}");
+    let (headers, body) = text
+        .split_once(&separator)
+        .ok_or_else(|| VivariumError::Message("message has no header/body separator".into()))?;
+
+    let mut found = false;
+    let mut skip_continuation = false;
+    let mut rewritten = Vec::new();
+    for line in headers.split(newline) {
+        if skip_continuation && (line.starts_with(' ') || line.starts_with('\t')) {
+            continue;
+        }
+        skip_continuation = false;
+        if line
+            .split_once(':')
+            .is_some_and(|(name, _)| name.eq_ignore_ascii_case("from"))
+        {
+            if !found {
+                rewritten.push(format!("From: {from}"));
+                found = true;
+                skip_continuation = true;
+            }
+            continue;
+        }
+        rewritten.push(line.to_string());
+    }
+    if !found {
+        return Err(VivariumError::Message("message has no From header".into()));
+    }
+    let rewritten = format!("{}{separator}{body}", rewritten.join(newline));
+    validate_message_headers(rewritten.as_bytes())?;
+    Ok(rewritten.into_bytes())
+}
+
 fn normalize_body(body: &str) -> String {
     let mut body = body.replace('\n', "\r\n");
     if !body.ends_with("\r\n") {
@@ -223,6 +268,27 @@ mod tests {
         assert!(eml.contains("In-Reply-To: <root@example.com>"));
         assert!(eml.contains("References: <root@example.com>"));
         assert!(eml.contains("> hello"));
+    }
+
+    #[test]
+    fn replace_from_header_updates_sender() {
+        let data = b"From: me@example.com\r\nTo: you@example.com\r\nSubject: hi\r\n\r\nbody";
+
+        let rewritten = replace_from_header(data, "Alias <alias@example.com>").unwrap();
+        let text = String::from_utf8(rewritten).unwrap();
+
+        assert!(text.starts_with("From: Alias <alias@example.com>\r\n"));
+        assert!(text.contains("\r\nTo: you@example.com\r\n"));
+        assert!(text.ends_with("\r\n\r\nbody"));
+    }
+
+    #[test]
+    fn replace_from_header_rejects_invalid_sender() {
+        let data = b"From: me@example.com\r\nTo: you@example.com\r\nSubject: hi\r\n\r\nbody";
+
+        let err = replace_from_header(data, "not an address").unwrap_err();
+
+        assert!(err.to_string().contains("invalid --from address"));
     }
 
     #[test]
