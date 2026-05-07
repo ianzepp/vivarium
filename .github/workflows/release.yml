@@ -101,6 +101,8 @@ jobs:
             test do
               assert_match version.to_s, shell_output("#{bin}/vivi --version")
               assert_match "exec", shell_output("#{bin}/vivi --help")
+              assert_match "agent", shell_output("#{bin}/vivi --help")
+              assert_match "poll", shell_output("#{bin}/vivi agent --help")
               assert_match "send", shell_output("#{bin}/vivi exec --help")
             end
           end
