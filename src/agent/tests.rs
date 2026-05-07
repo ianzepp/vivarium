@@ -68,6 +68,13 @@ fn next_batch_groups_unprocessed_trusted_thread_messages() {
     assert_eq!(batch.seed.message_id, "root-1");
     assert_eq!(batch.messages.len(), 3);
     assert_eq!(batch.claimed_message_ids, vec!["root-1", "reply-2"]);
+
+    let prompt = codex_prompt("acct", &batch).unwrap();
+    assert!(prompt.contains("send a reply in this same thread"));
+    assert!(prompt.contains("summarizing what action you took"));
+    assert!(prompt.contains("explaining that no action was taken"));
+    assert!(prompt.contains("send from the account below"));
+    assert!(prompt.contains("Account: acct"));
 }
 
 fn catalog(mail_root: &Path, account: &str, handle: &str, path: &Path, role: &str) {
