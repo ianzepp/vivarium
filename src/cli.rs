@@ -190,6 +190,14 @@ pub enum Command {
         #[arg(long)]
         folder: Option<String>,
 
+        /// Restrict results to messages from this sender address or From header text
+        #[arg(long = "from")]
+        from_addr: Option<String>,
+
+        /// Restrict results to messages from this sender domain
+        #[arg(long = "from-domain")]
+        from_domain: Option<String>,
+
         /// Maximum results to return
         #[arg(long, default_value = "20")]
         limit: usize,

@@ -453,6 +453,32 @@ fn parses_search_count_and_folder() {
 }
 
 #[test]
+fn parses_search_sender_filters() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "search",
+        "invoice",
+        "--from",
+        "person@example.com",
+        "--from-domain",
+        "example.com",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Search {
+            from_addr,
+            from_domain,
+            ..
+        } => {
+            assert_eq!(from_addr.as_deref(), Some("person@example.com"));
+            assert_eq!(from_domain.as_deref(), Some("example.com"));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_label_add_dry_run_json() {
     let cli = Cli::try_parse_from([
         "vivi",

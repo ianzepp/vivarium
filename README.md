@@ -121,6 +121,8 @@ vivi queue run --all                           # execute all pending queued writ
 vivi search "invoice"                          # keyword search
 vivi search "invoice" --json                   # JSON search output with citation metadata
 vivi search "DoorDash" --folder inbox --count  # print only the inbox match count
+vivi search "invoice" --from person@example.com
+vivi search "invoice" --from-domain example.com
 vivi index rebuild --account proton            # rebuild deterministic local index state
 vivi reply 4f8c2d1                             # draft a reply from a local message
 vivi compose --to you@example.com --subject hi # create a new local draft

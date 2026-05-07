@@ -4,8 +4,11 @@ use crate::email_index::{EmailIndex, IndexedMessage};
 use crate::error::VivariumError;
 use crate::storage::Storage;
 
+mod filters;
 mod output;
 mod semantic;
+pub use filters::SearchFilters;
+pub(crate) use filters::filter_results;
 pub use output::{SearchOutput, print_search_output, to_json_result};
 pub use semantic::{SemanticSearchOptions, semantic_or_hybrid_search};
 
@@ -34,9 +37,9 @@ pub fn keyword_search(
     query: &str,
     limit: usize,
     offset: usize,
-    folder: Option<&str>,
+    filters: Option<SearchFilters<'_>>,
 ) -> Result<(Vec<SearchResult>, usize), VivariumError> {
-    indexed_lexical_results_page(mail_root, account, query, limit, offset, folder)
+    indexed_lexical_results_page(mail_root, account, query, limit, offset, filters)
 }
 
 pub fn canonical_search_folder(folder: &str) -> Result<String, VivariumError> {
@@ -50,19 +53,6 @@ pub fn canonical_search_folder(folder: &str) -> Result<String, VivariumError> {
             "unsupported search folder '{folder}'; expected inbox, archive, trash, sent, or drafts"
         ))),
     }
-}
-
-pub(crate) fn filter_by_folder(
-    results: Vec<SearchResult>,
-    folder: Option<&str>,
-) -> Vec<SearchResult> {
-    let Some(folder) = folder else {
-        return results;
-    };
-    results
-        .into_iter()
-        .filter(|result| result.local_role.eq_ignore_ascii_case(folder))
-        .collect()
 }
 
 pub(crate) fn indexed_lexical_results(
@@ -81,7 +71,7 @@ pub(crate) fn indexed_lexical_results_page(
     query: &str,
     limit: usize,
     offset: usize,
-    folder: Option<&str>,
+    filters: Option<SearchFilters<'_>>,
 ) -> Result<(Vec<SearchResult>, usize), VivariumError> {
     let index = EmailIndex::open(mail_root)?;
     if index.count_messages(account)? == 0
@@ -91,7 +81,7 @@ pub(crate) fn indexed_lexical_results_page(
             "email index is empty for account '{account}'; run `vivi index rebuild --account {account}` or `vivi sync --index --account {account}`"
         )));
     }
-    let (matches, total) = index.search_messages(account, query, limit, offset, folder)?;
+    let (matches, total) = index.search_messages(account, query, limit, offset, filters)?;
     let results = matches
         .into_iter()
         .map(|(message, score)| {
@@ -227,6 +217,53 @@ mod tests {
         assert_eq!(results[0].from, "Agent <agent@example.com>");
         assert_eq!(results[0].subject, "Release notice");
         assert!(!results[0].content_id.is_empty());
+    }
+
+    #[test]
+    fn keyword_search_filters_by_sender_and_sender_domain() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        let agent = store
+            .store_message(
+                "inbox",
+                "inbox-1",
+                b"From: Agent <agent@example.com>\r\nTo: me@example.com\r\nDate: Sat, 2 May 2026 13:35:00 +0000\r\nSubject: Release notice\r\n\r\nRelease body",
+            )
+            .unwrap();
+        let other = store
+            .store_message(
+                "inbox",
+                "inbox-2",
+                b"From: Other <other@test.example>\r\nTo: me@example.com\r\nDate: Sat, 2 May 2026 13:36:00 +0000\r\nSubject: Release notice\r\n\r\nRelease body",
+            )
+            .unwrap();
+        catalog(tmp.path(), "acct", &agent, "INBOX");
+        catalog(tmp.path(), "acct", &other, "INBOX");
+        email_index::rebuild(tmp.path(), "acct").unwrap();
+
+        let (sender_results, sender_total) = keyword_search(
+            tmp.path(),
+            "acct",
+            "release",
+            10,
+            0,
+            SearchFilters::new(None, Some("agent@example.com"), None),
+        )
+        .unwrap();
+        let (domain_results, domain_total) = keyword_search(
+            tmp.path(),
+            "acct",
+            "release",
+            10,
+            0,
+            SearchFilters::new(None, None, Some("test.example")),
+        )
+        .unwrap();
+
+        assert_eq!(sender_total, 1);
+        assert_eq!(sender_results[0].message_id, "inbox-1");
+        assert_eq!(domain_total, 1);
+        assert_eq!(domain_results[0].message_id, "inbox-2");
     }
 
     #[test]

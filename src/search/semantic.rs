@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::embeddings::{self, SemanticMatch};
 use crate::error::VivariumError;
-use crate::search::SearchResult;
+use crate::search::{SearchFilters, SearchResult};
 
 #[derive(Debug, Clone, Copy)]
 pub struct SemanticSearchOptions<'a> {
@@ -10,7 +10,7 @@ pub struct SemanticSearchOptions<'a> {
     pub offset: usize,
     pub semantic: bool,
     pub hybrid: bool,
-    pub folder: Option<&'a str>,
+    pub filters: Option<SearchFilters<'a>>,
 }
 
 pub async fn semantic_or_hybrid_search(
@@ -22,17 +22,17 @@ pub async fn semantic_or_hybrid_search(
     let (semantic_results, semantic_total) =
         semantic_results(mail_root, account, query, options.limit, options.offset).await?;
     if options.semantic && !options.hybrid {
-        if options.folder.is_none() {
+        if options.filters.is_none() {
             return Ok((semantic_results, semantic_total));
         }
-        let results = super::filter_by_folder(semantic_results, options.folder);
+        let results = super::filter_results(semantic_results, options.filters);
         return Ok((results.clone(), results.len()));
     }
-    let lexical_results = super::filter_by_folder(
+    let lexical_results = super::filter_results(
         super::indexed_lexical_results(mail_root, account, query)?,
-        options.folder,
+        options.filters,
     );
-    let semantic_results = super::filter_by_folder(semantic_results, options.folder);
+    let semantic_results = super::filter_results(semantic_results, options.filters);
     Ok(merge_hybrid(
         lexical_results,
         semantic_results,

@@ -24,6 +24,8 @@ use queue_runner::QueueDispatch;
 struct SearchRequest<'a> {
     query: &'a str,
     folder: Option<&'a str>,
+    from_addr: Option<&'a str>,
+    from_domain: Option<&'a str>,
     limit: usize,
     offset: usize,
     as_json: bool,
@@ -194,6 +196,8 @@ impl Runtime {
         let Command::Search {
             query,
             folder,
+            from_addr,
+            from_domain,
             limit,
             offset,
             json,
@@ -207,6 +211,8 @@ impl Runtime {
         self.search(SearchRequest {
             query: &query,
             folder: folder.as_deref(),
+            from_addr: from_addr.as_deref(),
+            from_domain: from_domain.as_deref(),
             limit,
             offset,
             as_json: json,
@@ -318,6 +324,11 @@ impl Runtime {
             .folder
             .map(vivarium::search::canonical_search_folder)
             .transpose()?;
+        let filters = vivarium::search::SearchFilters::new(
+            folder.as_deref(),
+            request.from_addr,
+            request.from_domain,
+        );
         let (results, total) = if request.semantic || request.hybrid {
             vivarium::search::semantic_or_hybrid_search(
                 &mail_root,
@@ -328,7 +339,7 @@ impl Runtime {
                     offset: request.offset,
                     semantic: request.semantic,
                     hybrid: request.hybrid,
-                    folder: folder.as_deref(),
+                    filters,
                 },
             )
             .await?
@@ -339,7 +350,7 @@ impl Runtime {
                 request.query,
                 request.limit,
                 request.offset,
-                folder.as_deref(),
+                filters,
             )?
         };
         vivarium::search::print_search_output(vivarium::search::SearchOutput {
