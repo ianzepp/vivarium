@@ -51,6 +51,14 @@ const DEFAULT_ACCOUNTS: &str = r#"# Each [[accounts]] entry defines an email acc
 # imap_security = "ssl"
 "#;
 
+const DEFAULT_AGENT_PROMPT: &str = r#"You are processing instructions delivered through Vivi's trusted agent mailbox.
+Use your judgment about what action, if any, is appropriate. After processing, send a reply in this same thread from the receiving Vivi account summarizing what action you took, or explaining that no action was taken.
+Use Vivi's draft/send surfaces for the reply and send from the receiving account. Do not send from another account unless the instruction explicitly asks you to.
+
+To customize per account, create:
+  ~/.config/vivarium/agent/prompts/<account-name>.md
+"#;
+
 pub fn run_init() -> Result<(), VivariumError> {
     let config_path = Config::default_path();
     let accounts_path = AccountsFile::default_path();
@@ -63,6 +71,7 @@ pub fn run_init() -> Result<(), VivariumError> {
 
     write_if_missing(&config_path, DEFAULT_CONFIG)?;
     write_if_missing(&accounts_path, DEFAULT_ACCOUNTS)?;
+    write_if_missing(&dir.join("agent").join("prompt.md"), DEFAULT_AGENT_PROMPT)?;
 
     // Ensure accounts.toml is 600
     fs::set_permissions(&accounts_path, fs::Permissions::from_mode(0o600))?;

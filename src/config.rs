@@ -36,6 +36,10 @@ impl Config {
         config_dir().join("config.toml")
     }
 
+    pub fn default_dir() -> PathBuf {
+        config_dir()
+    }
+
     pub fn default_mail_root() -> PathBuf {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))

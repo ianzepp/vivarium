@@ -73,8 +73,16 @@ fn next_batch_groups_unprocessed_trusted_thread_messages() {
     assert!(prompt.contains("send a reply in this same thread"));
     assert!(prompt.contains("summarizing what action you took"));
     assert!(prompt.contains("explaining that no action was taken"));
-    assert!(prompt.contains("send from the account below"));
+    assert!(prompt.contains("send from the receiving account"));
     assert!(prompt.contains("Account: acct"));
+}
+
+#[test]
+fn prompt_paths_prefer_account_specific_prompt() {
+    let paths = prompt::prompt_paths("agent-proton");
+
+    assert!(paths[0].ends_with("agent/prompts/agent-proton.md"));
+    assert!(paths[1].ends_with("agent/prompt.md"));
 }
 
 fn catalog(mail_root: &Path, account: &str, handle: &str, path: &Path, role: &str) {
