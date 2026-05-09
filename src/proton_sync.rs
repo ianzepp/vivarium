@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 
 use crate::catalog::CatalogEntry;
-use crate::config::{Account, StorageMode};
+use crate::config::Account;
 use crate::error::VivariumError;
 use crate::proton_api::{ProtonApiClient, ProtonFullMessage, ProtonMessage, ProtonSessionStore};
 use crate::proton_decrypt::ProtonBodyDecryptor;
@@ -24,12 +24,9 @@ pub async fn sync_messages(
     limit: Option<usize>,
     window: SyncWindow,
 ) -> Result<SyncResult, VivariumError> {
-    if !matches!(
-        account.resolved_storage_mode(),
-        StorageMode::Headers | StorageMode::Bodies
-    ) {
+    if !direct_sync_storage_supported(account) {
         return Err(VivariumError::Config(format!(
-            "account '{}' uses storage_mode = \"{}\"; direct Proton API sync currently supports storage_mode = \"headers\" or \"bodies\" only",
+            "account '{}' uses storage_mode = \"{}\"; direct Proton API sync currently supports storage_mode = \"headers\", \"bodies\", or \"semantic\" only",
             account.name,
             account.resolved_storage_mode()
         )));
@@ -74,6 +71,15 @@ pub async fn sync_messages(
     }
 
     Ok(result)
+}
+
+fn direct_sync_storage_supported(account: &Account) -> bool {
+    matches!(
+        account.resolved_storage_mode(),
+        crate::config::StorageMode::Headers
+            | crate::config::StorageMode::Bodies
+            | crate::config::StorageMode::Semantic
+    )
 }
 
 struct SyncOneContext<'a> {
@@ -137,7 +143,7 @@ async fn body_decryptor(
     session: &mut crate::proton_api::ProtonSession,
     session_store: &ProtonSessionStore,
 ) -> Result<Option<ProtonBodyDecryptor>, VivariumError> {
-    if !matches!(account.resolved_storage_mode(), StorageMode::Bodies) {
+    if !account.stores_full_bodies() {
         return Ok(None);
     }
     let password = account.resolve_secret().await?;

@@ -1,5 +1,19 @@
 use super::*;
+use crate::config::StorageMode;
 use crate::proton_api::ProtonAddress;
+
+#[test]
+fn direct_sync_treats_semantic_as_body_capable_storage() {
+    let mut account = test_account(StorageMode::Semantic);
+
+    assert!(direct_sync_storage_supported(&account));
+    assert!(account.stores_full_bodies());
+    assert!(account.allows_semantic_indexing());
+
+    account.storage_mode = Some(StorageMode::Proxy);
+
+    assert!(!direct_sync_storage_supported(&account));
+}
 
 #[test]
 fn maps_system_labels_to_local_roles() {
@@ -69,5 +83,38 @@ fn test_message() -> ProtonMessage {
         cc: Vec::new(),
         bcc: Vec::new(),
         label_ids: vec!["0".into(), "5".into()],
+    }
+}
+
+fn test_account(storage_mode: StorageMode) -> crate::config::Account {
+    crate::config::Account {
+        name: "direct".into(),
+        email: "agent@example.com".into(),
+        imap_host: String::new(),
+        imap_port: None,
+        imap_security: None,
+        smtp_host: String::new(),
+        smtp_port: None,
+        smtp_security: None,
+        username: "agent@example.com".into(),
+        auth: crate::config::Auth::Password,
+        password: Some("secret".into()),
+        password_cmd: None,
+        token_cmd: None,
+        oauth_client_id: None,
+        oauth_client_secret: None,
+        mail_dir: None,
+        inbox_folder: None,
+        archive_folder: None,
+        trash_folder: None,
+        sent_folder: None,
+        drafts_folder: None,
+        label_roots: None,
+        storage_mode: Some(storage_mode),
+        provider: crate::config::Provider::ProtonApi,
+        oauth_authorization_url: None,
+        oauth_token_url: None,
+        oauth_scope: None,
+        reject_invalid_certs: None,
     }
 }

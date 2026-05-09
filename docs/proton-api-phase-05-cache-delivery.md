@@ -13,8 +13,9 @@ same encrypted blob from Proton.
   Vivi's private account state directory.
 - Store cache files with private permissions and stable Proton-message-ID based
   names.
-- Teach direct Proton `storage_mode = "bodies"` sync to prefer cached encrypted
-  payloads before calling the live message body endpoint.
+- Teach direct Proton body-capable sync, `storage_mode = "bodies"` or
+  `storage_mode = "semantic"`, to prefer cached encrypted payloads before
+  calling the live message body endpoint.
 - Preserve the current decrypted RFC-like blob ingestion path.
 - Keep private captured blobs out of the repository and release artifacts.
 

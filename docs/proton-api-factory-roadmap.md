@@ -126,7 +126,7 @@ Reuse Vivi's existing embedding/index pipeline for direct Proton accounts after 
 
 Expected outputs:
 
-- `storage_mode = "semantic"` direct Proton accounts fetch/decrypt bodies and can run `vivi sync --embed` or `vivi index embeddings`.
+- `storage_mode = "semantic"` direct Proton accounts use the same fetch/decrypt/cache path as `storage_mode = "bodies"`, then run embeddings as a local post-processing step through `vivi sync --embed` or `vivi index embeddings`.
 - Existing semantic and hybrid search paths work without provider-specific special cases beyond the direct sync source.
 
 Out of scope:
