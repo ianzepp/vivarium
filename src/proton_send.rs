@@ -8,12 +8,17 @@ use crate::config::Config;
 use crate::error::VivariumError;
 use crate::proton_api::{
     CreateDraftReq, DraftTemplate, MessagePackage, MessageRecipient, ProtonAddress,
-    ProtonApiClient, ProtonSessionStore, SendDraftReq, SessionKey,
+    ProtonApiClient, ProtonPublicKey, ProtonRecipientType, ProtonSessionStore, SendDraftReq,
+    SessionKey,
 };
-use crate::proton_encrypt::{ProtonBodyEncryptor, ProtonEncryptedBody};
+use crate::proton_encrypt::{ProtonBodyEncryptor, ProtonEncryptedBody, encrypt_session_key_packet};
 
+const INTERNAL_SCHEME: u8 = 1;
 const CLEAR_SCHEME: u8 = 4;
+const PGP_INLINE_SCHEME: u8 = 8;
 const NO_SIGNATURE: u8 = 0;
+const DETACHED_SIGNATURE: u8 = 1;
+const RECIPIENT_TYPE_INTERNAL: ProtonRecipientType = ProtonRecipientType(1);
 
 pub async fn send_raw(
     account: &Account,
@@ -26,13 +31,17 @@ pub async fn send_raw(
     let mut session = session_store.load()?;
     let client = ProtonApiClient::default();
 
-    session = reject_keyed_recipients(&client, &session_store, session, &draft).await?;
+    let (refreshed, recipients) =
+        recipient_preferences(&client, &session_store, session, &draft).await?;
+    session = refreshed;
 
     let (refreshed, key_material) = client.key_material(&session).await?;
     session_store.save(&refreshed)?;
     session = refreshed;
 
-    let encryptor = ProtonBodyEncryptor::new(&key_material)?;
+    let password = account.resolve_secret().await?;
+    let encryptor = ProtonBodyEncryptor::new(&password, &key_material)?;
+    let plain_body = draft.message.body.clone();
     let draft_body = encryptor.encrypt_body(&draft.message.body)?;
     draft.message.body = draft_body.armored_message;
 
@@ -40,8 +49,8 @@ pub async fn send_raw(
     session_store.save(&refreshed)?;
     session = refreshed;
 
-    let package_body = encryptor.encrypt_body(&draft_request_from_eml(data)?.message.body)?;
-    let send = clear_send_request(&draft, package_body);
+    let package_body = encryptor.encrypt_signed_body(&plain_body)?;
+    let send = send_request(&draft, package_body, &recipients)?;
     let (refreshed, _sent) = client.send_draft(&session, &created.id, &send).await?;
     session_store.save(&refreshed)?;
     Ok(())
@@ -92,61 +101,154 @@ fn draft_body(parsed: &mail_parser::Message<'_>) -> (String, String) {
     )
 }
 
-async fn reject_keyed_recipients(
+async fn recipient_preferences(
     client: &ProtonApiClient,
     session_store: &ProtonSessionStore,
     mut session: crate::proton_api::ProtonSession,
     draft: &CreateDraftReq,
-) -> Result<crate::proton_api::ProtonSession, VivariumError> {
+) -> Result<
+    (
+        crate::proton_api::ProtonSession,
+        Vec<RecipientSendPreference>,
+    ),
+    VivariumError,
+> {
+    let mut preferences = Vec::new();
     for recipient in all_recipients(draft) {
-        let (refreshed, keys, _recipient_type) = client.public_keys(&session, &recipient).await?;
+        let (refreshed, keys, recipient_type) = client.public_keys(&session, &recipient).await?;
         if refreshed.access_token != session.access_token {
             session_store.save(&refreshed)?;
         }
         session = refreshed;
-        if keys
-            .iter()
-            .any(|key| key.is_active() && !key.public_key.is_empty())
-        {
-            return Err(VivariumError::Other(format!(
-                "direct Proton API send to keyed recipient '{recipient}' is not enabled yet: encrypted recipient packages are pending"
-            )));
-        }
+        preferences.push(RecipientSendPreference::new(
+            recipient,
+            active_public_key(&keys),
+            recipient_type,
+            &draft.message.mime_type,
+        )?);
     }
-    Ok(session)
+    Ok((session, preferences))
 }
 
-fn clear_send_request(draft: &CreateDraftReq, body: ProtonEncryptedBody) -> SendDraftReq {
-    SendDraftReq {
+fn send_request(
+    draft: &CreateDraftReq,
+    body: ProtonEncryptedBody,
+    recipients: &[RecipientSendPreference],
+) -> Result<SendDraftReq, VivariumError> {
+    Ok(SendDraftReq {
         packages: vec![MessagePackage {
-            addresses: serde_json::to_value(clear_recipients(draft)).unwrap_or_default(),
+            addresses: serde_json::to_value(recipients_for_body_key(&body, recipients)?)
+                .unwrap_or_default(),
             mime_type: draft.message.mime_type.clone(),
-            package_type: CLEAR_SCHEME,
+            package_type: package_type(recipients),
             body: STANDARD.encode(body.data_packet),
-            body_key: Some(SessionKey {
-                key: STANDARD.encode(body.session_key),
-                algorithm: body.algorithm,
-            }),
+            body_key: if recipients.iter().any(|recipient| recipient.is_clear()) {
+                Some(SessionKey {
+                    key: STANDARD.encode(body.session_key),
+                    algorithm: body.algorithm,
+                })
+            } else {
+                None
+            },
             attachment_keys: Some(serde_json::json!({})),
         }],
+    })
+}
+
+fn recipients_for_body_key(
+    body: &ProtonEncryptedBody,
+    recipients: &[RecipientSendPreference],
+) -> Result<BTreeMap<String, MessageRecipient>, VivariumError> {
+    recipients
+        .iter()
+        .map(|recipient| {
+            Ok((
+                recipient.address.clone(),
+                MessageRecipient {
+                    recipient_type: recipient.scheme,
+                    signature: recipient.signature(),
+                    body_key_packet: recipient.body_key_packet(&body.session_key)?,
+                    attachment_key_packets: Some(serde_json::json!({})),
+                },
+            ))
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug)]
+struct RecipientSendPreference {
+    address: String,
+    scheme: u8,
+    public_key: Option<String>,
+}
+
+impl RecipientSendPreference {
+    fn new(
+        address: String,
+        public_key: Option<String>,
+        recipient_type: Option<ProtonRecipientType>,
+        mime_type: &str,
+    ) -> Result<Self, VivariumError> {
+        let Some(public_key) = public_key else {
+            return Ok(Self::clear(address));
+        };
+        let scheme = if recipient_type == Some(RECIPIENT_TYPE_INTERNAL) {
+            INTERNAL_SCHEME
+        } else {
+            if mime_type != "text/plain" {
+                return Err(VivariumError::Other(format!(
+                    "direct Proton API send to external PGP recipient '{address}' requires text/plain until PGP/MIME packages are implemented"
+                )));
+            }
+            PGP_INLINE_SCHEME
+        };
+        Ok(Self {
+            address,
+            scheme,
+            public_key: Some(public_key),
+        })
+    }
+
+    fn clear(address: String) -> Self {
+        Self {
+            address,
+            scheme: CLEAR_SCHEME,
+            public_key: None,
+        }
+    }
+
+    fn is_clear(&self) -> bool {
+        self.scheme == CLEAR_SCHEME
+    }
+
+    fn signature(&self) -> u8 {
+        if self.is_clear() {
+            NO_SIGNATURE
+        } else {
+            DETACHED_SIGNATURE
+        }
+    }
+
+    fn body_key_packet(&self, session_key: &[u8]) -> Result<Option<String>, VivariumError> {
+        self.public_key
+            .as_deref()
+            .map(|key| {
+                encrypt_session_key_packet(key, session_key).map(|packet| STANDARD.encode(packet))
+            })
+            .transpose()
     }
 }
 
-fn clear_recipients(draft: &CreateDraftReq) -> BTreeMap<String, MessageRecipient> {
-    all_recipients(draft)
-        .into_iter()
-        .map(|address| {
-            (
-                address,
-                MessageRecipient {
-                    recipient_type: CLEAR_SCHEME,
-                    signature: NO_SIGNATURE,
-                    body_key_packet: None,
-                    attachment_key_packets: Some(serde_json::json!({})),
-                },
-            )
-        })
-        .collect()
+fn active_public_key(keys: &[ProtonPublicKey]) -> Option<String> {
+    keys.iter()
+        .find(|key| key.is_active() && !key.public_key.is_empty())
+        .map(|key| key.public_key.clone())
+}
+
+fn package_type(recipients: &[RecipientSendPreference]) -> u8 {
+    recipients
+        .iter()
+        .fold(0, |package_type, recipient| package_type | recipient.scheme)
 }
 
 fn all_recipients(draft: &CreateDraftReq) -> Vec<String> {
@@ -189,81 +291,4 @@ fn address_list(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn draft_request_extracts_headers_and_plain_body() {
-        let data = b"Message-ID: <draft@example.com>\r\nFrom: Sender <sender@example.com>\r\nTo: A <a@example.com>\r\nCc: b@example.com\r\nBcc: c@example.com\r\nSubject: Hello\r\n\r\nPlain body";
-
-        let request = draft_request_from_eml(data).unwrap();
-
-        assert_eq!(request.message.subject, "Hello");
-        assert_eq!(request.message.sender.address, "sender@example.com");
-        assert_eq!(request.message.sender.name, "Sender");
-        assert_eq!(request.message.to[0].address, "a@example.com");
-        assert_eq!(request.message.cc[0].address, "b@example.com");
-        assert_eq!(request.message.bcc[0].address, "c@example.com");
-        assert_eq!(request.message.body, "Plain body");
-        assert_eq!(request.message.mime_type, "text/plain");
-        assert_eq!(
-            request.message.external_id.as_deref(),
-            Some("draft@example.com")
-        );
-    }
-
-    #[test]
-    fn draft_request_prefers_html_body() {
-        let data = concat!(
-            "From: sender@example.com\r\n",
-            "To: a@example.com\r\n",
-            "Subject: HTML\r\n",
-            "Content-Type: text/html\r\n",
-            "\r\n",
-            "<p>Hello</p>"
-        );
-
-        let request = draft_request_from_eml(data.as_bytes()).unwrap();
-
-        assert_eq!(request.message.body, "<p>Hello</p>");
-        assert_eq!(request.message.mime_type, "text/html");
-    }
-
-    #[test]
-    fn draft_request_requires_recipient() {
-        let data = b"From: sender@example.com\r\nSubject: Missing\r\n\r\nBody";
-
-        let err = draft_request_from_eml(data).unwrap_err();
-
-        assert!(err.to_string().contains("at least one"));
-    }
-
-    #[test]
-    fn clear_send_request_wraps_all_recipients_and_body_key() {
-        let data = b"From: sender@example.com\r\nTo: a@example.com\r\nCc: b@example.com\r\nBcc: c@example.com\r\nSubject: Hello\r\n\r\nBody";
-        let draft = draft_request_from_eml(data).unwrap();
-        let request = clear_send_request(
-            &draft,
-            ProtonEncryptedBody {
-                armored_message: "armored".into(),
-                data_packet: b"encrypted".to_vec(),
-                session_key: b"session-key".to_vec(),
-                algorithm: "aes256".into(),
-            },
-        );
-
-        let package = &request.packages[0];
-
-        assert_eq!(package.package_type, CLEAR_SCHEME);
-        assert_eq!(package.mime_type, "text/plain");
-        assert_eq!(package.body, STANDARD.encode(b"encrypted"));
-        assert_eq!(
-            package.body_key.as_ref().map(|key| key.key.as_str()),
-            Some(STANDARD.encode(b"session-key").as_str())
-        );
-        assert_eq!(package.body_key.as_ref().unwrap().algorithm, "aes256");
-        assert!(package.addresses.get("a@example.com").is_some());
-        assert!(package.addresses.get("b@example.com").is_some());
-        assert!(package.addresses.get("c@example.com").is_some());
-    }
-}
+mod tests;
