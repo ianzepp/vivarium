@@ -55,7 +55,7 @@ impl Runtime {
         if let Some(from) = from {
             data = message::replace_from_header(&data, from)?;
         }
-        if matches!(acct.provider, Provider::ProtonApi) {
+        if send_transport(&acct.provider) == SendTransport::DirectProtonApi {
             vivarium::proton_send::send_raw(&acct, &self.config, &data).await?;
         } else {
             let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
@@ -134,6 +134,19 @@ impl Runtime {
     pub(super) async fn reply_body(&self, handle: &str, body: String) -> Result<(), VivariumError> {
         self.reply(handle, None, Some(body), None, false, false)
             .await
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum SendTransport {
+    DirectProtonApi,
+    Smtp,
+}
+
+fn send_transport(provider: &Provider) -> SendTransport {
+    match provider {
+        Provider::ProtonApi => SendTransport::DirectProtonApi,
+        Provider::Protonmail | Provider::Gmail | Provider::Standard => SendTransport::Smtp,
     }
 }
 
@@ -291,5 +304,16 @@ mod tests {
         let err = require_eml_path(Path::new("message.txt")).unwrap_err();
 
         assert!(err.to_string().contains(".eml"));
+    }
+
+    #[test]
+    fn send_transport_routes_only_direct_proton_api_away_from_smtp() {
+        assert_eq!(
+            send_transport(&Provider::ProtonApi),
+            SendTransport::DirectProtonApi
+        );
+        assert_eq!(send_transport(&Provider::Protonmail), SendTransport::Smtp);
+        assert_eq!(send_transport(&Provider::Gmail), SendTransport::Smtp);
+        assert_eq!(send_transport(&Provider::Standard), SendTransport::Smtp);
     }
 }
