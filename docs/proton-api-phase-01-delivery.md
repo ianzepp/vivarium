@@ -17,6 +17,10 @@ Add an experimental `proton-api` provider plus narrow `vivi proton auth-info` an
 - Connectivity reporting can follow the style of `src/doctor_command.rs`.
 - HTTP client usage already exists through `reqwest` for OAuth and embeddings.
 - Tests live in `src/config/tests.rs` and `tests/cli.rs`.
+- Proton validates the `x-pm-appversion` header. Phase one defaults to the
+  current `web-mail@5.0.113.4` version discovered from
+  `https://mail.proton.me/assets/version.json` and allows
+  `VIVI_PROTON_APP_VERSION` to override it.
 
 ## Stage Graph
 

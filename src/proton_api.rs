@@ -4,11 +4,12 @@ use serde::{Deserialize, Serialize};
 use crate::error::VivariumError;
 
 const DEFAULT_BASE_URL: &str = "https://mail.proton.me/api";
-const APP_VERSION: &str = concat!("vivarium@", env!("CARGO_PKG_VERSION"));
+const DEFAULT_APP_VERSION: &str = "web-mail@5.0.113.4";
 
 #[derive(Clone)]
 pub struct ProtonApiClient {
     base_url: String,
+    app_version: String,
     http: reqwest::Client,
 }
 
@@ -22,6 +23,8 @@ impl ProtonApiClient {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
+            app_version: std::env::var("VIVI_PROTON_APP_VERSION")
+                .unwrap_or_else(|_| DEFAULT_APP_VERSION.into()),
             http: reqwest::Client::new(),
         }
     }
@@ -30,16 +33,14 @@ impl ProtonApiClient {
         let response = self
             .http
             .post(self.url("/auth/v4/info"))
-            .header("x-pm-appversion", APP_VERSION)
+            .header("x-pm-appversion", &self.app_version)
             .json(&AuthInfoRequest { username })
             .send()
             .await
             .map_err(|e| {
                 VivariumError::Other(format!("Proton API auth-info request failed: {e}"))
             })?;
-        parse_response::<AuthInfoEnvelope>(response)
-            .await
-            .map(|envelope| envelope.auth_info)
+        parse_response::<AuthInfo>(response).await
     }
 
     pub async fn login_check(
@@ -53,7 +54,7 @@ impl ProtonApiClient {
         let response = self
             .http
             .post(self.url("/auth/v4"))
-            .header("x-pm-appversion", APP_VERSION)
+            .header("x-pm-appversion", &self.app_version)
             .json(&AuthRequest {
                 username,
                 client_ephemeral: &proof.client_ephemeral,
@@ -64,9 +65,7 @@ impl ProtonApiClient {
             .send()
             .await
             .map_err(|e| VivariumError::Other(format!("Proton API login request failed: {e}")))?;
-        let auth = parse_response::<AuthEnvelope>(response)
-            .await
-            .map(|envelope| envelope.auth)?;
+        let auth = parse_response::<AuthResponse>(response).await?;
         if !proof.compare_server_proof(&auth.server_proof) {
             return Err(VivariumError::Other(
                 "Proton API login returned an invalid server proof".into(),
@@ -97,7 +96,7 @@ pub struct AuthInfo {
     pub salt: String,
     #[serde(rename = "SRPSession")]
     pub srp_session: String,
-    #[serde(rename = "2FA")]
+    #[serde(rename = "2FA", default)]
     pub two_fa: TwoFaInfo,
 }
 
@@ -135,7 +134,7 @@ impl AuthInfo {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TwoFaInfo {
     #[serde(rename = "Enabled")]
     pub enabled: u8,
@@ -178,18 +177,6 @@ struct AuthRequest<'a> {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct AuthInfoEnvelope {
-    auth_info: AuthInfo,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct AuthEnvelope {
-    auth: AuthResponse,
-}
-
-#[derive(Deserialize)]
 struct AuthResponse {
     #[serde(rename = "UserID", default)]
     user_id: String,
@@ -197,7 +184,7 @@ struct AuthResponse {
     scope: String,
     #[serde(rename = "ServerProof")]
     server_proof: String,
-    #[serde(rename = "2FA")]
+    #[serde(rename = "2FA", default)]
     two_fa: TwoFaInfo,
     #[serde(rename = "PasswordMode", default)]
     password_mode: u8,
@@ -251,7 +238,7 @@ mod tests {
             let (mut stream, _) = listener.accept().await.unwrap();
             let request = read_http_request(&mut stream).await;
             let _ = tx.send(request);
-            let body = r#"{"AuthInfo":{"Version":4,"Modulus":"m","ServerEphemeral":"s","Salt":"salt","SRPSession":"session","2FA":{"Enabled":0}}}"#;
+            let body = r#"{"Version":4,"Modulus":"m","ServerEphemeral":"s","Salt":"salt","SRPSession":"session"}"#;
             let response = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
                 body.len()
@@ -267,7 +254,7 @@ mod tests {
         assert_eq!(auth_info.version, 4);
         let request = rx.await.unwrap();
         assert!(request.starts_with("POST /auth/v4/info HTTP/1.1"));
-        assert!(request.contains("x-pm-appversion: vivarium@"));
+        assert!(request.contains("x-pm-appversion: web-mail@"));
         let body = request.split("\r\n\r\n").nth(1).unwrap();
         let body: Value = serde_json::from_str(body).unwrap();
         assert_eq!(body["Username"], "agent@proton.me");

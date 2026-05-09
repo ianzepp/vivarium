@@ -83,6 +83,10 @@ vivi proton auth-info --account agent-proton --json
 vivi proton login-check --account agent-proton --json
 ```
 
+If Proton reports that the web client is out of date, set
+`VIVI_PROTON_APP_VERSION` to the current `web-mail@<version>` from
+`https://mail.proton.me/assets/version.json` before rerunning the probe.
+
 The SMTP fields are still required by the account parser even when you only use
 the read-only sync/search commands.
 
