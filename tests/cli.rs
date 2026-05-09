@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use vivarium::cli::{
-    AgentCommand, Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, QueueCommand,
+    AgentCommand, Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, ProtonCommand,
+    QueueCommand,
 };
 
 #[test]
@@ -52,6 +53,59 @@ fn parses_doctor_json() {
         Command::Doctor { account, json } => {
             assert_eq!(account.as_deref(), Some("proton"));
             assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_proton_auth_info_json() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "proton",
+        "auth-info",
+        "--account",
+        "agent",
+        "--json",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Proton {
+            command: ProtonCommand::AuthInfo { account, json },
+        } => {
+            assert_eq!(account.as_deref(), Some("agent"));
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_proton_login_check_totp() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "proton",
+        "login-check",
+        "--account",
+        "agent",
+        "--totp-code",
+        "123456",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Proton {
+            command:
+                ProtonCommand::LoginCheck {
+                    account,
+                    totp_code,
+                    json,
+                },
+        } => {
+            assert_eq!(account.as_deref(), Some("agent"));
+            assert_eq!(totp_code.as_deref(), Some("123456"));
+            assert!(!json);
         }
         other => panic!("unexpected command: {other:?}"),
     }

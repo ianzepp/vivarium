@@ -23,6 +23,10 @@ pub enum LabelOperation {
 pub fn support(account: &Account) -> LabelSupport {
     let label_roots = account.label_roots();
     let (mode, reason) = match account.provider {
+        Provider::ProtonApi => (
+            "direct_proton_api_unsupported",
+            "Direct Proton API label mutation is not implemented.",
+        ),
         Provider::Protonmail => (
             "folder_moves_only",
             "Proton Bridge exposes the safe Vivi surface as IMAP folders; independent label mutation is not implemented.",

@@ -121,6 +121,12 @@ pub enum Command {
         json: bool,
     },
 
+    /// Experimental direct Proton API probes
+    Proton {
+        #[command(subcommand)]
+        command: ProtonCommand,
+    },
+
     /// Watch for new mail via IMAP IDLE and outbox changes
     #[cfg(feature = "outbox")]
     Watch {
@@ -294,6 +300,35 @@ pub enum Command {
         /// Preview without changing mailbox state
         #[arg(long)]
         dry_run: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProtonCommand {
+    /// Fetch non-secret SRP auth bootstrap metadata
+    AuthInfo {
+        /// Account to inspect (overrides --account)
+        #[arg(long)]
+        account: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Verify username/password login without storing returned tokens
+    LoginCheck {
+        /// Account to inspect (overrides --account)
+        #[arg(long)]
+        account: Option<String>,
+
+        /// TOTP code for accounts that require one
+        #[arg(long)]
+        totp_code: Option<String>,
 
         /// Output as JSON
         #[arg(long)]

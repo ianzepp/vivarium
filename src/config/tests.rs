@@ -177,6 +177,42 @@ fn provider_standard_has_no_oauth_defaults() {
 }
 
 #[test]
+fn provider_proton_api_has_no_oauth_defaults() {
+    assert!(types::Provider::ProtonApi.oauth_config().is_none());
+    assert_eq!(types::Provider::ProtonApi.to_string(), "proton-api");
+}
+
+#[test]
+fn account_parses_direct_proton_api_provider() {
+    let path = accounts_file(
+        r#"
+        [[accounts]]
+        name = "agent"
+        email = "agent@proton.me"
+        imap_host = ""
+        smtp_host = ""
+        username = "agent@proton.me"
+        password_cmd = "printenv PROTON_PASSWORD"
+        provider = "proton-api"
+        storage_mode = "semantic"
+    "#,
+        0o600,
+    );
+    let accounts = AccountsFile::load(&path).unwrap();
+    let account = accounts.find_account("agent").unwrap();
+
+    assert_eq!(account.provider, types::Provider::ProtonApi);
+    assert_eq!(
+        account.password_cmd.as_deref(),
+        Some("printenv PROTON_PASSWORD")
+    );
+    assert_eq!(
+        account.resolved_storage_mode(),
+        types::StorageMode::Semantic
+    );
+}
+
+#[test]
 fn provider_protonmail_has_oauth_defaults() {
     let config = types::Provider::Protonmail.oauth_config().unwrap();
     assert!(config.auth_url.contains("proton"));

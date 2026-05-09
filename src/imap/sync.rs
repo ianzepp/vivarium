@@ -40,6 +40,13 @@ pub async fn sync_messages(
     window: SyncWindow,
     all: bool,
 ) -> Result<SyncResult, VivariumError> {
+    if matches!(account.provider, Provider::ProtonApi) {
+        return Err(VivariumError::Config(format!(
+            "account '{}' uses provider = \"proton-api\"; IMAP sync is not available for direct Proton API accounts yet",
+            account.name
+        )));
+    }
+
     if matches!(account.resolved_storage_mode(), StorageMode::Proxy) {
         return Err(VivariumError::Config(format!(
             "account '{}' uses storage_mode = \"proxy\"; sync requires headers, bodies, or semantic storage",

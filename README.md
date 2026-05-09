@@ -6,7 +6,10 @@ Local-first email archive and retrieval layer for private agents. Pulls email fr
 
 Local agents need access to email. Existing tools (offlineimap, mbsync, mutt) are built for humans and carry decades of assumptions. Vivarium keeps the important part simple: the raw message bytes stay local, stable, and directly readable as `.eml` files, while Vivi owns mailbox placement, flags, bindings, and indexes.
 
-Vivarium treats Proton Bridge as the transport/decryption boundary and does not attempt to speak ProtonMail private APIs.
+Vivarium treats Proton Bridge as the transport/decryption boundary and does not attempt to speak ProtonMail private APIs by default.
+Experimental direct Proton API probes are available for container bootstrap work
+under `provider = "proton-api"`. This path is not a stable Proton public API
+contract yet; it exists to prove non-interactive auth bootstrap without Bridge.
 
 ## Install
 
@@ -58,6 +61,26 @@ smtp_port = 1025
 smtp_security = "starttls"
 provider = "protonmail"
 storage_mode = "headers" # proxy | headers | bodies | semantic
+```
+
+For experimental direct Proton API probing without Bridge:
+
+```toml
+[[accounts]]
+name = "agent-proton"
+email = "agent@proton.me"
+username = "agent@proton.me"
+auth = "password"
+password_cmd = "printenv PROTON_PASSWORD"
+provider = "proton-api"
+storage_mode = "semantic"
+```
+
+Then verify the direct API bootstrap path:
+
+```
+vivi proton auth-info --account agent-proton --json
+vivi proton login-check --account agent-proton --json
 ```
 
 The SMTP fields are still required by the account parser even when you only use

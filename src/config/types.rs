@@ -66,6 +66,8 @@ pub struct Account {
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
     Gmail,
+    #[serde(rename = "proton-api")]
+    ProtonApi,
     Protonmail,
     #[default]
     Standard,
@@ -75,6 +77,7 @@ impl std::fmt::Display for Provider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Provider::Gmail => write!(f, "gmail"),
+            Provider::ProtonApi => write!(f, "proton-api"),
             Provider::Protonmail => write!(f, "protonmail"),
             Provider::Standard => write!(f, "standard"),
         }
@@ -98,6 +101,7 @@ impl Provider {
                 token_url: "https://oauth2.googleapis.com/token".into(),
                 scope: "https://mail.google.com/".into(),
             }),
+            Provider::ProtonApi => None,
             Provider::Protonmail => Some(ProviderOAuthConfig {
                 auth_url: "https://account.proton.me/oauth".into(),
                 token_url: "https://account.proton.me/token".into(),
@@ -124,6 +128,15 @@ pub enum Auth {
     #[default]
     Password,
     Xoauth2,
+}
+
+impl std::fmt::Display for Auth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Auth::Password => write!(f, "password"),
+            Auth::Xoauth2 => write!(f, "xoauth2"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]

@@ -16,6 +16,7 @@ mod folders_command;
 mod index_runner;
 mod label_runner;
 mod mutation_runner;
+mod proton_api_command;
 mod queue_runner;
 mod sync_command;
 
@@ -107,6 +108,7 @@ impl Runtime {
             command @ Command::Sync { .. } => self.run_sync_command(command).await,
             Command::Folders { account, json } => self.folders(account, json).await,
             Command::Doctor { account, json } => self.doctor(account, json).await,
+            Command::Proton { command } => self.proton_command(command).await,
             Command::List {
                 folder,
                 limit,

@@ -13,6 +13,7 @@ pub mod list;
 pub mod message;
 pub mod mutation_command;
 pub mod oauth;
+pub mod proton_api;
 pub mod queue;
 pub mod retrieve;
 pub mod search;
