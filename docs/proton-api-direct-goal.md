@@ -71,9 +71,11 @@ Before editing, inspect:
 ## Implementation Shape
 
 - Phase 1: Add `provider = "proton-api"` config support plus `vivi proton auth-info` and `vivi proton login-check` probes that can call Proton's auth bootstrap endpoint and perform token-discarding SRP login verification.
-- Phase 2: Implement optional 2FA handling, local encrypted session storage suitable for containers, and authenticated session refresh.
-- Phase 3: Fetch account/user/address/key metadata and prove authenticated API requests without message download.
-- Phase 4: Implement read-only message listing and raw/encrypted payload fetch with local decryption into Vivi storage.
+- Phase 2: Persist direct Proton sessions for containers: UID, access token, refresh token, app version, and refresh behavior, without requiring macOS Keychain or a browser.
+- Phase 3: Add authenticated identity probes for user, address, and key metadata so Vivi can prove token headers, `x-pm-uid`, account locked/unlocked state, and refresh behavior before touching mail.
+- Phase 4: Implement read-only message metadata listing and map Proton message IDs, labels/folders, flags, sender, subject, timestamps, sizes, and conversation IDs into Vivi remote identity and header/index state. This is the direct Proton equivalent of `storage_mode = "headers"`.
+- Phase 5: Implement body fetch and decryption into Vivi's existing blob store so direct Proton accounts can support `storage_mode = "bodies"`.
+- Phase 6: Reuse the existing body-derived embedding path for direct Proton `storage_mode = "semantic"` after decrypted bodies land in storage.
 - Later: Add attachment handling, incremental sync state, label/folder mapping, and carefully gated send/mutation support.
 
 ## Exit Strategy
@@ -93,6 +95,7 @@ Decision: included.
 - The probe is non-interactive and can use `password_cmd` without printing the secret.
 - Tests cover provider parsing and CLI parsing for the new command.
 - The first implementation phase is committed separately from the pre-existing storage-mode work.
+- The factory roadmap records that the end state is Bridge-free direct header/body/semantic sync into Vivi storage, not merely login probes.
 
 ## Validation
 
