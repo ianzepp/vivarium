@@ -81,7 +81,14 @@ Then verify the direct API bootstrap path:
 ```
 vivi proton auth-info --account agent-proton --json
 vivi proton login-check --account agent-proton --json
+vivi proton login --account agent-proton --json
+vivi proton session-check --account agent-proton --json
 ```
+
+`login-check` verifies credentials and discards returned tokens. `login` stores
+the direct Proton session under the account's Vivi state directory, and
+`session-check` refreshes that stored session without using the account
+password.
 
 If Proton reports that the web client is out of date, set
 `VIVI_PROTON_APP_VERSION` to the current `web-mail@<version>` from

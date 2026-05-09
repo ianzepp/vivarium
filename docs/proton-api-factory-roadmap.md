@@ -25,9 +25,9 @@ Checkpoint:
 
 - Direct username/password auth works without Proton Bridge.
 
-## Pending Phases
-
 ### Phase 2: Session Storage And Refresh
+
+Status: completed.
 
 Goal:
 
@@ -47,6 +47,8 @@ Out of scope:
 Checkpoint:
 
 - A fresh temp-home account can login, persist session state, and refresh or validate that session in a second command invocation.
+
+## Pending Phases
 
 ### Phase 3: Authenticated Identity Probe
 

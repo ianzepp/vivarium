@@ -112,6 +112,51 @@ fn parses_proton_login_check_totp() {
 }
 
 #[test]
+fn parses_proton_login_json() {
+    let cli =
+        Cli::try_parse_from(["vivi", "proton", "login", "--account", "agent", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Proton {
+            command:
+                ProtonCommand::Login {
+                    account,
+                    totp_code,
+                    json,
+                },
+        } => {
+            assert_eq!(account.as_deref(), Some("agent"));
+            assert_eq!(totp_code, None);
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_proton_session_check_json() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "proton",
+        "session-check",
+        "--account",
+        "agent",
+        "--json",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Proton {
+            command: ProtonCommand::SessionCheck { account, json },
+        } => {
+            assert_eq!(account.as_deref(), Some("agent"));
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_default_compose_command() {
     let cli = Cli::try_parse_from([
         "vivi",

@@ -1,7 +1,12 @@
+use chrono::Utc;
 use proton_srp::{SRPAuth, SRPProofB64, SrpHashVersion};
 use serde::{Deserialize, Serialize};
 
 use crate::error::VivariumError;
+
+mod session;
+
+pub use session::{ProtonSession, ProtonSessionStore};
 
 const DEFAULT_BASE_URL: &str = "https://mail.proton.me/api";
 const DEFAULT_APP_VERSION: &str = "web-mail@5.0.113.4";
@@ -49,6 +54,17 @@ impl ProtonApiClient {
         password: &str,
         totp_code: Option<&str>,
     ) -> Result<LoginCheck, VivariumError> {
+        self.login(username, password, totp_code)
+            .await
+            .map(|session| session.check())
+    }
+
+    pub async fn login(
+        &self,
+        username: &str,
+        password: &str,
+        totp_code: Option<&str>,
+    ) -> Result<ProtonSession, VivariumError> {
         let auth_info = self.auth_info(username).await?;
         let proof = auth_info.proof(username, password)?;
         let response = self
@@ -71,12 +87,33 @@ impl ProtonApiClient {
                 "Proton API login returned an invalid server proof".into(),
             ));
         }
-        Ok(LoginCheck {
-            user_id_present: !auth.user_id.is_empty(),
-            scope: auth.scope,
-            password_mode: auth.password_mode,
-            two_fa: auth.two_fa,
-        })
+        auth.into_session(self.app_version.clone())
+    }
+
+    pub async fn refresh(&self, session: &ProtonSession) -> Result<ProtonSession, VivariumError> {
+        let response = self
+            .http
+            .post(self.url("/auth/v4/refresh"))
+            .header("x-pm-appversion", &self.app_version)
+            .header("x-pm-uid", &session.uid)
+            .bearer_auth(&session.access_token)
+            .json(&AuthRefreshRequest {
+                uid: &session.uid,
+                refresh_token: &session.refresh_token,
+                response_type: "token",
+                grant_type: "refresh_token",
+                redirect_uri: "https://protonmail.ch",
+                state: &refresh_state(),
+                access_token: &session.access_token,
+            })
+            .send()
+            .await
+            .map_err(|e| VivariumError::Other(format!("Proton API refresh request failed: {e}")))?;
+        let mut refreshed = parse_response::<AuthResponse>(response)
+            .await?
+            .into_session(self.app_version.clone())?;
+        refreshed.preserve_metadata_from(session);
+        Ok(refreshed)
     }
 
     fn url(&self, path: &str) -> String {
@@ -152,10 +189,13 @@ pub struct AuthInfoSummary {
 
 #[derive(Debug, Serialize)]
 pub struct LoginCheck {
+    pub uid_present: bool,
     pub user_id_present: bool,
     pub scope: String,
     pub password_mode: u8,
     pub two_fa: TwoFaInfo,
+    pub app_version: String,
+    pub updated_at: String,
 }
 
 #[derive(Serialize)]
@@ -176,18 +216,58 @@ struct AuthRequest<'a> {
     two_factor_code: Option<&'a str>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct AuthRefreshRequest<'a> {
+    #[serde(rename = "UID")]
+    uid: &'a str,
+    refresh_token: &'a str,
+    response_type: &'a str,
+    grant_type: &'a str,
+    redirect_uri: &'a str,
+    state: &'a str,
+    access_token: &'a str,
+}
+
 #[derive(Deserialize)]
 struct AuthResponse {
+    #[serde(rename = "UID", default)]
+    uid: String,
     #[serde(rename = "UserID", default)]
     user_id: String,
+    #[serde(rename = "AccessToken", default)]
+    access_token: String,
+    #[serde(rename = "RefreshToken", default)]
+    refresh_token: String,
     #[serde(rename = "Scope", default)]
     scope: String,
-    #[serde(rename = "ServerProof")]
+    #[serde(rename = "ServerProof", default)]
     server_proof: String,
     #[serde(rename = "2FA", default)]
     two_fa: TwoFaInfo,
     #[serde(rename = "PasswordMode", default)]
     password_mode: u8,
+}
+
+impl AuthResponse {
+    fn into_session(self, app_version: String) -> Result<ProtonSession, VivariumError> {
+        if self.uid.is_empty() || self.access_token.is_empty() || self.refresh_token.is_empty() {
+            return Err(VivariumError::Other(
+                "Proton API auth response did not include complete session tokens".into(),
+            ));
+        }
+        Ok(ProtonSession {
+            uid: self.uid,
+            access_token: self.access_token,
+            refresh_token: self.refresh_token,
+            app_version,
+            user_id: self.user_id,
+            scope: self.scope,
+            password_mode: self.password_mode,
+            two_fa: self.two_fa,
+            updated_at: Utc::now().to_rfc3339(),
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -219,52 +299,12 @@ async fn parse_response<T: for<'de> Deserialize<'de>>(
         .map_err(|e| VivariumError::Other(format!("Proton API response JSON failed: {e}")))
 }
 
-#[cfg(test)]
-mod tests {
-    use serde_json::Value;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
-    use tokio::sync::oneshot;
-
-    use super::ProtonApiClient;
-
-    #[tokio::test]
-    async fn auth_info_posts_username_without_secret_material() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = format!("http://{}", listener.local_addr().unwrap());
-        let (tx, rx) = oneshot::channel();
-
-        tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            let request = read_http_request(&mut stream).await;
-            let _ = tx.send(request);
-            let body = r#"{"Version":4,"Modulus":"m","ServerEphemeral":"s","Salt":"salt","SRPSession":"session"}"#;
-            let response = format!(
-                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
-                body.len()
-            );
-            stream.write_all(response.as_bytes()).await.unwrap();
-        });
-
-        let auth_info = ProtonApiClient::new(endpoint)
-            .auth_info("agent@proton.me")
-            .await
-            .unwrap();
-
-        assert_eq!(auth_info.version, 4);
-        let request = rx.await.unwrap();
-        assert!(request.starts_with("POST /auth/v4/info HTTP/1.1"));
-        assert!(request.contains("x-pm-appversion: web-mail@"));
-        let body = request.split("\r\n\r\n").nth(1).unwrap();
-        let body: Value = serde_json::from_str(body).unwrap();
-        assert_eq!(body["Username"], "agent@proton.me");
-        assert!(body.get("Password").is_none());
-        assert!(body.get("ClientProof").is_none());
-    }
-
-    async fn read_http_request(stream: &mut tokio::net::TcpStream) -> String {
-        let mut buffer = vec![0; 8192];
-        let n = stream.read(&mut buffer).await.unwrap();
-        String::from_utf8_lossy(&buffer[..n]).to_string()
-    }
+fn refresh_state() -> String {
+    let now = Utc::now()
+        .timestamp_nanos_opt()
+        .unwrap_or_else(|| Utc::now().timestamp_micros());
+    format!("vivi-{now}")
 }
+
+#[cfg(test)]
+mod tests;

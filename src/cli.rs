@@ -320,6 +320,21 @@ pub enum ProtonCommand {
         json: bool,
     },
 
+    /// Log in and store a reusable direct Proton API session
+    Login {
+        /// Account to inspect (overrides --account)
+        #[arg(long)]
+        account: Option<String>,
+
+        /// TOTP code for accounts that require one
+        #[arg(long)]
+        totp_code: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Verify username/password login without storing returned tokens
     LoginCheck {
         /// Account to inspect (overrides --account)
@@ -329,6 +344,17 @@ pub enum ProtonCommand {
         /// TOTP code for accounts that require one
         #[arg(long)]
         totp_code: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Refresh and validate a stored direct Proton API session
+    SessionCheck {
+        /// Account to inspect (overrides --account)
+        #[arg(long)]
+        account: Option<String>,
 
         /// Output as JSON
         #[arg(long)]
