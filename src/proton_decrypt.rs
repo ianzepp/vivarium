@@ -201,13 +201,13 @@ fn decode_base64_message(message: &str) -> Result<Vec<u8>, base64::DecodeError> 
         .or_else(|_| URL_SAFE_NO_PAD.decode(message))
 }
 
-fn read_secret_key(armored_key: &str) -> Result<SignedSecretKey, VivariumError> {
+pub(crate) fn read_secret_key(armored_key: &str) -> Result<SignedSecretKey, VivariumError> {
     SignedSecretKey::from_reader_single(armored_key.as_bytes())
         .map(|(key, _)| key)
         .map_err(|e| VivariumError::Other(format!("Proton PGP private key parse failed: {e}")))
 }
 
-fn sorted_address_keys(
+pub(crate) fn sorted_address_keys(
     key_material: &ProtonKeyMaterial,
 ) -> Vec<&crate::proton_api::ProtonAddressKeyMaterial> {
     let mut keys: Vec<_> = key_material.address_keys.iter().collect();

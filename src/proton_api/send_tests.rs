@@ -5,7 +5,7 @@ use tokio::sync::oneshot;
 
 use super::{
     CreateDraftReq, DraftTemplate, MessagePackage, ProtonAddress, ProtonApiClient, ProtonSession,
-    SendDraftReq, TwoFaInfo,
+    SendDraftReq, SessionKey, TwoFaInfo,
 };
 
 #[tokio::test]
@@ -74,6 +74,8 @@ async fn send_draft_posts_packages_and_parses_sent_message() {
     let body: Value = serde_json::from_str(body).unwrap();
     assert_eq!(body["Packages"][0]["MIMEType"], "text/plain");
     assert_eq!(body["Packages"][0]["Body"], "encrypted-package");
+    assert_eq!(body["Packages"][0]["BodyKey"]["Key"], "body-key");
+    assert_eq!(body["Packages"][0]["BodyKey"]["Algorithm"], "aes256");
 }
 
 async fn read_http_request(stream: &mut tokio::net::TcpStream) -> String {
@@ -136,6 +138,11 @@ fn send_request() -> SendDraftReq {
             mime_type: "text/plain".into(),
             package_type: 4,
             body: "encrypted-package".into(),
+            body_key: Some(SessionKey {
+                key: "body-key".into(),
+                algorithm: "aes256".into(),
+            }),
+            attachment_keys: Some(serde_json::json!({})),
         }],
     }
 }

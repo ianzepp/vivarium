@@ -53,6 +53,33 @@ pub struct MessagePackage {
     pub package_type: u8,
     #[serde(rename = "Body")]
     pub body: String,
+    #[serde(rename = "BodyKey", skip_serializing_if = "Option::is_none")]
+    pub body_key: Option<SessionKey>,
+    #[serde(rename = "AttachmentKeys", skip_serializing_if = "Option::is_none")]
+    pub attachment_keys: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MessageRecipient {
+    #[serde(rename = "Type")]
+    pub recipient_type: u8,
+    #[serde(rename = "Signature")]
+    pub signature: u8,
+    #[serde(rename = "BodyKeyPacket", skip_serializing_if = "Option::is_none")]
+    pub body_key_packet: Option<String>,
+    #[serde(
+        rename = "AttachmentKeyPackets",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub attachment_key_packets: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SessionKey {
+    #[serde(rename = "Key")]
+    pub key: String,
+    #[serde(rename = "Algorithm")]
+    pub algorithm: String,
 }
 
 #[derive(Debug, Deserialize)]

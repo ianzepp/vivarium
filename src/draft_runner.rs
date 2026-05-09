@@ -56,7 +56,7 @@ impl Runtime {
             data = message::replace_from_header(&data, from)?;
         }
         if matches!(acct.provider, Provider::ProtonApi) {
-            vivarium::proton_send::send_raw(&acct, &data).await?;
+            vivarium::proton_send::send_raw(&acct, &self.config, &data).await?;
         } else {
             let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
             vivarium::smtp::send_raw(&acct, &data, reject_invalid_certs).await?;
