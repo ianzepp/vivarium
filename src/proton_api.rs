@@ -9,6 +9,7 @@ mod auth;
 mod identity;
 mod keys;
 mod messages;
+mod send;
 mod session;
 
 use app_version::default_app_version;
@@ -20,6 +21,7 @@ use keys::{AddressKeyListResponse, KeySaltResponse, UserKeyResponse};
 pub use keys::{ProtonAddressKeyMaterial, ProtonKeyMaterial, ProtonKeySalt, ProtonUserKeyMaterial};
 use messages::{FullMessageResponse, MessageListResponse};
 pub use messages::{ProtonAddress, ProtonFullMessage, ProtonMessage};
+pub use send::{CreateDraftReq, DraftTemplate, MessagePackage, SendDraftReq};
 pub use session::{ProtonSession, ProtonSessionStore};
 
 const DEFAULT_BASE_URL: &str = "https://mail.proton.me/api";
@@ -391,5 +393,7 @@ fn refresh_state() -> String {
     format!("vivi-{now}")
 }
 
+#[cfg(test)]
+mod send_tests;
 #[cfg(test)]
 mod tests;
