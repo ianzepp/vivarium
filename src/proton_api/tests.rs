@@ -107,6 +107,100 @@ async fn refresh_preserves_missing_diagnostic_metadata() {
     assert_eq!(refreshed.password_mode, 1);
 }
 
+#[tokio::test]
+async fn identity_sends_auth_headers_and_redacts_key_material() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (tx, rx) = oneshot::channel();
+
+    tokio::spawn(async move {
+        let mut requests = Vec::new();
+        let (mut stream, _) = listener.accept().await.unwrap();
+        requests.push(read_http_request(&mut stream).await);
+        write_json_response(&mut stream, user_body()).await;
+
+        let (mut stream, _) = listener.accept().await.unwrap();
+        requests.push(read_http_request(&mut stream).await);
+        write_json_response(&mut stream, addresses_body()).await;
+        let _ = tx.send(requests);
+    });
+
+    let (_session, identity) = ProtonApiClient::new(endpoint)
+        .identity(&fake_session())
+        .await
+        .unwrap();
+
+    assert_eq!(identity.user.email, "agent@proton.test");
+    assert_eq!(identity.user.keys.private_key_present_count, 1);
+    assert_eq!(identity.addresses.len(), 1);
+    assert_eq!(identity.key_state.address_key_count, 1);
+    assert_eq!(identity.key_state.locked_key_hint_count, 1);
+    let json = serde_json::to_string(&identity).unwrap();
+    assert!(!json.contains("USER_PRIVATE_KEY"));
+    assert!(!json.contains("ADDRESS_PRIVATE_KEY"));
+    assert!(!json.contains("ADDRESS_PUBLIC_KEY"));
+    assert!(!json.contains("activation-secret"));
+    assert!(!json.contains("token-secret"));
+
+    let requests = rx.await.unwrap();
+    assert!(requests[0].starts_with("GET /users HTTP/1.1"));
+    assert!(requests[0].contains("authorization: Bearer access-1"));
+    assert!(requests[0].contains("x-pm-uid: uid-1"));
+    assert!(requests[1].starts_with("GET /addresses HTTP/1.1"));
+    assert!(requests[1].contains("authorization: Bearer access-1"));
+    assert!(requests[1].contains("x-pm-uid: uid-1"));
+}
+
+#[tokio::test]
+async fn identity_refreshes_once_after_unauthorized() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (tx, rx) = oneshot::channel();
+
+    tokio::spawn(async move {
+        let mut requests = Vec::new();
+
+        let (mut stream, _) = listener.accept().await.unwrap();
+        requests.push(read_http_request(&mut stream).await);
+        write_status_response(&mut stream, "401 Unauthorized", r#"{"Error":"expired"}"#).await;
+
+        let (mut stream, _) = listener.accept().await.unwrap();
+        requests.push(read_http_request(&mut stream).await);
+        write_json_response(
+            &mut stream,
+            r#"{"UID":"uid-2","AccessToken":"access-2","RefreshToken":"refresh-2","Scope":"full mail","PasswordMode":1}"#,
+        )
+        .await;
+
+        let (mut stream, _) = listener.accept().await.unwrap();
+        requests.push(read_http_request(&mut stream).await);
+        write_json_response(&mut stream, user_body()).await;
+
+        let (mut stream, _) = listener.accept().await.unwrap();
+        requests.push(read_http_request(&mut stream).await);
+        write_json_response(&mut stream, addresses_body()).await;
+
+        let _ = tx.send(requests);
+    });
+
+    let (session, identity) = ProtonApiClient::new(endpoint)
+        .identity(&fake_session())
+        .await
+        .unwrap();
+
+    assert_eq!(session.uid, "uid-2");
+    assert_eq!(session.access_token, "access-2");
+    assert_eq!(identity.user.email, "agent@proton.test");
+    let requests = rx.await.unwrap();
+    assert!(requests[0].starts_with("GET /users HTTP/1.1"));
+    assert!(requests[1].starts_with("POST /auth/v4/refresh HTTP/1.1"));
+    assert!(requests[2].starts_with("GET /users HTTP/1.1"));
+    assert!(requests[2].contains("authorization: Bearer access-2"));
+    assert!(requests[2].contains("x-pm-uid: uid-2"));
+    assert!(requests[3].starts_with("GET /addresses HTTP/1.1"));
+    assert!(requests[3].contains("authorization: Bearer access-2"));
+}
+
 #[test]
 fn session_store_round_trips_with_private_permissions() {
     let tmp = tempfile::tempdir().unwrap();
@@ -153,4 +247,24 @@ async fn read_http_request(stream: &mut tokio::net::TcpStream) -> String {
     let mut buffer = vec![0; 8192];
     let n = stream.read(&mut buffer).await.unwrap();
     String::from_utf8_lossy(&buffer[..n]).to_string()
+}
+
+async fn write_json_response(stream: &mut tokio::net::TcpStream, body: &str) {
+    write_status_response(stream, "200 OK", body).await;
+}
+
+async fn write_status_response(stream: &mut tokio::net::TcpStream, status: &str, body: &str) {
+    let response = format!(
+        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\nconnection: close\r\ncontent-length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(response.as_bytes()).await.unwrap();
+}
+
+fn user_body() -> &'static str {
+    r#"{"User":{"ID":"user-1","Name":"agent","Email":"agent@proton.test","DisplayName":"Agent","Private":1,"Keys":[{"ID":"user-key-1","PrivateKey":"USER_PRIVATE_KEY","PublicKey":"USER_PUBLIC_KEY","Fingerprint":"fp-user"}]}}"#
+}
+
+fn addresses_body() -> &'static str {
+    r#"{"Addresses":[{"ID":"address-1","Email":"agent@proton.test","Status":1,"Receive":1,"Send":1,"HasKeys":1,"Keys":[{"ID":"address-key-1","Active":1,"Primary":1,"PrivateKey":"ADDRESS_PRIVATE_KEY","PublicKey":"ADDRESS_PUBLIC_KEY","Fingerprint":"fp-address","Token":"token-secret","Activation":"activation-secret"}]}]}"#
 }

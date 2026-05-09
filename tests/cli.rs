@@ -134,6 +134,22 @@ fn parses_proton_login_json() {
 }
 
 #[test]
+fn parses_proton_identity_json() {
+    let cli = Cli::try_parse_from(["vivi", "proton", "identity", "--account", "agent", "--json"])
+        .unwrap();
+
+    match cli.command {
+        Command::Proton {
+            command: ProtonCommand::Identity { account, json },
+        } => {
+            assert_eq!(account.as_deref(), Some("agent"));
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_proton_session_check_json() {
     let cli = Cli::try_parse_from([
         "vivi",

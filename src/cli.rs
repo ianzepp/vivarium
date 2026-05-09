@@ -104,7 +104,6 @@ pub enum Command {
         /// Account to inspect (overrides --account)
         #[arg(long)]
         account: Option<String>,
-
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -325,11 +324,19 @@ pub enum ProtonCommand {
         /// Account to inspect (overrides --account)
         #[arg(long)]
         account: Option<String>,
-
         /// TOTP code for accounts that require one
         #[arg(long)]
         totp_code: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 
+    /// Fetch non-secret authenticated user and address metadata
+    Identity {
+        /// Account to inspect (overrides --account)
+        #[arg(long)]
+        account: Option<String>,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -340,7 +347,6 @@ pub enum ProtonCommand {
         /// Account to inspect (overrides --account)
         #[arg(long)]
         account: Option<String>,
-
         /// TOTP code for accounts that require one
         #[arg(long)]
         totp_code: Option<String>,

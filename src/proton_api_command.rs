@@ -31,10 +31,20 @@ struct SessionReport {
     session: proton_api::LoginCheck,
 }
 
+#[derive(Debug, Serialize)]
+struct IdentityReport {
+    account: String,
+    provider: String,
+    username: String,
+    session_path: String,
+    identity: proton_api::ProtonIdentity,
+}
+
 impl Runtime {
     pub(crate) async fn proton_command(&self, command: ProtonCommand) -> Result<(), VivariumError> {
         match command {
             ProtonCommand::AuthInfo { account, json } => self.proton_auth_info(account, json).await,
+            ProtonCommand::Identity { account, json } => self.proton_identity(account, json).await,
             ProtonCommand::Login {
                 account,
                 totp_code,
@@ -170,6 +180,33 @@ impl Runtime {
         print_session_report("Vivi Proton API session-check", &report, as_json)
     }
 
+    async fn proton_identity(
+        &self,
+        account: Option<String>,
+        as_json: bool,
+    ) -> Result<(), VivariumError> {
+        let acct = self.resolve_proton_api_account(account)?;
+        let mail_root = acct.mail_path(&self.config);
+        let store = proton_api::ProtonSessionStore::new(&mail_root);
+        let session = store.load()?;
+        let client = proton_api::ProtonApiClient::default();
+        let (session, identity) = client.identity(&session).await.map_err(|e| {
+            VivariumError::Other(format!(
+                "stored direct Proton API session could not fetch identity; run `vivi proton login --account {}` again if the session is expired: {e}",
+                acct.name
+            ))
+        })?;
+        store.save(&session)?;
+        let report = IdentityReport {
+            account: acct.name,
+            provider: acct.provider.to_string(),
+            username: acct.username,
+            session_path: store.path().display().to_string(),
+            identity,
+        };
+        print_identity_report(&report, as_json)
+    }
+
     fn resolve_proton_api_account(
         &self,
         account: Option<String>,
@@ -183,6 +220,30 @@ impl Runtime {
         }
         Ok(acct)
     }
+}
+
+fn print_identity_report(report: &IdentityReport, as_json: bool) -> Result<(), VivariumError> {
+    print_report(report, as_json, |report| {
+        println!("Vivi Proton API identity: {}", report.account);
+        println!("provider  {}", report.provider);
+        println!("username  {}", report.username);
+        println!("path      {}", report.session_path);
+        println!("user      {}", yes_no(report.identity.user.id_present));
+        println!("email     {}", report.identity.user.email);
+        println!("addresses {}", report.identity.addresses.len());
+        println!(
+            "keys      user={} address={} active={} primary={}",
+            report.identity.key_state.user_key_count,
+            report.identity.key_state.address_key_count,
+            report.identity.key_state.active_address_key_count,
+            report.identity.key_state.primary_address_key_count
+        );
+        println!(
+            "locked    private_key_hints={} token_hints={}",
+            report.identity.key_state.locked_key_hint_count,
+            report.identity.key_state.token_key_hint_count
+        );
+    })
 }
 
 fn print_report<T: Serialize>(

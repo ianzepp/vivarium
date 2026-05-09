@@ -48,9 +48,9 @@ Checkpoint:
 
 - A fresh temp-home account can login, persist session state, and refresh or validate that session in a second command invocation.
 
-## Pending Phases
-
 ### Phase 3: Authenticated Identity Probe
+
+Status: completed.
 
 Goal:
 
@@ -70,6 +70,8 @@ Out of scope:
 Checkpoint:
 
 - Vivi can make an authenticated direct Proton API request from stored session state and recover from an expired access token.
+
+## Pending Phases
 
 ### Phase 4: Header-Only Direct Sync
 

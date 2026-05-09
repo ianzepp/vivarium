@@ -1,11 +1,15 @@
 use chrono::Utc;
 use proton_srp::{SRPAuth, SRPProofB64, SrpHashVersion};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::error::VivariumError;
 
+mod identity;
 mod session;
 
+pub use identity::ProtonIdentity;
+use identity::{AddressListResponse, UserResponse};
 pub use session::{ProtonSession, ProtonSessionStore};
 
 const DEFAULT_BASE_URL: &str = "https://mail.proton.me/api";
@@ -116,9 +120,79 @@ impl ProtonApiClient {
         Ok(refreshed)
     }
 
+    pub async fn identity(
+        &self,
+        session: &ProtonSession,
+    ) -> Result<(ProtonSession, ProtonIdentity), VivariumError> {
+        match self.identity_with_session(session).await? {
+            IdentityAttempt::Ok(identity) => Ok((session.clone(), identity)),
+            IdentityAttempt::Unauthorized => {
+                let refreshed = self.refresh(session).await?;
+                let identity = match self.identity_with_session(&refreshed).await? {
+                    IdentityAttempt::Ok(identity) => identity,
+                    IdentityAttempt::Unauthorized => {
+                        return Err(VivariumError::Other(
+                            "Proton API identity request was unauthorized after session refresh"
+                                .into(),
+                        ));
+                    }
+                };
+                Ok((refreshed, identity))
+            }
+        }
+    }
+
+    async fn identity_with_session(
+        &self,
+        session: &ProtonSession,
+    ) -> Result<IdentityAttempt, VivariumError> {
+        let Some(user) = self
+            .get_authenticated::<UserResponse>("/users", session)
+            .await?
+        else {
+            return Ok(IdentityAttempt::Unauthorized);
+        };
+        let Some(addresses) = self
+            .get_authenticated::<AddressListResponse>("/addresses", session)
+            .await?
+        else {
+            return Ok(IdentityAttempt::Unauthorized);
+        };
+        Ok(IdentityAttempt::Ok(ProtonIdentity::from_responses(
+            user, addresses,
+        )))
+    }
+
+    async fn get_authenticated<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        session: &ProtonSession,
+    ) -> Result<Option<T>, VivariumError> {
+        let response = self
+            .http
+            .get(self.url(path))
+            .header("x-pm-appversion", &self.app_version)
+            .header("x-pm-uid", &session.uid)
+            .bearer_auth(&session.access_token)
+            .send()
+            .await
+            .map_err(|e| {
+                VivariumError::Other(format!("Proton API authenticated request failed: {e}"))
+            })?;
+        if response.status() == StatusCode::UNAUTHORIZED {
+            return Ok(None);
+        }
+        parse_response::<T>(response).await.map(Some)
+    }
+
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.base_url, path)
     }
+}
+
+enum IdentityAttempt {
+    Ok(ProtonIdentity),
+    Unauthorized,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
