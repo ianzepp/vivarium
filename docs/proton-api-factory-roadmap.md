@@ -71,9 +71,9 @@ Checkpoint:
 
 - Vivi can make an authenticated direct Proton API request from stored session state and recover from an expired access token.
 
-## Pending Phases
-
 ### Phase 4: Header-Only Direct Sync
+
+Status: completed.
 
 Goal:
 
@@ -93,6 +93,8 @@ Out of scope:
 Checkpoint:
 
 - A clean local cache can sync headers directly from Proton and list/search them locally while Bridge is stopped.
+
+## Pending Phases
 
 ### Phase 5: Body Fetch And Decryption
 

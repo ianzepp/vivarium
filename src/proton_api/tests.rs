@@ -201,6 +201,39 @@ async fn identity_refreshes_once_after_unauthorized() {
     assert!(requests[3].contains("authorization: Bearer access-2"));
 }
 
+#[tokio::test]
+async fn list_messages_sends_auth_headers_and_parses_metadata() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (tx, rx) = oneshot::channel();
+
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let request = read_http_request(&mut stream).await;
+        let _ = tx.send(request);
+        write_json_response(
+            &mut stream,
+            r#"{"Total":1,"Messages":[{"ID":"proton-id","ConversationID":"conversation-id","ExternalID":"external@example.com","Subject":"subject","Time":1778205000,"Size":42,"Flags":4,"Unread":1,"NumAttachments":2,"LabelIDs":["0","5"],"Sender":{"Name":"Sender","Address":"sender@example.com"},"ToList":[{"Name":"","Address":"to@example.com"}]}]}"#,
+        )
+        .await;
+    });
+
+    let (_session, messages, total) = ProtonApiClient::new(endpoint)
+        .list_messages(&fake_session(), 2, 25)
+        .await
+        .unwrap();
+
+    assert_eq!(total, 1);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].id, "proton-id");
+    assert_eq!(messages[0].sender.address, "sender@example.com");
+    assert_eq!(messages[0].to[0].address, "to@example.com");
+    let request = rx.await.unwrap();
+    assert!(request.starts_with("GET /mail/v4/messages?Page=2&PageSize=25 HTTP/1.1"));
+    assert!(request.contains("authorization: Bearer access-1"));
+    assert!(request.contains("x-pm-uid: uid-1"));
+}
+
 #[test]
 fn session_store_round_trips_with_private_permissions() {
     let tmp = tempfile::tempdir().unwrap();

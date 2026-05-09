@@ -3,7 +3,7 @@ use std::fs;
 use chrono::{DateTime, Local, Months, NaiveDate, Utc};
 
 use crate::catalog::{CatalogEntry, RemoteIdentityCandidate};
-use crate::config::{Account, Config};
+use crate::config::{Account, Config, Provider};
 use crate::error::VivariumError;
 use crate::store::MailStore;
 
@@ -56,6 +56,8 @@ pub async fn sync_account(
 
     let mut result = if limit == Some(0) {
         SyncResult::default()
+    } else if matches!(account.provider, Provider::ProtonApi) {
+        crate::proton_sync::sync_messages(account, &store, limit, window).await?
     } else {
         let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
         crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window, all)
