@@ -6,7 +6,7 @@ use pgp::crypto::hash::HashAlgorithm;
 use pgp::crypto::sym::SymmetricKeyAlgorithm;
 use pgp::packet::{Packet, PacketParser, PacketTrait, PublicKeyEncryptedSessionKey};
 use pgp::ser::Serialize;
-use pgp::types::Password;
+use pgp::types::{KeyDetails, Password, PublicParams};
 use std::io::{Cursor, Read};
 
 use crate::error::VivariumError;
@@ -91,8 +91,16 @@ impl ProtonBodyEncryptor {
         let mut rng = rand::thread_rng();
         let mut builder = MessageBuilder::from_bytes("", body.as_bytes().to_vec())
             .seipd_v1(&mut rng, SymmetricKeyAlgorithm::AES256);
+        let self_encryption_key = self
+            .key
+            .secret_subkeys
+            .iter()
+            .find(|subkey| is_encryption_key(subkey.public_params()))
+            .ok_or_else(|| {
+                VivariumError::Other("Proton address key has no encryption subkey".into())
+            })?;
         builder
-            .encrypt_to_key(&mut rng, &self.key.public_key())
+            .encrypt_to_key(&mut rng, &self_encryption_key.public_key())
             .map_err(|e| {
                 VivariumError::Other(format!("Proton body session encrypt failed: {e}"))
             })?;
@@ -116,6 +124,16 @@ impl ProtonBodyEncryptor {
             algorithm: "aes256".into(),
         })
     }
+}
+
+fn is_encryption_key(params: &PublicParams) -> bool {
+    matches!(
+        params,
+        PublicParams::RSA(_)
+            | PublicParams::ECDH(_)
+            | PublicParams::X25519(_)
+            | PublicParams::X448(_)
+    )
 }
 
 fn serialize_key_packet(packet: PublicKeyEncryptedSessionKey) -> Result<Vec<u8>, VivariumError> {
