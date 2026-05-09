@@ -57,6 +57,7 @@ smtp_host = "127.0.0.1"
 smtp_port = 1025
 smtp_security = "starttls"
 provider = "protonmail"
+storage_mode = "headers" # proxy | headers | bodies | semantic
 ```
 
 The SMTP fields are still required by the account parser even when you only use
@@ -78,7 +79,24 @@ vivi sync --account proton --reset
 local cache for that account and rebuilds it from the remote mailbox.
 
 Plain `vivi sync` is incremental. It downloads only missing IMAP messages, then
-updates storage-backed metadata and extracted local content for new messages.
+updates storage-backed metadata and local indexes for new messages.
+
+Storage modes control how much mail Vivi keeps locally:
+
+- `headers` is the default. Sync stores IMAP headers, folder/UID identity, and
+  thread/search metadata, but not message bodies.
+- `bodies` stores full RFC 5322 messages locally for fast `show`, `thread`,
+  export, and offline body access. It does not enable semantic indexing by
+  itself.
+- `semantic` stores full messages and allows `vivi sync --embed` or
+  `vivi index embeddings` to build body-derived embeddings.
+- `proxy` is reserved for live IMAP proxy workflows and does not maintain a
+  sync cache.
+
+Header-only sync keeps deterministic search local because Vivi's lexical index
+uses headers and metadata: sender, recipients, subject, date, folder, message
+IDs, and thread references. Semantic search is body-derived and requires
+`storage_mode = "semantic"`.
 
 ## Storage Layout
 

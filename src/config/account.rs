@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use super::expand_tilde;
-use super::types::{Account, Auth, Config, Provider, ProviderOAuthConfig, Security};
+use super::types::{Account, Auth, Config, Provider, ProviderOAuthConfig, Security, StorageMode};
 use crate::error::VivariumError;
 
 impl Account {
@@ -165,6 +165,21 @@ impl Account {
 
     pub fn label_roots(&self) -> Vec<String> {
         self.label_roots.clone().unwrap_or_default()
+    }
+
+    pub fn resolved_storage_mode(&self) -> StorageMode {
+        self.storage_mode.clone().unwrap_or_default()
+    }
+
+    pub fn stores_full_bodies(&self) -> bool {
+        matches!(
+            self.resolved_storage_mode(),
+            StorageMode::Bodies | StorageMode::Semantic
+        )
+    }
+
+    pub fn allows_semantic_indexing(&self) -> bool {
+        matches!(self.resolved_storage_mode(), StorageMode::Semantic)
     }
 
     /// Resolved IMAP host, with provider defaults applied.

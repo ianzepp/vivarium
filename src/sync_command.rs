@@ -82,6 +82,13 @@ impl Runtime {
             acct.name, stats.scanned, stats.updated, stats.reused, stats.stale, stats.errors
         );
         if embed {
+            if !acct.allows_semantic_indexing() {
+                return Err(VivariumError::Config(format!(
+                    "account '{}' uses storage_mode = \"{}\"; --embed requires storage_mode = \"semantic\"",
+                    acct.name,
+                    acct.resolved_storage_mode()
+                )));
+            }
             let catalog_handles = result
                 .cataloged_entries
                 .iter()

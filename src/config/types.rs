@@ -49,6 +49,7 @@ pub struct Account {
     pub sent_folder: Option<String>,
     pub drafts_folder: Option<String>,
     pub label_roots: Option<Vec<String>>,
+    pub storage_mode: Option<StorageMode>,
     /// Provider hint: "gmail", "protonmail", or "standard"
     #[serde(default)]
     pub provider: Provider,
@@ -123,4 +124,29 @@ pub enum Auth {
     #[default]
     Password,
     Xoauth2,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageMode {
+    /// Do not keep a durable local cache. Live proxy commands are intentionally limited.
+    Proxy,
+    /// Store headers and metadata only. Bodies are fetched only by future on-demand paths.
+    #[default]
+    Headers,
+    /// Store full messages locally, without building semantic embeddings by default.
+    Bodies,
+    /// Store full messages locally and allow semantic body embedding/indexing.
+    Semantic,
+}
+
+impl std::fmt::Display for StorageMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StorageMode::Proxy => write!(f, "proxy"),
+            StorageMode::Headers => write!(f, "headers"),
+            StorageMode::Bodies => write!(f, "bodies"),
+            StorageMode::Semantic => write!(f, "semantic"),
+        }
+    }
 }

@@ -20,6 +20,13 @@ impl Runtime {
                 model,
                 endpoint,
             } => {
+                if !acct.allows_semantic_indexing() {
+                    return Err(VivariumError::Config(format!(
+                        "account '{}' uses storage_mode = \"{}\"; embeddings require storage_mode = \"semantic\"",
+                        acct.name,
+                        acct.resolved_storage_mode()
+                    )));
+                }
                 let options = vivarium::embeddings::EmbeddingOptions {
                     provider,
                     model,

@@ -31,6 +31,50 @@ fn config_parses_reject_invalid_certs_default() {
 }
 
 #[test]
+fn account_defaults_to_header_storage() {
+    let account = account_with_provider(types::Provider::Standard);
+
+    assert_eq!(account.resolved_storage_mode(), types::StorageMode::Headers);
+    assert!(!account.stores_full_bodies());
+    assert!(!account.allows_semantic_indexing());
+}
+
+#[test]
+fn account_parses_storage_modes() {
+    let path = accounts_file(
+        r#"
+        [[accounts]]
+        name = "semantic"
+        email = "semantic@example.com"
+        imap_host = "imap.example.com"
+        smtp_host = "smtp.example.com"
+        username = "semantic"
+        password = "secret"
+        storage_mode = "semantic"
+    "#,
+        0o600,
+    );
+    let accounts = AccountsFile::load(&path).unwrap();
+    let account = accounts.find_account("semantic").unwrap();
+
+    assert_eq!(
+        account.resolved_storage_mode(),
+        types::StorageMode::Semantic
+    );
+    assert!(account.stores_full_bodies());
+    assert!(account.allows_semantic_indexing());
+}
+
+#[test]
+fn bodies_storage_does_not_allow_semantic_indexing_by_default() {
+    let mut account = account_with_provider(types::Provider::Standard);
+    account.storage_mode = Some(types::StorageMode::Bodies);
+
+    assert!(account.stores_full_bodies());
+    assert!(!account.allows_semantic_indexing());
+}
+
+#[test]
 fn accounts_file_not_found() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("nonexistent.toml");
@@ -296,6 +340,7 @@ fn account_with_provider(provider: types::Provider) -> types::Account {
         sent_folder: None,
         drafts_folder: None,
         label_roots: None,
+        storage_mode: None,
         provider,
         reject_invalid_certs: None,
     }

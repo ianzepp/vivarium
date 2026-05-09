@@ -140,6 +140,7 @@ mod tests {
             sent_folder: None,
             drafts_folder: None,
             label_roots: Some(vec!["Labels".into()]),
+            storage_mode: None,
             provider,
             oauth_authorization_url: None,
             oauth_token_url: None,

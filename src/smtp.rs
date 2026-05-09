@@ -88,6 +88,7 @@ fn tls_parameters(
 
     lettre::transport::smtp::client::TlsParameters::builder(host.to_string())
         .dangerous_accept_invalid_certs(true)
+        .dangerous_accept_invalid_hostnames(true)
         .build()
         .map_err(|e| VivariumError::Tls(format!("TLS params failed: {e}")))
 }
