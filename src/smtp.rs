@@ -169,4 +169,49 @@ mod tests {
 
         assert!(err.to_string().contains("no recipients"));
     }
+
+    #[test]
+    fn smtp_transport_builds_for_supported_security_and_auth_modes() {
+        let mut account = test_account();
+        account.smtp_security = Some(Security::Ssl);
+        account.auth = Auth::Password;
+        smtp_transport(&account, "secret".into(), true).unwrap();
+
+        account.smtp_security = Some(Security::Starttls);
+        account.auth = Auth::Xoauth2;
+        smtp_transport(&account, "access-token".into(), true).unwrap();
+    }
+
+    fn test_account() -> Account {
+        Account {
+            name: "smtp-test".into(),
+            email: "sender@example.com".into(),
+            imap_host: "imap.example.com".into(),
+            imap_port: Some(993),
+            imap_security: Some(Security::Ssl),
+            smtp_host: "smtp.example.com".into(),
+            smtp_port: Some(587),
+            smtp_security: Some(Security::Starttls),
+            username: "sender@example.com".into(),
+            auth: Auth::Password,
+            password: Some("secret".into()),
+            password_cmd: None,
+            token_cmd: None,
+            oauth_client_id: None,
+            oauth_client_secret: None,
+            mail_dir: None,
+            inbox_folder: None,
+            archive_folder: None,
+            trash_folder: None,
+            sent_folder: None,
+            drafts_folder: None,
+            label_roots: None,
+            storage_mode: None,
+            provider: crate::config::Provider::Standard,
+            oauth_authorization_url: None,
+            oauth_token_url: None,
+            oauth_scope: None,
+            reject_invalid_certs: None,
+        }
+    }
 }
