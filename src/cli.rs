@@ -110,6 +110,17 @@ pub enum Command {
         json: bool,
     },
 
+    /// Check account configuration, IMAP, and SMTP connectivity
+    Doctor {
+        /// Account to inspect (overrides --account)
+        #[arg(long)]
+        account: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Watch for new mail via IMAP IDLE and outbox changes
     #[cfg(feature = "outbox")]
     Watch {

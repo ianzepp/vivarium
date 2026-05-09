@@ -14,7 +14,8 @@ const DEFAULT_ACCOUNTS: &str = r#"# Each [[accounts]] entry defines an email acc
 # Passwords are stored here — keep this file chmod 600.
 
 # Proton Bridge (recommended for local archive):
-# Vivarium defaults to 127.0.0.1:1143 (IMAP SSL) for Protonmail.
+# Vivarium defaults to 127.0.0.1:1143 (IMAP SSL) and
+# 127.0.0.1:1025 (SMTP STARTTLS) for Protonmail.
 # Self-signed certificates are accepted by default for Bridge.
 # Use an App Password (generate in Proton settings, not your main password).
 # [[accounts]]
@@ -24,6 +25,8 @@ const DEFAULT_ACCOUNTS: &str = r#"# Each [[accounts]] entry defines an email acc
 # auth = "password"
 # password = "your-bridge-app-password"
 # provider = "protonmail"
+# imap_security = "ssl"
+# smtp_security = "starttls"
 
 # Gmail:
 # [[accounts]]

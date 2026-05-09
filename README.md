@@ -10,9 +10,26 @@ Vivarium treats Proton Bridge as the transport/decryption boundary and does not 
 
 ## Install
 
-Requires Rust 1.93+.
+With Homebrew on macOS:
 
+```sh
+brew install ianzepp/tap/vivarium
 ```
+
+With curl on macOS:
+
+```sh
+target="$(case "$(uname -m)" in arm64) echo aarch64-apple-darwin ;; x86_64) echo x86_64-apple-darwin ;; *) echo "unsupported architecture" >&2; exit 1 ;; esac)"
+version="$(curl -fsSL https://api.github.com/repos/ianzepp/vivarium/releases/latest | sed -n 's/.*"tag_name": "\(v[^"]*\)".*/\1/p')"
+curl -fsSL "https://github.com/ianzepp/vivarium/releases/download/${version}/vivi-${target}.tar.gz" | tar -xz
+mkdir -p ~/.local/bin
+install -m 0755 vivi ~/.local/bin/vivi
+rm vivi
+```
+
+From source, requires Rust 1.93+:
+
+```sh
 git clone https://github.com/ianzepp/vivarium.git
 cd vivarium
 cargo install --path .
@@ -43,12 +60,17 @@ imap_port = 1143
 imap_security = "ssl"
 smtp_host = "127.0.0.1"
 smtp_port = 1025
-smtp_security = "ssl"
+smtp_security = "starttls"
 provider = "protonmail"
 ```
 
 The SMTP fields are still required by the account parser even when you only use
 the read-only sync/search commands.
+
+For `provider = "protonmail"`, Vivi defaults to IMAP implicit TLS on
+`127.0.0.1:1143` and SMTP STARTTLS on `127.0.0.1:1025` when host, port, or
+security fields are omitted. Set `imap_security` or `smtp_security` explicitly
+to override those defaults for a different bridge or mail server.
 
 Then sync:
 
@@ -100,6 +122,7 @@ vivi sync --account proton --limit 100         # cap new downloads for this run
 vivi sync --account proton --since 3mo         # sync messages from the last 3 months
 vivi sync --account proton --since 2025-05-02 --before 2026-05-02
 vivi sync --account proton --reset             # delete local cache, then full resync
+vivi doctor --account proton                   # check config, IMAP, and SMTP connectivity
 vivi list                                      # list inbox (default)
 vivi list sent                                 # list sent folder
 vivi list -n 25                                # list the 25 newest inbox messages

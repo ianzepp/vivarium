@@ -189,10 +189,52 @@ fn protonmail_defaults_resolved_host_when_empty() {
 fn protonmail_defaults_resolves_explicit_host() {
     let mut account = account_with_provider(types::Provider::Protonmail);
     account.imap_host = "bridge.local".into();
-    account.imap_security = types::Security::Starttls;
+    account.imap_security = Some(types::Security::Starttls);
     assert_eq!(account.resolved_imap_host(), "bridge.local");
     assert_eq!(account.resolved_imap_port(), 1143);
     assert_eq!(account.resolved_smtp_port(), 1025);
+}
+
+#[test]
+fn protonmail_security_defaults_match_bridge_modes() {
+    let account = account_with_provider(types::Provider::Protonmail);
+
+    assert_eq!(account.resolved_imap_security(), types::Security::Ssl);
+    assert_eq!(account.resolved_smtp_security(), types::Security::Starttls);
+}
+
+#[test]
+fn protonmail_parsed_without_security_uses_bridge_modes() {
+    let path = accounts_file(
+        r#"
+        [[accounts]]
+        name = "proton"
+        email = "u@p.me"
+        imap_host = ""
+        smtp_host = ""
+        username = "u"
+        password = "pw"
+        provider = "protonmail"
+    "#,
+        0o600,
+    );
+    let accounts = AccountsFile::load(&path).unwrap();
+    let account = accounts.find_account("proton").unwrap();
+
+    assert_eq!(account.resolved_imap_security(), types::Security::Ssl);
+    assert_eq!(account.resolved_smtp_security(), types::Security::Starttls);
+    assert_eq!(account.resolved_imap_port(), 1143);
+    assert_eq!(account.resolved_smtp_port(), 1025);
+}
+
+#[test]
+fn explicit_security_overrides_provider_defaults() {
+    let mut account = account_with_provider(types::Provider::Protonmail);
+    account.imap_security = Some(types::Security::Starttls);
+    account.smtp_security = Some(types::Security::Ssl);
+
+    assert_eq!(account.resolved_imap_security(), types::Security::Starttls);
+    assert_eq!(account.resolved_smtp_security(), types::Security::Ssl);
 }
 
 #[test]
@@ -233,10 +275,10 @@ fn account_with_provider(provider: types::Provider) -> types::Account {
         email: "u@p.me".into(),
         imap_host: "".into(),
         imap_port: None,
-        imap_security: types::Security::Ssl,
+        imap_security: None,
         smtp_host: "".into(),
         smtp_port: None,
-        smtp_security: types::Security::Ssl,
+        smtp_security: None,
         username: "u".into(),
         auth: types::Auth::Password,
         password: Some("pw".into()),

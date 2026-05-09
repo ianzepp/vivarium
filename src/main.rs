@@ -10,6 +10,7 @@ use vivarium::message;
 use vivarium::store::MailStore;
 
 mod agent_runner;
+mod doctor_command;
 mod draft_runner;
 mod folders_command;
 mod index_runner;
@@ -105,6 +106,7 @@ impl Runtime {
             Command::Token { account } => self.token(account).await,
             command @ Command::Sync { .. } => self.run_sync_command(command).await,
             Command::Folders { account, json } => self.folders(account, json).await,
+            Command::Doctor { account, json } => self.doctor(account, json).await,
             Command::List {
                 folder,
                 limit,

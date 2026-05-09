@@ -185,11 +185,19 @@ impl Account {
         }
         match self.provider {
             Provider::Protonmail => 1143,
-            _ => match self.imap_security {
+            _ => match self.resolved_imap_security() {
                 Security::Ssl => 993,
                 Security::Starttls => 143,
             },
         }
+    }
+
+    /// Resolved IMAP security, with provider defaults applied.
+    pub fn resolved_imap_security(&self) -> Security {
+        self.imap_security.clone().unwrap_or(match self.provider {
+            Provider::Protonmail => Security::Ssl,
+            _ => Security::Ssl,
+        })
     }
 
     /// Resolved SMTP host, with provider defaults applied.
@@ -210,11 +218,19 @@ impl Account {
         }
         match self.provider {
             Provider::Protonmail => 1025,
-            _ => match self.smtp_security {
+            _ => match self.resolved_smtp_security() {
                 Security::Ssl => 465,
                 Security::Starttls => 587,
             },
         }
+    }
+
+    /// Resolved SMTP security, with provider defaults applied.
+    pub fn resolved_smtp_security(&self) -> Security {
+        self.smtp_security.clone().unwrap_or(match self.provider {
+            Provider::Protonmail => Security::Starttls,
+            _ => Security::Ssl,
+        })
     }
 
     /// Whether this account should accept self-signed certificates by default.

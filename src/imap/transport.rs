@@ -43,9 +43,10 @@ pub async fn connect(
 ) -> Result<ImapSession, VivariumError> {
     let host = account.resolved_imap_host();
     let port = account.resolved_imap_port();
+    let security = account.resolved_imap_security();
     let secret = account.resolve_secret().await?;
 
-    tracing::debug!(host, port, security = %account.imap_security, "connecting to IMAP");
+    tracing::debug!(host, port, security = %security, "connecting to IMAP");
 
     let tcp = TcpStream::connect((host.as_str(), port))
         .await
@@ -61,7 +62,7 @@ pub async fn connect(
         })?;
 
     let tls_connector = build_tls_connector(reject_invalid_certs)?;
-    let tls_stream = tls_stream(&tls_connector, account, tcp).await;
+    let tls_stream = tls_stream(&tls_connector, &host, security, tcp).await;
     match tls_stream {
         Ok(session) => {
             let authenticated = authenticate(account, secret, session).await;
@@ -96,11 +97,11 @@ fn build_tls_connector(
 
 async fn tls_stream(
     tls_connector: &tokio_native_tls::TlsConnector,
-    account: &Account,
+    host: &str,
+    security: Security,
     tcp: TcpStream,
 ) -> Result<TlsStream<TcpStream>, VivariumError> {
-    let host = &account.imap_host;
-    match account.imap_security {
+    match security {
         Security::Ssl => tls_connector
             .connect(host, tcp)
             .await

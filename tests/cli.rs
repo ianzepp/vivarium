@@ -45,6 +45,19 @@ fn parses_list_filter() {
 }
 
 #[test]
+fn parses_doctor_json() {
+    let cli = Cli::try_parse_from(["vivi", "doctor", "--account", "proton", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Doctor { account, json } => {
+            assert_eq!(account.as_deref(), Some("proton"));
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_default_compose_command() {
     let cli = Cli::try_parse_from([
         "vivi",

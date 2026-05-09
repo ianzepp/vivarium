@@ -29,12 +29,10 @@ pub struct Account {
     pub email: String,
     pub imap_host: String,
     pub imap_port: Option<u16>,
-    #[serde(default)]
-    pub imap_security: Security,
+    pub imap_security: Option<Security>,
     pub smtp_host: String,
     pub smtp_port: Option<u16>,
-    #[serde(default)]
-    pub smtp_security: Security,
+    pub smtp_security: Option<Security>,
     pub username: String,
     #[serde(default)]
     pub auth: Auth,
@@ -112,10 +110,10 @@ impl Provider {
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Security {
-    /// Direct TLS/SSL connection (port 993 for IMAP, 465 for SMTP)
+    /// Implicit TLS/SSL connection (port 993 for IMAP, 465 for SMTP).
     #[default]
     Ssl,
-    /// STARTTLS upgrade from plaintext (port 143 for IMAP, 587 for SMTP)
+    /// STARTTLS upgrade from plaintext (port 143 for IMAP, 587 for SMTP).
     Starttls,
 }
 

@@ -11,17 +11,52 @@ pub async fn send_raw(
     data: &[u8],
     reject_invalid_certs: bool,
 ) -> Result<(), VivariumError> {
+    let secret = account.resolve_secret().await?;
+    let transport = smtp_transport(account, secret, reject_invalid_certs)?;
+
+    let envelope = envelope_from_raw(data)?;
+
+    transport.send_raw(&envelope, data).await.map_err(|e| {
+        VivariumError::Smtp(format!(
+            "send failed via {}:{} using {}: {e}",
+            account.resolved_smtp_host(),
+            account.resolved_smtp_port(),
+            account.resolved_smtp_security()
+        ))
+    })?;
+
+    tracing::info!("message sent");
+    Ok(())
+}
+
+/// Test SMTP connectivity, TLS, auth, and NOOP without sending mail.
+pub async fn test_connection(
+    account: &Account,
+    reject_invalid_certs: bool,
+) -> Result<bool, VivariumError> {
+    let secret = account.resolve_secret().await?;
+    let transport = smtp_transport(account, secret, reject_invalid_certs)?;
+    transport
+        .test_connection()
+        .await
+        .map_err(|e| VivariumError::Smtp(format!("SMTP connection test failed: {e}")))
+}
+
+fn smtp_transport(
+    account: &Account,
+    secret: String,
+    reject_invalid_certs: bool,
+) -> Result<AsyncSmtpTransport<Tokio1Executor>, VivariumError> {
     let host = account.resolved_smtp_host();
     let port = account.resolved_smtp_port();
-    let secret = account.resolve_secret().await?;
-
-    tracing::info!(host, port, security = %account.smtp_security, "connecting to SMTP");
+    let security = account.resolved_smtp_security();
+    tracing::info!(host, port, security = %security, "connecting to SMTP");
 
     let creds = Credentials::new(account.username.clone(), secret);
 
     let tls_parameters = tls_parameters(&host, reject_invalid_certs)?;
 
-    let builder = match account.smtp_security {
+    let builder = match security {
         Security::Ssl => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host.clone())
             .port(port)
             .tls(lettre::transport::smtp::client::Tls::Wrapper(
@@ -38,18 +73,7 @@ pub async fn send_raw(
         Auth::Password => builder,
         Auth::Xoauth2 => builder.authentication(vec![Mechanism::Xoauth2]),
     };
-    let transport = builder.credentials(creds).build();
-    let envelope = envelope_from_raw(data)?;
-
-    transport.send_raw(&envelope, data).await.map_err(|e| {
-        VivariumError::Smtp(format!(
-            "send failed via {host}:{port} using {}: {e}",
-            account.smtp_security
-        ))
-    })?;
-
-    tracing::info!("message sent");
-    Ok(())
+    Ok(builder.credentials(creds).build())
 }
 
 fn tls_parameters(
