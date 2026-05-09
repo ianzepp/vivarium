@@ -14,6 +14,12 @@ pub struct Defaults {
     pub check_interval_secs: Option<u64>,
     #[serde(default)]
     pub reject_invalid_certs: bool,
+    /// Optional embedding provider name for semantic indexing/search.
+    pub embedding_provider: Option<String>,
+    /// Optional embedding model name for semantic indexing/search.
+    pub embedding_model: Option<String>,
+    /// Optional embedding endpoint URL for semantic indexing/search.
+    pub embedding_endpoint: Option<String>,
 }
 
 /// Credential and connection details from `accounts.toml`.
@@ -49,6 +55,7 @@ pub struct Account {
     pub sent_folder: Option<String>,
     pub drafts_folder: Option<String>,
     pub label_roots: Option<Vec<String>>,
+    pub storage_mode: Option<StorageMode>,
     /// Provider hint: "gmail", "protonmail", or "standard"
     #[serde(default)]
     pub provider: Provider,
@@ -65,6 +72,8 @@ pub struct Account {
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
     Gmail,
+    #[serde(rename = "proton-api")]
+    ProtonApi,
     Protonmail,
     #[default]
     Standard,
@@ -74,6 +83,7 @@ impl std::fmt::Display for Provider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Provider::Gmail => write!(f, "gmail"),
+            Provider::ProtonApi => write!(f, "proton-api"),
             Provider::Protonmail => write!(f, "protonmail"),
             Provider::Standard => write!(f, "standard"),
         }
@@ -97,6 +107,7 @@ impl Provider {
                 token_url: "https://oauth2.googleapis.com/token".into(),
                 scope: "https://mail.google.com/".into(),
             }),
+            Provider::ProtonApi => None,
             Provider::Protonmail => Some(ProviderOAuthConfig {
                 auth_url: "https://account.proton.me/oauth".into(),
                 token_url: "https://account.proton.me/token".into(),
@@ -123,4 +134,38 @@ pub enum Auth {
     #[default]
     Password,
     Xoauth2,
+}
+
+impl std::fmt::Display for Auth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Auth::Password => write!(f, "password"),
+            Auth::Xoauth2 => write!(f, "xoauth2"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageMode {
+    /// Do not keep a durable local cache. Live proxy commands are intentionally limited.
+    Proxy,
+    /// Store headers and metadata only. Bodies are fetched only by future on-demand paths.
+    #[default]
+    Headers,
+    /// Store full messages locally, without building semantic embeddings by default.
+    Bodies,
+    /// Store full messages locally and allow semantic body embedding/indexing.
+    Semantic,
+}
+
+impl std::fmt::Display for StorageMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StorageMode::Proxy => write!(f, "proxy"),
+            StorageMode::Headers => write!(f, "headers"),
+            StorageMode::Bodies => write!(f, "bodies"),
+            StorageMode::Semantic => write!(f, "semantic"),
+        }
+    }
 }

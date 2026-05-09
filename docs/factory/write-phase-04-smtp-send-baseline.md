@@ -19,7 +19,7 @@ binary.
 - Existing `src/smtp.rs`.
 - Existing feature-gated `vivi send <path>` command.
 - Account auth, SMTP host/port/security config, and TLS behavior.
-- Pharos/Bridge SMTP endpoint.
+- Proton Bridge SMTP endpoint.
 
 ### Expected Outputs
 

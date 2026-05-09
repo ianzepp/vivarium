@@ -140,7 +140,7 @@ status.
 - `cargo run -- --help`
 - `cargo run -- --account personal-proton sync --limit 1 --since 7d`
 
-Live sync result: one bounded read-only sync through the Pharos-backed
+Live sync result: one bounded read-only sync through the Proton Bridge-backed
 `personal-proton` account completed with `new=1`, `cataloged=1`, `extracted=1`,
 and remote identity reconciliation `matched=211`, `missing_uidvalidity=0`,
 `missing_local=0`, `ambiguous=0`.

@@ -6,7 +6,12 @@ Local-first email archive and retrieval layer for private agents. Pulls email fr
 
 Local agents need access to email. Existing tools (offlineimap, mbsync, mutt) are built for humans and carry decades of assumptions. Vivarium keeps the important part simple: the raw message bytes stay local, stable, and directly readable as `.eml` files, while Vivi owns mailbox placement, flags, bindings, and indexes.
 
-Vivarium treats Proton Bridge as the transport/decryption boundary and does not attempt to speak ProtonMail private APIs.
+Vivarium treats Proton Bridge as the conservative supported transport/decryption
+boundary by default. Experimental direct Proton API support is available under
+`provider = "proton-api"` for container bootstrap work. This path is not a
+stable Proton public API contract, but it can perform non-interactive login,
+session refresh, read-only metadata sync, body fetch/decryption, and local
+semantic post-processing without Bridge.
 
 ## Install
 
@@ -41,6 +46,18 @@ This creates `~/.config/vivarium/` with two files:
 - `config.toml` - general settings such as mail root and TLS policy
 - `accounts.toml` - account credentials, created with mode `600`
 
+Semantic embedding settings are intentionally not guessed. If you want
+`storage_mode = "semantic"`, `vivi sync --embed`, or semantic search, configure
+an embedding service in `config.toml` or pass all embedding options on the
+explicit index command:
+
+```toml
+[defaults]
+embedding_provider = "ollama"
+embedding_model = "your-embedding-model"
+embedding_endpoint = "http://your-embedding-host/api/embed"
+```
+
 Edit `accounts.toml` to add a Proton Bridge account:
 
 ```toml
@@ -57,7 +74,52 @@ smtp_host = "127.0.0.1"
 smtp_port = 1025
 smtp_security = "starttls"
 provider = "protonmail"
+storage_mode = "headers" # proxy | headers | bodies | semantic
 ```
+
+For experimental direct Proton API sync without Bridge:
+
+```toml
+[[accounts]]
+name = "agent-proton"
+email = "agent@proton.me"
+username = "agent@proton.me"
+auth = "password"
+password_cmd = "printenv PROTON_PASSWORD"
+provider = "proton-api"
+storage_mode = "semantic" # headers | bodies | semantic
+```
+
+Then verify the direct API path:
+
+```
+vivi proton auth-info --account agent-proton --json
+vivi proton login-check --account agent-proton --json
+vivi proton login --account agent-proton --json
+vivi proton session-check --account agent-proton --json
+vivi proton identity --account agent-proton --json
+vivi sync --account agent-proton --limit 25 --index --json
+vivi sync --account agent-proton --limit 0 --index --embed --json
+```
+
+`login-check` verifies credentials and discards returned tokens. `login` stores
+the direct Proton session under the account's Vivi state directory, and
+`session-check` refreshes that stored session without using the account
+password. `identity` uses the stored session to report non-secret user, address,
+and key-state metadata.
+
+Direct Proton sync is read-only. `storage_mode = "headers"` stores metadata-only
+local messages. `storage_mode = "bodies"` fetches encrypted Proton payloads,
+caches them privately under the account state directory, decrypts them locally,
+and stores reconstructed RFC-like message blobs in the normal Vivi store.
+`storage_mode = "semantic"` uses the same body fetch/decrypt/cache path, then
+allows `--embed` or `vivi index embeddings` to run as local post-processing over
+already-decrypted local bodies.
+
+Vivi sends a Bridge-style Proton app version by default because Proton scopes
+key access by client family. If Proton reports that the client is out of date,
+set `VIVI_PROTON_APP_VERSION` to a current Proton client app-version string
+before rerunning the command.
 
 The SMTP fields are still required by the account parser even when you only use
 the read-only sync/search commands.
@@ -78,7 +140,27 @@ vivi sync --account proton --reset
 local cache for that account and rebuilds it from the remote mailbox.
 
 Plain `vivi sync` is incremental. It downloads only missing IMAP messages, then
-updates storage-backed metadata and extracted local content for new messages.
+updates storage-backed metadata and local indexes for new messages.
+
+Storage modes control how much mail Vivi keeps locally:
+
+- `headers` is the default. Sync stores IMAP headers, folder/UID identity, and
+  thread/search metadata, but not message bodies.
+- `bodies` stores full RFC 5322 messages locally for fast `show`, `thread`,
+  export, and offline body access. It does not enable semantic indexing by
+  itself.
+- `semantic` stores full messages and allows `vivi sync --embed` or
+  `vivi index embeddings` to build body-derived embeddings. Semantic embedding
+  requires `embedding_provider`, `embedding_model`, and `embedding_endpoint` in
+  `config.toml`, or explicit `--provider`, `--model`, and `--endpoint` flags
+  for `vivi index embeddings`.
+- `proxy` is reserved for live IMAP proxy workflows and does not maintain a
+  sync cache.
+
+Header-only sync keeps deterministic search local because Vivi's lexical index
+uses headers and metadata: sender, recipients, subject, date, folder, message
+IDs, and thread references. Semantic search is body-derived and requires
+`storage_mode = "semantic"`.
 
 ## Storage Layout
 
@@ -114,6 +196,7 @@ vivi --version                                 # print installed version
 vivi sync                                      # sync all accounts
 vivi sync --account proton                     # sync one account
 vivi sync --account proton --limit 100         # cap new downloads for this run
+vivi sync --account proton --json              # machine-readable sync summary
 vivi sync --account proton --since 3mo         # sync messages from the last 3 months
 vivi sync --account proton --since 2025-05-02 --before 2026-05-02
 vivi sync --account proton --reset             # delete local cache, then full resync

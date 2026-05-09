@@ -3,7 +3,7 @@ use std::fs;
 use chrono::{DateTime, Local, Months, NaiveDate, Utc};
 
 use crate::catalog::{CatalogEntry, RemoteIdentityCandidate};
-use crate::config::{Account, Config};
+use crate::config::{Account, Config, Provider};
 use crate::error::VivariumError;
 use crate::store::MailStore;
 
@@ -14,6 +14,7 @@ pub struct SyncResult {
     pub cataloged: usize,
     pub extracted: usize,
     pub extraction_errors: usize,
+    pub decryption_errors: usize,
     pub remote_identities: Vec<RemoteIdentityCandidate>,
     pub cataloged_entries: Vec<CatalogEntry>,
 }
@@ -56,6 +57,8 @@ pub async fn sync_account(
 
     let mut result = if limit == Some(0) {
         SyncResult::default()
+    } else if matches!(account.provider, Provider::ProtonApi) {
+        crate::proton_sync::sync_messages(account, &store, limit, window).await?
     } else {
         let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
         crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window, all)
@@ -73,6 +76,7 @@ pub async fn sync_account(
         cataloged = result.cataloged,
         extracted = result.extracted,
         extraction_errors = result.extraction_errors,
+        decryption_errors = result.decryption_errors,
         "sync complete"
     );
     Ok(result)
@@ -232,6 +236,7 @@ mod tests {
             sent_folder: None,
             drafts_folder: None,
             label_roots: None,
+            storage_mode: None,
             provider: crate::config::Provider::Standard,
             oauth_authorization_url: None,
             oauth_token_url: None,

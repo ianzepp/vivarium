@@ -1,24 +1,14 @@
-use futures::TryStreamExt;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
+use self::download::download_missing;
 use super::query::fetch_remote_messages;
-use super::transport::{CHUNK_SIZE, ImapSession, RemoteMessage, WORKER_COUNT, connect};
+use super::transport::RemoteMessage;
 use crate::catalog::CatalogEntry;
-use crate::config::{Account, Provider};
+use crate::config::{Account, Provider, StorageMode};
 use crate::error::VivariumError;
 use crate::storage::{MessageIngestRequest, RemoteBindingInput, Storage};
 use crate::store::MailStore;
 use crate::sync::{SyncResult, SyncWindow};
 
-struct WorkerContext {
-    worker_id: usize,
-    account: Account,
-    remote_folder: String,
-    local_folder: String,
-    store: Arc<MailStore>,
-    reject_invalid_certs: bool,
-}
+mod download;
 
 struct FolderPlan {
     remote_folder: String,
@@ -50,6 +40,20 @@ pub async fn sync_messages(
     window: SyncWindow,
     all: bool,
 ) -> Result<SyncResult, VivariumError> {
+    if matches!(account.provider, Provider::ProtonApi) {
+        return Err(VivariumError::Config(format!(
+            "account '{}' uses provider = \"proton-api\"; IMAP sync is not available for direct Proton API accounts yet",
+            account.name
+        )));
+    }
+
+    if matches!(account.resolved_storage_mode(), StorageMode::Proxy) {
+        return Err(VivariumError::Config(format!(
+            "account '{}' uses storage_mode = \"proxy\"; sync requires headers, bodies, or semantic storage",
+            account.name
+        )));
+    }
+
     let mut result = SyncResult::default();
     let mut remaining = limit;
 
@@ -138,64 +142,6 @@ fn find_missing(
     }
 
     Ok(missing)
-}
-
-/// Download missing messages using a chunked worker pool.
-async fn download_missing(
-    account: &Account,
-    store: &MailStore,
-    remote_folder: &str,
-    local_folder: &str,
-    missing: Vec<RemoteMessage>,
-    reject_invalid_certs: bool,
-) -> Result<SyncResult, VivariumError> {
-    let chunks: Vec<Vec<RemoteMessage>> = missing
-        .chunks(CHUNK_SIZE as usize)
-        .map(|c| c.to_vec())
-        .collect();
-    let chunks = Arc::new(Mutex::new(chunks.into_iter()));
-    let result = Arc::new(Mutex::new(SyncResult::default()));
-    let store = Arc::new(store.clone());
-
-    let mut handles = Vec::new();
-    let worker_count = WORKER_COUNT.min(missing.len().div_ceil(CHUNK_SIZE as usize));
-
-    for worker_id in 0..worker_count {
-        let chunks = Arc::clone(&chunks);
-        let result = Arc::clone(&result);
-        let store = Arc::clone(&store);
-        let account = account.clone();
-        let local_folder = local_folder.to_string();
-        let remote_folder = remote_folder.to_string();
-
-        let handle = tokio::spawn(async move {
-            worker(
-                WorkerContext {
-                    worker_id,
-                    account,
-                    remote_folder,
-                    local_folder,
-                    store,
-                    reject_invalid_certs,
-                },
-                &chunks,
-                &result,
-            )
-            .await
-        });
-        handles.push(handle);
-    }
-
-    for handle in handles {
-        match handle.await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(e),
-            Err(e) => return Err(VivariumError::Imap(format!("worker join failed: {e}"))),
-        }
-    }
-
-    let result = Arc::try_unwrap(result).unwrap().into_inner();
-    Ok(result)
 }
 
 /// Sync messages from the account's IMAP server into the local store.
@@ -293,90 +239,6 @@ fn store_message(
                 stored.message_id
             ))
         })
-}
-
-/// Worker: grab chunks from the queue, open a connection, fetch messages.
-async fn worker(
-    context: WorkerContext,
-    chunks: &Mutex<std::vec::IntoIter<Vec<RemoteMessage>>>,
-    result: &Mutex<SyncResult>,
-) -> Result<(), VivariumError> {
-    let mut session = connect(&context.account, context.reject_invalid_certs).await?;
-    session
-        .select(&context.remote_folder)
-        .await
-        .map_err(|e| VivariumError::Imap(format!("worker select failed: {e}")))?;
-
-    loop {
-        let uids = {
-            let mut iter = chunks.lock().await;
-            match iter.next() {
-                Some(c) => c,
-                None => break,
-            }
-        };
-
-        let uid_set = uid_set_string(&uids.iter().map(|msg| msg.uid).collect::<Vec<_>>());
-        tracing::debug!(
-            worker_id = context.worker_id,
-            uids = uid_set,
-            "fetching chunk"
-        );
-
-        let messages = fetch_messages(&mut session, &uid_set).await?;
-        let entries = process_messages(&context, &uids, &messages)?;
-        if !entries.is_empty() {
-            let mut r = result.lock().await;
-            r.new += entries.len();
-            r.cataloged_entries.extend(entries);
-        }
-    }
-
-    session.logout().await.ok();
-    Ok(())
-}
-
-/// Fetch messages by UID set from the IMAP server.
-async fn fetch_messages(
-    session: &mut ImapSession,
-    uid_set: &str,
-) -> Result<Vec<async_imap::types::Fetch>, VivariumError> {
-    let fetches = session
-        .uid_fetch(uid_set, "BODY[]")
-        .await
-        .map_err(|e| VivariumError::Imap(format!("fetch failed: {e}")))?;
-    fetches
-        .try_collect()
-        .await
-        .map_err(|e| VivariumError::Imap(format!("fetch stream failed: {e}")))
-}
-
-/// Parse and store a batch of fetched messages. Returns count of stored messages.
-fn process_messages(
-    context: &WorkerContext,
-    chunk: &[RemoteMessage],
-    messages: &[async_imap::types::Fetch],
-) -> Result<Vec<CatalogEntry>, VivariumError> {
-    let mut entries = Vec::new();
-    for fetch in messages {
-        let uid = fetch.uid.unwrap_or(0);
-        let body = match fetch.body() {
-            Some(b) => b,
-            None => continue,
-        };
-        let Some(remote) = chunk.iter().find(|message| message.uid == uid) else {
-            continue;
-        };
-        entries.push(store_message(
-            &context.account,
-            &context.store,
-            &context.remote_folder,
-            &context.local_folder,
-            body,
-            remote,
-        )?);
-    }
-    Ok(entries)
 }
 
 fn uid_set_string(uids: &[u32]) -> String {

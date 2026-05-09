@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 
 use super::provider::EmbeddingProvider;
-use super::{EmbeddingOptions, index_embeddings_with_provider};
+use super::{EmbeddingOptions, index_embeddings_with_provider, test_embedding_options};
 use crate::catalog::{Catalog, CatalogEntry};
 use crate::email_index;
 use crate::error::VivariumError;
@@ -22,7 +22,7 @@ async fn embedding_index_can_scope_to_catalog_handles() {
         "acct",
         EmbeddingOptions {
             catalog_handles: Some(BTreeSet::from(["two".to_string()])),
-            ..EmbeddingOptions::default()
+            ..test_embedding_options()
         },
         &provider,
     )

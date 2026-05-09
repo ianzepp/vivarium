@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use vivarium::cli::{
-    AgentCommand, Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, QueueCommand,
+    AgentCommand, Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, ProtonCommand,
+    QueueCommand,
 };
 
 #[test]
@@ -32,6 +33,16 @@ fn parses_sync_embed_without_index() {
 }
 
 #[test]
+fn parses_sync_json() {
+    let cli = Cli::try_parse_from(["vivi", "sync", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Sync { json, .. } => assert!(json),
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_list_filter() {
     let cli = Cli::try_parse_from(["vivi", "list", "inbox", "--filter", "DoorDash"]).unwrap();
 
@@ -51,6 +62,120 @@ fn parses_doctor_json() {
     match cli.command {
         Command::Doctor { account, json } => {
             assert_eq!(account.as_deref(), Some("proton"));
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_proton_auth_info_json() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "proton",
+        "auth-info",
+        "--account",
+        "agent",
+        "--json",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Proton {
+            command: ProtonCommand::AuthInfo { account, json },
+        } => {
+            assert_eq!(account.as_deref(), Some("agent"));
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_proton_login_check_totp() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "proton",
+        "login-check",
+        "--account",
+        "agent",
+        "--totp-code",
+        "123456",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Proton {
+            command:
+                ProtonCommand::LoginCheck {
+                    account,
+                    totp_code,
+                    json,
+                },
+        } => {
+            assert_eq!(account.as_deref(), Some("agent"));
+            assert_eq!(totp_code.as_deref(), Some("123456"));
+            assert!(!json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_proton_login_json() {
+    let cli =
+        Cli::try_parse_from(["vivi", "proton", "login", "--account", "agent", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Proton {
+            command:
+                ProtonCommand::Login {
+                    account,
+                    totp_code,
+                    json,
+                },
+        } => {
+            assert_eq!(account.as_deref(), Some("agent"));
+            assert_eq!(totp_code, None);
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_proton_identity_json() {
+    let cli = Cli::try_parse_from(["vivi", "proton", "identity", "--account", "agent", "--json"])
+        .unwrap();
+
+    match cli.command {
+        Command::Proton {
+            command: ProtonCommand::Identity { account, json },
+        } => {
+            assert_eq!(account.as_deref(), Some("agent"));
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_proton_session_check_json() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "proton",
+        "session-check",
+        "--account",
+        "agent",
+        "--json",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Proton {
+            command: ProtonCommand::SessionCheck { account, json },
+        } => {
+            assert_eq!(account.as_deref(), Some("agent"));
             assert!(json);
         }
         other => panic!("unexpected command: {other:?}"),
@@ -499,7 +624,7 @@ fn parses_index_embeddings_pending_limit() {
         "--provider",
         "ollama",
         "--model",
-        "cassio-embedding",
+        "mail-embedding-model",
     ])
     .unwrap();
 
@@ -512,14 +637,16 @@ fn parses_index_embeddings_pending_limit() {
                     limit,
                     provider,
                     model,
+                    endpoint,
                     ..
                 },
         } => {
             assert!(pending);
             assert!(!rebuild);
             assert_eq!(limit, Some(2));
-            assert_eq!(provider, "ollama");
-            assert_eq!(model, "cassio-embedding");
+            assert_eq!(provider.as_deref(), Some("ollama"));
+            assert_eq!(model.as_deref(), Some("mail-embedding-model"));
+            assert_eq!(endpoint, None);
         }
         other => panic!("unexpected command: {other:?}"),
     }

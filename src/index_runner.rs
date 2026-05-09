@@ -20,14 +20,21 @@ impl Runtime {
                 model,
                 endpoint,
             } => {
-                let options = vivarium::embeddings::EmbeddingOptions {
+                if !acct.allows_semantic_indexing() {
+                    return Err(VivariumError::Config(format!(
+                        "account '{}' uses storage_mode = \"{}\"; embeddings require storage_mode = \"semantic\"",
+                        acct.name,
+                        acct.resolved_storage_mode()
+                    )));
+                }
+                let mut options = vivarium::embeddings::EmbeddingOptions::from_values(
+                    &self.config,
                     provider,
                     model,
                     endpoint,
-                    rebuild,
-                    limit,
-                    catalog_handles: None,
-                };
+                )?;
+                options.rebuild = rebuild;
+                options.limit = limit;
                 run_index_embeddings(&mail_root, &acct.name, options).await
             }
         }

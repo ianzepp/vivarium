@@ -187,6 +187,7 @@ fn account_with_provider(provider: Provider) -> Account {
         sent_folder: None,
         drafts_folder: None,
         label_roots: None,
+        storage_mode: None,
         provider,
         oauth_authorization_url: None,
         oauth_token_url: None,

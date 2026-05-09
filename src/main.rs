@@ -16,6 +16,8 @@ mod folders_command;
 mod index_runner;
 mod label_runner;
 mod mutation_runner;
+mod proton_api_command;
+mod proton_fixture_command;
 mod queue_runner;
 mod sync_command;
 
@@ -23,7 +25,6 @@ use agent_runner::{AgentContext, AgentDispatch, AgentRunner};
 use draft_runner::DraftDispatch;
 use label_runner::LabelDispatch;
 use queue_runner::QueueDispatch;
-
 struct SearchRequest<'a> {
     query: &'a str,
     folder: Option<&'a str>,
@@ -107,6 +108,7 @@ impl Runtime {
             command @ Command::Sync { .. } => self.run_sync_command(command).await,
             Command::Folders { account, json } => self.folders(account, json).await,
             Command::Doctor { account, json } => self.doctor(account, json).await,
+            Command::Proton { command } => self.proton_command(command).await,
             Command::List {
                 folder,
                 limit,
@@ -184,30 +186,8 @@ impl Runtime {
     }
 
     async fn run_sync_command(&self, command: Command) -> Result<(), VivariumError> {
-        let Command::Sync {
-            account,
-            limit,
-            since,
-            before,
-            reset,
-            index,
-            embed,
-            all,
-        } = command
-        else {
-            unreachable!();
-        };
-        self.sync(sync_command::SyncOptions {
-            account,
-            limit,
-            since,
-            before,
-            reset,
-            index,
-            embed,
-            all,
-        })
-        .await
+        self.sync(sync_command::SyncOptions::from_command(command))
+            .await
     }
 
     async fn run_search_command(&self, command: Command) -> Result<(), VivariumError> {
@@ -349,6 +329,7 @@ impl Runtime {
         );
         let (results, total) = if request.semantic || request.hybrid {
             vivarium::search::semantic_or_hybrid_search(
+                &self.config,
                 &mail_root,
                 &acct.name,
                 request.query,
@@ -387,7 +368,11 @@ impl Runtime {
 
 fn print_sync_result(account: &str, result: &vivarium::sync::SyncResult) {
     println!(
-        "synced {account}: {} new messages, {} cataloged, {} extracted, {} extraction errors",
-        result.new, result.cataloged, result.extracted, result.extraction_errors
+        "synced {account}: {} new messages, {} cataloged, {} extracted, {} extraction errors, {} decryption errors",
+        result.new,
+        result.cataloged,
+        result.extracted,
+        result.extraction_errors,
+        result.decryption_errors
     );
 }

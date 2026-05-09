@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use super::expand_tilde;
-use super::types::{Account, Auth, Config, Provider, ProviderOAuthConfig, Security};
+use super::types::{Account, Auth, Config, Provider, ProviderOAuthConfig, Security, StorageMode};
 use crate::error::VivariumError;
 
 impl Account {
@@ -69,6 +69,7 @@ impl Account {
     pub fn reject_invalid_certs(&self, config: &Config) -> bool {
         self.reject_invalid_certs.unwrap_or(match self.provider {
             Provider::Protonmail => true,
+            Provider::ProtonApi => config.defaults.reject_invalid_certs,
             _ => config.defaults.reject_invalid_certs,
         })
     }
@@ -116,6 +117,7 @@ impl Account {
     pub fn all_mail_folder(&self) -> &str {
         match self.provider {
             crate::config::types::Provider::Gmail => "[Gmail]/All Mail",
+            crate::config::types::Provider::ProtonApi => "INBOX",
             crate::config::types::Provider::Protonmail => "All Mail",
             crate::config::types::Provider::Standard => "INBOX",
         }
@@ -136,7 +138,8 @@ impl Account {
             .clone()
             .unwrap_or_else(|| match self.provider {
                 crate::config::types::Provider::Gmail => "[Gmail]/Trash".into(),
-                crate::config::types::Provider::Standard
+                crate::config::types::Provider::ProtonApi
+                | crate::config::types::Provider::Standard
                 | crate::config::types::Provider::Protonmail => "Trash".into(),
             })
     }
@@ -145,7 +148,8 @@ impl Account {
         self.sent_folder.clone().unwrap_or_else(|| {
             match self.provider {
                 crate::config::types::Provider::Gmail => "[Gmail]/Sent Mail",
-                crate::config::types::Provider::Standard
+                crate::config::types::Provider::ProtonApi
+                | crate::config::types::Provider::Standard
                 | crate::config::types::Provider::Protonmail => "Sent",
             }
             .into()
@@ -156,7 +160,8 @@ impl Account {
         self.drafts_folder.clone().unwrap_or_else(|| {
             match self.provider {
                 crate::config::types::Provider::Gmail => "[Gmail]/Drafts",
-                crate::config::types::Provider::Standard
+                crate::config::types::Provider::ProtonApi
+                | crate::config::types::Provider::Standard
                 | crate::config::types::Provider::Protonmail => "Drafts",
             }
             .into()
@@ -167,6 +172,21 @@ impl Account {
         self.label_roots.clone().unwrap_or_default()
     }
 
+    pub fn resolved_storage_mode(&self) -> StorageMode {
+        self.storage_mode.clone().unwrap_or_default()
+    }
+
+    pub fn stores_full_bodies(&self) -> bool {
+        matches!(
+            self.resolved_storage_mode(),
+            StorageMode::Bodies | StorageMode::Semantic
+        )
+    }
+
+    pub fn allows_semantic_indexing(&self) -> bool {
+        matches!(self.resolved_storage_mode(), StorageMode::Semantic)
+    }
+
     /// Resolved IMAP host, with provider defaults applied.
     pub fn resolved_imap_host(&self) -> String {
         if !self.imap_host.is_empty() {
@@ -174,6 +194,7 @@ impl Account {
         }
         match self.provider {
             crate::config::types::Provider::Protonmail => "127.0.0.1".into(),
+            crate::config::types::Provider::ProtonApi => self.imap_host.clone(),
             _ => self.imap_host.clone(),
         }
     }
@@ -185,6 +206,10 @@ impl Account {
         }
         match self.provider {
             Provider::Protonmail => 1143,
+            Provider::ProtonApi => match self.resolved_imap_security() {
+                Security::Ssl => 993,
+                Security::Starttls => 143,
+            },
             _ => match self.resolved_imap_security() {
                 Security::Ssl => 993,
                 Security::Starttls => 143,
@@ -196,6 +221,7 @@ impl Account {
     pub fn resolved_imap_security(&self) -> Security {
         self.imap_security.clone().unwrap_or(match self.provider {
             Provider::Protonmail => Security::Ssl,
+            Provider::ProtonApi => Security::Ssl,
             _ => Security::Ssl,
         })
     }
@@ -207,6 +233,7 @@ impl Account {
         }
         match self.provider {
             Provider::Protonmail => "127.0.0.1".into(),
+            Provider::ProtonApi => self.smtp_host.clone(),
             _ => self.smtp_host.clone(),
         }
     }
@@ -218,6 +245,10 @@ impl Account {
         }
         match self.provider {
             Provider::Protonmail => 1025,
+            Provider::ProtonApi => match self.resolved_smtp_security() {
+                Security::Ssl => 465,
+                Security::Starttls => 587,
+            },
             _ => match self.resolved_smtp_security() {
                 Security::Ssl => 465,
                 Security::Starttls => 587,
@@ -229,6 +260,7 @@ impl Account {
     pub fn resolved_smtp_security(&self) -> Security {
         self.smtp_security.clone().unwrap_or(match self.provider {
             Provider::Protonmail => Security::Starttls,
+            Provider::ProtonApi => Security::Ssl,
             _ => Security::Ssl,
         })
     }

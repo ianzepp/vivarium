@@ -4,9 +4,11 @@ use clap::{ArgGroup, Parser, Subcommand};
 
 mod draft_command;
 mod index_command;
+mod proton_command;
 mod write_command;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
+pub use proton_command::ProtonCommand;
 use std::ffi::OsString;
 pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
 
@@ -94,6 +96,10 @@ pub enum Command {
         #[arg(long)]
         embed: bool,
 
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
         /// Sync all IMAP folders (Inbox, Sent, All Mail)
         #[arg(long)]
         all: bool,
@@ -104,7 +110,6 @@ pub enum Command {
         /// Account to inspect (overrides --account)
         #[arg(long)]
         account: Option<String>,
-
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -119,6 +124,12 @@ pub enum Command {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+    },
+
+    /// Experimental direct Proton API probes
+    Proton {
+        #[command(subcommand)]
+        command: ProtonCommand,
     },
 
     /// Watch for new mail via IMAP IDLE and outbox changes

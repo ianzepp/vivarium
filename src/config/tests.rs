@@ -25,9 +25,65 @@ fn config_defaults_when_missing() {
 fn config_parses_reject_invalid_certs_default() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("config.toml");
-    fs::write(&path, "[defaults]\nreject_invalid_certs = true\n").unwrap();
+    fs::write(&path, "[defaults]\nreject_invalid_certs = true\nembedding_provider = \"ollama\"\nembedding_model = \"mail-embed\"\nembedding_endpoint = \"http://embedding.example.test/api/embed\"\n").unwrap();
     let config = Config::load(&path).unwrap();
     assert!(config.defaults.reject_invalid_certs);
+    assert_eq!(
+        config.defaults.embedding_provider.as_deref(),
+        Some("ollama")
+    );
+    assert_eq!(
+        config.defaults.embedding_model.as_deref(),
+        Some("mail-embed")
+    );
+    assert_eq!(
+        config.defaults.embedding_endpoint.as_deref(),
+        Some("http://embedding.example.test/api/embed")
+    );
+}
+
+#[test]
+fn account_defaults_to_header_storage() {
+    let account = account_with_provider(types::Provider::Standard);
+
+    assert_eq!(account.resolved_storage_mode(), types::StorageMode::Headers);
+    assert!(!account.stores_full_bodies());
+    assert!(!account.allows_semantic_indexing());
+}
+
+#[test]
+fn account_parses_storage_modes() {
+    let path = accounts_file(
+        r#"
+        [[accounts]]
+        name = "semantic"
+        email = "semantic@example.com"
+        imap_host = "imap.example.com"
+        smtp_host = "smtp.example.com"
+        username = "semantic"
+        password = "secret"
+        storage_mode = "semantic"
+    "#,
+        0o600,
+    );
+    let accounts = AccountsFile::load(&path).unwrap();
+    let account = accounts.find_account("semantic").unwrap();
+
+    assert_eq!(
+        account.resolved_storage_mode(),
+        types::StorageMode::Semantic
+    );
+    assert!(account.stores_full_bodies());
+    assert!(account.allows_semantic_indexing());
+}
+
+#[test]
+fn bodies_storage_does_not_allow_semantic_indexing_by_default() {
+    let mut account = account_with_provider(types::Provider::Standard);
+    account.storage_mode = Some(types::StorageMode::Bodies);
+
+    assert!(account.stores_full_bodies());
+    assert!(!account.allows_semantic_indexing());
 }
 
 #[test]
@@ -130,6 +186,42 @@ fn account_parses_xoauth2_auth() {
 #[test]
 fn provider_standard_has_no_oauth_defaults() {
     assert!(types::Provider::Standard.oauth_config().is_none());
+}
+
+#[test]
+fn provider_proton_api_has_no_oauth_defaults() {
+    assert!(types::Provider::ProtonApi.oauth_config().is_none());
+    assert_eq!(types::Provider::ProtonApi.to_string(), "proton-api");
+}
+
+#[test]
+fn account_parses_direct_proton_api_provider() {
+    let path = accounts_file(
+        r#"
+        [[accounts]]
+        name = "agent"
+        email = "agent@proton.me"
+        imap_host = ""
+        smtp_host = ""
+        username = "agent@proton.me"
+        password_cmd = "printenv PROTON_PASSWORD"
+        provider = "proton-api"
+        storage_mode = "semantic"
+    "#,
+        0o600,
+    );
+    let accounts = AccountsFile::load(&path).unwrap();
+    let account = accounts.find_account("agent").unwrap();
+
+    assert_eq!(account.provider, types::Provider::ProtonApi);
+    assert_eq!(
+        account.password_cmd.as_deref(),
+        Some("printenv PROTON_PASSWORD")
+    );
+    assert_eq!(
+        account.resolved_storage_mode(),
+        types::StorageMode::Semantic
+    );
 }
 
 #[test]
@@ -296,6 +388,7 @@ fn account_with_provider(provider: types::Provider) -> types::Account {
         sent_folder: None,
         drafts_folder: None,
         label_roots: None,
+        storage_mode: None,
         provider,
         reject_invalid_certs: None,
     }

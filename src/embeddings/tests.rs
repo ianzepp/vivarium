@@ -7,7 +7,7 @@ use rusqlite::Connection;
 
 use super::chunk::{MAX_EMBED_INPUT_CHARS, chunks_for_message};
 use super::provider::EmbeddingProvider;
-use super::{EmbeddingOptions, index_embeddings_with_provider};
+use super::{EmbeddingOptions, index_embeddings_with_provider, test_embedding_options};
 use crate::catalog::{Catalog, CatalogEntry};
 use crate::email_index::{self, IndexedMessage};
 use crate::error::VivariumError;
@@ -44,11 +44,11 @@ async fn embedding_index_stores_vectors_without_text_and_reuses() {
     build_indexed_message(tmp.path(), body);
 
     let stats =
-        index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &provider)
+        index_embeddings_with_provider(tmp.path(), "acct", test_embedding_options(), &provider)
             .await
             .unwrap();
     let reused =
-        index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &provider)
+        index_embeddings_with_provider(tmp.path(), "acct", test_embedding_options(), &provider)
             .await
             .unwrap();
 
@@ -66,7 +66,7 @@ async fn inconsistent_provider_dimensions_are_rejected() {
     build_indexed_message(tmp.path(), "body text");
 
     let err =
-        index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &provider)
+        index_embeddings_with_provider(tmp.path(), "acct", test_embedding_options(), &provider)
             .await
             .unwrap_err();
 
@@ -85,7 +85,7 @@ async fn changed_maildir_copy_does_not_change_storage_backed_embeddings() {
     .unwrap();
 
     let stats =
-        index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &provider)
+        index_embeddings_with_provider(tmp.path(), "acct", test_embedding_options(), &provider)
             .await
             .unwrap();
 
@@ -103,11 +103,11 @@ async fn changed_embedding_model_uses_separate_embedding_db() {
     let second = MockProvider::with_model("second", vec![vec![0.4, 0.5, 0.6]; 2]);
 
     let first_stats =
-        index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &first)
+        index_embeddings_with_provider(tmp.path(), "acct", test_embedding_options(), &first)
             .await
             .unwrap();
     let second_stats =
-        index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &second)
+        index_embeddings_with_provider(tmp.path(), "acct", test_embedding_options(), &second)
             .await
             .unwrap();
 
@@ -123,7 +123,7 @@ async fn rebuild_failure_leaves_existing_embeddings_intact() {
     let provider = MockProvider::new(vec![vec![0.1, 0.2, 0.3]; 2]);
     build_indexed_message(tmp.path(), "body text");
 
-    index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &provider)
+    index_embeddings_with_provider(tmp.path(), "acct", test_embedding_options(), &provider)
         .await
         .unwrap();
     assert_eq!(embedding_count(tmp.path(), "mock-model"), 2);
@@ -133,7 +133,7 @@ async fn rebuild_failure_leaves_existing_embeddings_intact() {
         "acct",
         EmbeddingOptions {
             rebuild: true,
-            ..EmbeddingOptions::default()
+            ..test_embedding_options()
         },
         &FailingProvider,
     )
@@ -151,7 +151,7 @@ async fn rebuild_failure_after_partial_provider_success_leaves_embeddings_intact
     build_indexed_message_named(tmp.path(), "inbox-1", "one", "first body");
     build_indexed_message_named(tmp.path(), "inbox-2", "two", "second body");
 
-    index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &provider)
+    index_embeddings_with_provider(tmp.path(), "acct", test_embedding_options(), &provider)
         .await
         .unwrap();
     assert_eq!(
@@ -164,7 +164,7 @@ async fn rebuild_failure_after_partial_provider_success_leaves_embeddings_intact
         "acct",
         EmbeddingOptions {
             rebuild: true,
-            ..EmbeddingOptions::default()
+            ..test_embedding_options()
         },
         &FailingAfterFirstProvider::default(),
     )
@@ -185,10 +185,10 @@ async fn rebuild_is_scoped_to_selected_provider_model_db() {
 
     let first = MockProvider::with_model("first", vec![vec![0.1, 0.2, 0.3]; 2]);
     let second = MockProvider::with_model("second", vec![vec![0.4, 0.5, 0.6]; 2]);
-    index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &first)
+    index_embeddings_with_provider(tmp.path(), "acct", test_embedding_options(), &first)
         .await
         .unwrap();
-    index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &second)
+    index_embeddings_with_provider(tmp.path(), "acct", test_embedding_options(), &second)
         .await
         .unwrap();
 
@@ -197,7 +197,7 @@ async fn rebuild_is_scoped_to_selected_provider_model_db() {
         "acct",
         EmbeddingOptions {
             rebuild: true,
-            ..EmbeddingOptions::default()
+            ..test_embedding_options()
         },
         &first,
     )
@@ -216,7 +216,7 @@ async fn deleted_local_message_counts_error_without_panic() {
     fs::remove_file(path).unwrap();
 
     let stats =
-        index_embeddings_with_provider(tmp.path(), "acct", EmbeddingOptions::default(), &provider)
+        index_embeddings_with_provider(tmp.path(), "acct", test_embedding_options(), &provider)
             .await
             .unwrap();
 

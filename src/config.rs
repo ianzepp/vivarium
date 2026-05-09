@@ -5,7 +5,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-pub use types::{Account, AccountsFile, Auth, Config, Provider, Security};
+pub use types::{Account, AccountsFile, Auth, Config, Provider, Security, StorageMode};
 
 use crate::error::VivariumError;
 

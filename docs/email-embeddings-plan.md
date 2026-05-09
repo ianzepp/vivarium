@@ -322,7 +322,7 @@ not a scan of every message in `INBOX`, `Archive`, `Sent`, and `Drafts`.
 
 ## Embedding Provider
 
-Default to local embeddings.
+Do not assume a local embedding service.
 
 Preferred first backend:
 
@@ -330,15 +330,16 @@ Preferred first backend:
 Ollama /api/embed
 ```
 
-This keeps private email content local by default.
+This can keep private email content local when the user points Vivi at their own
+Ollama service.
 
 Configuration should name both provider and model explicitly:
 
 ```toml
 [defaults]
 embedding_provider = "ollama"
-embedding_model = "cassio-embedding"
-embedding_endpoint = "http://127.0.0.1:11434/api/embed"
+embedding_model = "your-embedding-model"
+embedding_endpoint = "http://your-embedding-host/api/embed"
 ```
 
 Do not hide the real model identity in persisted metadata. A friendly alias can
