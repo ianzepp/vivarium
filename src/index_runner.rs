@@ -27,14 +27,14 @@ impl Runtime {
                         acct.resolved_storage_mode()
                     )));
                 }
-                let options = vivarium::embeddings::EmbeddingOptions {
+                let mut options = vivarium::embeddings::EmbeddingOptions::from_values(
+                    &self.config,
                     provider,
                     model,
                     endpoint,
-                    rebuild,
-                    limit,
-                    catalog_handles: None,
-                };
+                )?;
+                options.rebuild = rebuild;
+                options.limit = limit;
                 run_index_embeddings(&mail_root, &acct.name, options).await
             }
         }

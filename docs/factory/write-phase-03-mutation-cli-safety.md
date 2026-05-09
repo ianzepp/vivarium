@@ -83,7 +83,7 @@ Expose safe, scriptable mutation commands without giving agents a foot-gun.
 ## Checkpoint Target
 
 The mutation CLI can preview, execute, audit, and locally reconcile safe remote
-writes on the Pharos-backed account. Without a disposable remote fixture, the
+writes on the Proton Bridge-backed account. Without a disposable remote fixture, the
 execution checkpoint may be closed with unit tests and dry-run JSON only; no real
 mail may be mutated.
 
@@ -143,7 +143,7 @@ execution through local unit tests and dry-run CLI behavior only.
 - Self estimate: 92%.
 - Evaluator mode: self-contained independent pass.
 - Evaluator estimate: 90%.
-- Largest remaining gap: no live non-dry-run Pharos mutation was executed because
+- Largest remaining gap: no live non-dry-run Proton Bridge mutation was executed because
   no disposable message fixture was selected for this phase.
 - Verdict: cleared for Phase 03 completion.
 

@@ -127,14 +127,14 @@ mod tests {
         });
 
         let provider =
-            OllamaEmbeddingProvider::new("ollama".into(), "cassio-embedding".into(), endpoint);
+            OllamaEmbeddingProvider::new("ollama".into(), "mail-embedding-model".into(), endpoint);
         let vectors = provider.embed(&["hello".into()]).await.unwrap();
         let request = rx.await.unwrap();
 
         assert!(request.starts_with("POST /api/embed HTTP/1.1"));
         let body = request.split("\r\n\r\n").nth(1).unwrap();
         let parsed: Value = serde_json::from_str(body).unwrap();
-        assert_eq!(parsed["model"], "cassio-embedding");
+        assert_eq!(parsed["model"], "mail-embedding-model");
         assert_eq!(parsed["input"][0], "hello");
         assert_eq!(vectors, vec![vec![0.1, 0.2]]);
     }

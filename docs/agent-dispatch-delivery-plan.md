@@ -22,7 +22,7 @@ The real problem is not just combining two commands. The goal is to move email t
 - `src/agent.rs` is conceptually Codex-specific today (`codex_command`, `codex_args`, `codex_prompt`, `run_codex`), even though the command is configurable.
 - `src/draft_runner.rs` and `src/smtp.rs` already provide the primitives Vivi needs to create replies and send mail.
 - `src/cli.rs` exposes `agent poll` as a standalone command. `sync` does not currently dispatch agents.
-- Local Hermes is installed at `/Users/ianzepp/.local/bin/hermes` and reports `Hermes Agent v0.13.0 (2026.5.7)`.
+- A locally installed Hermes command was used to inspect the expected agent CLI behavior.
 - Hermes supports programmatic single-turn execution through top-level `hermes --oneshot <prompt>` and `hermes chat --query <prompt> --quiet --source tool`, but the prompt is passed as an argument and the default useful output is plain final-response text, not a structured JSON-over-stdin contract.
 
 ### Confidence
@@ -201,7 +201,7 @@ hermes chat --help
 
 Findings:
 
-- Installed command: `/Users/ianzepp/.local/bin/hermes`.
+- Installed command: `hermes`.
 - Version: `Hermes Agent v0.13.0 (2026.5.7)`.
 - Top-level `-z, --oneshot PROMPT` prints only final response text to stdout and auto-bypasses approvals for scripts/pipes.
 - `hermes chat -q, --query QUERY` supports single-query mode.

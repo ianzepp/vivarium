@@ -8,6 +8,10 @@ use crate::error::VivariumError;
 const DEFAULT_CONFIG: &str = r#"[defaults]
 # mail_root = "~/.local/share/vivarium"
 # check_interval_secs = 300
+# Semantic search/indexing is opt-in. Set these to your own embedding service.
+# embedding_provider = "ollama"
+# embedding_model = "your-embedding-model"
+# embedding_endpoint = "http://your-embedding-host/api/embed"
 "#;
 
 const DEFAULT_ACCOUNTS: &str = r#"# Each [[accounts]] entry defines an email account.

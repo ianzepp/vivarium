@@ -94,15 +94,10 @@ impl Runtime {
                 .iter()
                 .map(|entry| entry.handle.clone())
                 .collect::<BTreeSet<_>>();
-            let stats = vivarium::embeddings::index_embeddings(
-                &mail_root,
-                &acct.name,
-                vivarium::embeddings::EmbeddingOptions {
-                    catalog_handles: Some(catalog_handles),
-                    ..vivarium::embeddings::EmbeddingOptions::default()
-                },
-            )
-            .await?;
+            let mut options = vivarium::embeddings::EmbeddingOptions::from_config(&self.config)?;
+            options.catalog_handles = Some(catalog_handles);
+            let stats =
+                vivarium::embeddings::index_embeddings(&mail_root, &acct.name, options).await?;
             println!(
                 "embedded {}: scanned={} reused={} embedded={} stale={} errors={}",
                 acct.name, stats.scanned, stats.reused, stats.embedded, stats.stale, stats.errors

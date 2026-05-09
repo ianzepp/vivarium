@@ -16,7 +16,7 @@ cutover commit.
 
 ### Target Repo
 
-`/Volumes/code/ianzepp/vivarium`
+The local Vivarium checkout.
 
 ### Delivery Spec Directory
 

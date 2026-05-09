@@ -30,7 +30,7 @@ Add an experimental direct Proton API backend to Vivi so isolated agent containe
 ## Ground Truth Researched
 
 - `README.md`: Vivi currently documents Proton Bridge as the transport/decryption boundary and supports `storage_mode = "headers" | "bodies" | "semantic"`.
-- `docs/pharos-bridge-email.md`: Pharos/Bridge docs assume local IMAP/SMTP endpoints and explicitly avoid Proton private APIs.
+- `docs/proton-bridge-email.md`: Proton Bridge docs assume local IMAP/SMTP endpoints and explicitly avoid Proton private APIs.
 - `src/config/types.rs`: providers are currently `standard`, `gmail`, and Bridge-backed `protonmail`.
 - `src/config/account.rs`: accounts already support `password_cmd`, `token_cmd`, storage modes, and provider-specific defaults.
 - `src/imap/sync.rs` and `src/imap/sync/download.rs`: current sync is IMAP-specific but now separates header/body/full fetch behavior.

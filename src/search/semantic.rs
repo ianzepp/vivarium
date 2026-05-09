@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::config::Config;
 use crate::embeddings::{self, SemanticMatch};
 use crate::error::VivariumError;
 use crate::search::{SearchFilters, SearchResult};
@@ -14,13 +15,21 @@ pub struct SemanticSearchOptions<'a> {
 }
 
 pub async fn semantic_or_hybrid_search(
+    config: &Config,
     mail_root: &Path,
     account: &str,
     query: &str,
     options: SemanticSearchOptions<'_>,
 ) -> Result<(Vec<SearchResult>, usize), VivariumError> {
-    let (semantic_results, semantic_total) =
-        semantic_results(mail_root, account, query, options.limit, options.offset).await?;
+    let (semantic_results, semantic_total) = semantic_results(
+        config,
+        mail_root,
+        account,
+        query,
+        options.limit,
+        options.offset,
+    )
+    .await?;
     if options.semantic && !options.hybrid {
         if options.filters.is_none() {
             return Ok((semantic_results, semantic_total));
@@ -42,6 +51,7 @@ pub async fn semantic_or_hybrid_search(
 }
 
 async fn semantic_results(
+    config: &Config,
     mail_root: &Path,
     account: &str,
     query: &str,
@@ -54,7 +64,7 @@ async fn semantic_results(
         query,
         limit,
         offset,
-        embeddings::EmbeddingOptions::default(),
+        embeddings::EmbeddingOptions::from_config(config)?,
     )
     .await?;
     Ok((matches.into_iter().map(semantic_result).collect(), total))

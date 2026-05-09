@@ -351,6 +351,7 @@ impl Runtime {
         );
         let (results, total) = if request.semantic || request.hybrid {
             vivarium::search::semantic_or_hybrid_search(
+                &self.config,
                 &mail_root,
                 &acct.name,
                 request.query,

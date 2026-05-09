@@ -26,15 +26,15 @@ pub enum IndexCommand {
         limit: Option<usize>,
 
         /// Embedding provider name
-        #[arg(long, default_value = "ollama")]
-        provider: String,
+        #[arg(long)]
+        provider: Option<String>,
 
         /// Embedding model name
-        #[arg(long, default_value = "cassio-embedding")]
-        model: String,
+        #[arg(long)]
+        model: Option<String>,
 
         /// Embedding endpoint URL
-        #[arg(long, default_value = "http://127.0.0.1:11434/api/embed")]
-        endpoint: String,
+        #[arg(long)]
+        endpoint: Option<String>,
     },
 }

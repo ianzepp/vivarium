@@ -25,9 +25,21 @@ fn config_defaults_when_missing() {
 fn config_parses_reject_invalid_certs_default() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("config.toml");
-    fs::write(&path, "[defaults]\nreject_invalid_certs = true\n").unwrap();
+    fs::write(&path, "[defaults]\nreject_invalid_certs = true\nembedding_provider = \"ollama\"\nembedding_model = \"mail-embed\"\nembedding_endpoint = \"http://embedding.example.test/api/embed\"\n").unwrap();
     let config = Config::load(&path).unwrap();
     assert!(config.defaults.reject_invalid_certs);
+    assert_eq!(
+        config.defaults.embedding_provider.as_deref(),
+        Some("ollama")
+    );
+    assert_eq!(
+        config.defaults.embedding_model.as_deref(),
+        Some("mail-embed")
+    );
+    assert_eq!(
+        config.defaults.embedding_endpoint.as_deref(),
+        Some("http://embedding.example.test/api/embed")
+    );
 }
 
 #[test]

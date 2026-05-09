@@ -4,7 +4,7 @@
 
 Before Vivi can issue remote writes, it must know which remote mailboxes exist
 and which IMAP write primitives the server advertises. Provider defaults are not
-enough: Pharos/Bridge, Gmail, and standard IMAP can expose different folder
+enough: Proton Bridge, Gmail, and standard IMAP can expose different folder
 names and capabilities.
 
 ## Normalized Phase Spec
@@ -30,7 +30,7 @@ mailboxes Vivi will use for Archive, Trash, Sent, and Drafts.
 - `vivi folders` inspects remote folders and key IMAP capabilities.
 - Capability probe reports UIDPLUS, MOVE, SPECIAL-USE, APPEND, and IDLE.
 - Tests cover folder resolution and capability projection.
-- Docs record Pharos/Bridge IMAP and SMTP host/port expectations.
+- Docs record Proton Bridge IMAP and SMTP host/port expectations.
 
 ### Out Of Scope
 
@@ -66,7 +66,7 @@ new credentials handling.
    - Keep it read-only.
 
 4. Docs and validation
-   - Document Pharos/Bridge IMAP and SMTP host/port expectations.
+   - Document Proton Bridge IMAP and SMTP host/port expectations.
    - Add unit tests for provider defaults and override behavior.
    - Run `cargo fmt --check`, `cargo test`, and clippy.
    - Run live `vivi folders` against `personal-proton`.
@@ -74,14 +74,14 @@ new credentials handling.
 ## Checkpoint Target
 
 Vivi can list and resolve the remote folders it will use for Archive, Trash,
-Sent, and Drafts on the Pharos-backed Proton Bridge account.
+Sent, and Drafts on the Bridge-backed Proton account.
 
 ## Gate Plan
 
 - Correctness pass checks that discovery is read-only and that config overrides
   do not break existing provider sync defaults.
 - Poker-face requires config resolution, CLI discovery, capability projection,
-  docs, tests, and live Pharos output.
+  docs, tests, and live Proton Bridge output.
 - Commit only this phase's spec and implementation.
 
 ## Open Questions
@@ -101,7 +101,7 @@ Sent, and Drafts on the Pharos-backed Proton Bridge account.
 - Added JSON output via `vivi folders --json`.
 - Discovery reports resolved folder roles, remote `LIST` folders, and UIDPLUS,
   MOVE, SPECIAL-USE, APPEND, and IDLE capability projections.
-- Added `docs/pharos-bridge-email.md` with Pharos/Bridge host, port, folder, and
+- Added `docs/proton-bridge-email.md` with Proton Bridge host, port, folder, and
   discovery expectations.
 
 ### Correctness Pass
@@ -124,7 +124,7 @@ Sent, and Drafts on the Pharos-backed Proton Bridge account.
 - `cargo run -- --account personal-proton folders`
 - `cargo run -- --account personal-proton folders --json`
 
-Live Pharos/Bridge result for `personal-proton`: resolved folder roles are
+Live Proton Bridge result for `personal-proton`: resolved folder roles are
 `INBOX`, `All Mail`, `Trash`, `Sent`, and `Drafts`; remote `LIST` includes those
 folders; capabilities report UIDPLUS=yes, MOVE=yes, SPECIAL-USE=no, APPEND=yes,
 and IDLE=yes.

@@ -614,7 +614,7 @@ fn parses_index_embeddings_pending_limit() {
         "--provider",
         "ollama",
         "--model",
-        "cassio-embedding",
+        "mail-embedding-model",
     ])
     .unwrap();
 
@@ -627,14 +627,16 @@ fn parses_index_embeddings_pending_limit() {
                     limit,
                     provider,
                     model,
+                    endpoint,
                     ..
                 },
         } => {
             assert!(pending);
             assert!(!rebuild);
             assert_eq!(limit, Some(2));
-            assert_eq!(provider, "ollama");
-            assert_eq!(model, "cassio-embedding");
+            assert_eq!(provider.as_deref(), Some("ollama"));
+            assert_eq!(model.as_deref(), Some("mail-embedding-model"));
+            assert_eq!(endpoint, None);
         }
         other => panic!("unexpected command: {other:?}"),
     }

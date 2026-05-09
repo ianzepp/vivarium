@@ -4,7 +4,7 @@
 
 ### Phase Set Source
 
-Pharos now exposes both IMAP and SMTP for the Proton Bridge account. Vivi can
+A Proton Bridge deployment exposes both IMAP and SMTP for the Proton Bridge account. Vivi can
 therefore grow from a local read/search archive into a controlled write-capable
 email assistant surface, but only after the archive foundation is stable.
 
@@ -15,7 +15,7 @@ can change external mailbox state or send mail to other people.
 
 ### Target Repo
 
-`/Volumes/code/ianzepp/vivarium`
+The local Vivarium checkout.
 
 ### Delivery Spec Directory
 
@@ -42,7 +42,7 @@ Each phase must end with:
 - implementation complete for that phase only
 - focused correctness review
 - repo validation commands run, or skipped checks documented
-- live Pharos/Bridge smoke checks when the phase touches remote IMAP or SMTP
+- live Proton Bridge smoke checks when the phase touches remote IMAP or SMTP
 - a phase checkpoint note in the delivery spec
 - a local commit
 
@@ -142,7 +142,7 @@ Make Vivi understand the writable remote mailbox surface before issuing writes.
 
 #### Inputs
 
-- Pharos/Bridge IMAP account config
+- Proton Bridge IMAP account config
 - existing provider defaults
 - IMAP LIST, SELECT, STATUS, and CAPABILITY responses
 
@@ -154,7 +154,7 @@ Make Vivi understand the writable remote mailbox surface before issuing writes.
 - capability probe for UIDPLUS, MOVE, SPECIAL-USE, APPEND, IDLE, and provider
   extensions when present
 - folder resolution tests for Protonmail, Gmail, and standard IMAP
-- docs for Pharos/Bridge IMAP and SMTP host/port expectations
+- docs for Proton Bridge IMAP and SMTP host/port expectations
 
 #### Out Of Scope
 
@@ -165,7 +165,7 @@ Make Vivi understand the writable remote mailbox surface before issuing writes.
 #### Checkpoint Target
 
 Vivi can list and resolve the remote folders it will use for Archive, Trash,
-Sent, and Drafts on the Pharos-backed Proton Bridge account.
+Sent, and Drafts on the Bridge-backed Proton account.
 
 ### Write Phase 02: IMAP Mutation Primitives
 
@@ -236,7 +236,7 @@ Expose safe, scriptable mutation commands without giving agents a foot-gun.
 #### Checkpoint Target
 
 The mutation CLI can preview, execute, audit, and locally reconcile safe remote
-writes on the Pharos-backed account.
+writes on the Proton Bridge-backed account.
 
 ### Write Phase 04: SMTP Send Baseline
 
@@ -249,7 +249,7 @@ binary.
 
 - existing `src/smtp.rs`
 - existing `outbox` feature code
-- Pharos/Bridge SMTP endpoint
+- Proton Bridge SMTP endpoint
 - account auth and TLS config
 
 #### Expected Outputs
@@ -275,7 +275,7 @@ binary.
 #### Checkpoint Target
 
 The Homebrew-style `vivi` binary can send a controlled raw `.eml` through
-Pharos SMTP, and the command surface is verified by `vivi --help`.
+Proton Bridge SMTP, and the command surface is verified by `vivi --help`.
 
 ### Write Phase 05: Compose, Reply, Drafts, And Sent Sync
 
@@ -313,7 +313,7 @@ Turn outbound sending from raw-message plumbing into a safe draft-first workflow
 #### Checkpoint Target
 
 Vivi can draft, reply, send, and verify a Sent copy for a controlled message
-through Pharos IMAP/SMTP.
+through Proton Bridge IMAP/SMTP.
 
 ### Write Phase 06: Agent Approval And Audit Surface
 
@@ -401,13 +401,13 @@ destructive behavior against irreplaceable mail.
 
 Required live checks across the full series:
 
-- list remote folders and capabilities from Pharos IMAP
+- list remote folders and capabilities from Proton Bridge IMAP
 - sync a disposable message and record remote identity
 - mark it read and unread
 - archive it
 - move it to Trash
 - hard-expunge only if explicitly enabled for the test fixture
-- send a self-addressed message through Pharos SMTP
+- send a self-addressed message through Proton Bridge SMTP
 - verify where the Sent copy is created
 - append to Sent manually if SMTP does not do it
 
@@ -417,7 +417,7 @@ Pause the factory run if any of these become true:
 
 - the read-only archive/catalog foundation is not ready enough to hold remote
   identity
-- Pharos/Bridge does not expose stable writable folder semantics
+- Proton Bridge does not expose stable writable folder semantics
 - UIDVALIDITY cannot be captured or checked safely
 - an operation would require Proton private APIs
 - live mutation testing would risk real user mail

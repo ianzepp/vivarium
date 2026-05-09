@@ -1,8 +1,8 @@
-# Pharos Proton Bridge Email Endpoints
+# Proton Bridge Email Endpoints
 
-Vivi talks to ProtonMail through Proton Bridge exposed on Pharos. Proton Bridge
-is the transport and decryption boundary; Vivi stays on the local IMAP/SMTP
-side and does not use Proton private APIs.
+Vivi talks to ProtonMail through a Proton Bridge deployment. Proton Bridge is
+the transport and decryption boundary; Vivi stays on the local IMAP/SMTP side
+and does not use Proton private APIs.
 
 ## Account Defaults
 
@@ -20,9 +20,8 @@ For `provider = "protonmail"`, Vivi defaults to:
 - Sent folder: `Sent`
 - Drafts folder: `Drafts`
 
-When Pharos exposes Bridge over a different host or tunnel, set the explicit
-`imap_host`, `imap_port`, `smtp_host`, and `smtp_port` fields in
-`accounts.toml`.
+When the bridge is exposed over a different host or tunnel, set the explicit
+`imap_host`, `imap_port`, `smtp_host`, and `smtp_port` fields in `accounts.toml`.
 
 ## Discovery
 
@@ -35,4 +34,3 @@ vivi --account personal-proton folders --json
 
 The command reports the resolved Vivi folder roles, the remote folders returned
 by IMAP `LIST`, and the key IMAP capabilities needed by later write phases.
-

@@ -44,6 +44,18 @@ This creates `~/.config/vivarium/` with two files:
 - `config.toml` - general settings such as mail root and TLS policy
 - `accounts.toml` - account credentials, created with mode `600`
 
+Semantic embedding settings are intentionally not guessed. If you want
+`storage_mode = "semantic"`, `vivi sync --embed`, or semantic search, configure
+an embedding service in `config.toml` or pass all embedding options on the
+explicit index command:
+
+```toml
+[defaults]
+embedding_provider = "ollama"
+embedding_model = "your-embedding-model"
+embedding_endpoint = "http://your-embedding-host/api/embed"
+```
+
 Edit `accounts.toml` to add a Proton Bridge account:
 
 ```toml
@@ -127,7 +139,10 @@ Storage modes control how much mail Vivi keeps locally:
   export, and offline body access. It does not enable semantic indexing by
   itself.
 - `semantic` stores full messages and allows `vivi sync --embed` or
-  `vivi index embeddings` to build body-derived embeddings.
+  `vivi index embeddings` to build body-derived embeddings. Semantic embedding
+  requires `embedding_provider`, `embedding_model`, and `embedding_endpoint` in
+  `config.toml`, or explicit `--provider`, `--model`, and `--endpoint` flags
+  for `vivi index embeddings`.
 - `proxy` is reserved for live IMAP proxy workflows and does not maintain a
   sync cache.
 

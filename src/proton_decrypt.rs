@@ -1,8 +1,9 @@
 use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
+use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 use pgp::composed::{Deserializable, Message, SignedSecretKey};
 use pgp::types::Password;
 use proton_srp::mailbox_password_hash;
+use std::io::Cursor;
 
 use crate::error::VivariumError;
 use crate::proton_api::ProtonKeyMaterial;
@@ -45,13 +46,17 @@ impl ProtonBodyDecryptor {
             };
             for address_key in sorted_address_keys(key_material) {
                 diagnostics.unlock_attempts += 1;
-                let Ok(password) = unlock_address_key_password(
-                    &user_key.private_key,
-                    &mailbox_password,
-                    &address_key.token,
-                ) else {
-                    diagnostics.token_decrypt_failures += 1;
-                    continue;
+                let password = if let (Some(token), Some(_signature)) =
+                    (&address_key.token, &address_key.signature)
+                {
+                    unlock_address_key_password(&user_key.private_key, &mailbox_password, token)
+                        .unwrap_or_else(|err| {
+                            diagnostics.token_decrypt_failures += 1;
+                            diagnostics.last_token_decrypt_error = Some(err.to_string());
+                            mailbox_password.clone()
+                        })
+                } else {
+                    mailbox_password.clone()
                 };
                 let Ok(key) = read_secret_key(&address_key.private_key) else {
                     diagnostics.address_key_parse_failures += 1;
@@ -93,6 +98,7 @@ struct UnlockDiagnostics {
     unlock_attempts: usize,
     token_decrypt_failures: usize,
     address_key_parse_failures: usize,
+    last_token_decrypt_error: Option<String>,
 }
 
 impl UnlockDiagnostics {
@@ -106,12 +112,13 @@ impl UnlockDiagnostics {
             unlock_attempts: 0,
             token_decrypt_failures: 0,
             address_key_parse_failures: 0,
+            last_token_decrypt_error: None,
         }
     }
 
     fn error_message(&self) -> String {
         format!(
-            "Proton key material could not unlock any address keys: user_keys={}, address_keys={}, key_salts={}, user_keys_without_salt={}, mailbox_hash_failures={}, unlock_attempts={}, token_decrypt_failures={}, address_key_parse_failures={}",
+            "Proton key material could not unlock any address keys: user_keys={}, address_keys={}, key_salts={}, user_keys_without_salt={}, mailbox_hash_failures={}, unlock_attempts={}, token_decrypt_failures={}, address_key_parse_failures={}, last_token_decrypt_error={}",
             self.user_keys,
             self.address_keys,
             self.key_salts,
@@ -119,7 +126,8 @@ impl UnlockDiagnostics {
             self.mailbox_hash_failures,
             self.unlock_attempts,
             self.token_decrypt_failures,
-            self.address_key_parse_failures
+            self.address_key_parse_failures,
+            self.last_token_decrypt_error.as_deref().unwrap_or("none")
         )
     }
 }
@@ -148,10 +156,13 @@ fn decrypt_armored_message(
     password: Password,
     key: &SignedSecretKey,
 ) -> Result<Vec<u8>, VivariumError> {
-    let mut message = Message::from_bytes(armored_message.as_bytes())
-        .map_err(|e| VivariumError::Other(format!("Proton PGP message parse failed: {e}")))?
-        .decrypt(&password, key)
-        .map_err(|e| VivariumError::Other(format!("Proton PGP message decrypt failed: {e}")))?;
+    let parse_message = || parse_pgp_message(armored_message);
+    let mut message = match parse_message()?.decrypt(&password, key) {
+        Ok(message) => message,
+        Err(_) => parse_message()?
+            .decrypt_legacy(&password, key)
+            .map_err(|e| VivariumError::Other(format!("Proton PGP message decrypt failed: {e}")))?,
+    };
     if message.is_compressed() {
         message = message.decompress().map_err(|e| {
             VivariumError::Other(format!("Proton PGP message decompress failed: {e}"))
@@ -160,6 +171,28 @@ fn decrypt_armored_message(
     message
         .as_data_vec()
         .map_err(|e| VivariumError::Other(format!("Proton PGP message payload read failed: {e}")))
+}
+
+fn parse_pgp_message(message: &str) -> Result<Message<'_>, VivariumError> {
+    if let Ok((message, _)) = Message::from_armor(message.as_bytes()) {
+        return Ok(message);
+    }
+    if let Ok(message) = Message::from_bytes(message.as_bytes()) {
+        return Ok(message);
+    }
+    let decoded = decode_base64_message(message.trim()).map_err(|e| {
+        VivariumError::Other(format!("Proton PGP message base64 decode failed: {e}"))
+    })?;
+    Message::from_bytes(Cursor::new(decoded))
+        .map_err(|e| VivariumError::Other(format!("Proton PGP message parse failed: {e}")))
+}
+
+fn decode_base64_message(message: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    STANDARD
+        .decode(message)
+        .or_else(|_| STANDARD_NO_PAD.decode(message))
+        .or_else(|_| URL_SAFE.decode(message))
+        .or_else(|_| URL_SAFE_NO_PAD.decode(message))
 }
 
 fn read_secret_key(armored_key: &str) -> Result<SignedSecretKey, VivariumError> {
@@ -231,7 +264,8 @@ mod tests {
             address_keys: vec![ProtonAddressKeyMaterial {
                 address: "agent@example.test".into(),
                 private_key: "not an address key".into(),
-                token: "not a token".into(),
+                token: Some("not a token".into()),
+                signature: Some("not a signature".into()),
                 active: true,
                 primary: true,
             }],

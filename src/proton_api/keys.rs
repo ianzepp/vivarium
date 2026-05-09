@@ -18,7 +18,8 @@ pub struct ProtonUserKeyMaterial {
 pub struct ProtonAddressKeyMaterial {
     pub address: String,
     pub private_key: String,
-    pub token: String,
+    pub token: Option<String>,
+    pub signature: Option<String>,
     pub active: bool,
     pub primary: bool,
 }
@@ -65,7 +66,8 @@ impl ProtonKeyMaterial {
                     Some(ProtonAddressKeyMaterial {
                         address: email.clone(),
                         private_key: present_string(key.private_key)?,
-                        token: present_string(key.token)?,
+                        token: present_string(key.token),
+                        signature: present_string(key.signature),
                         active: value_as_bool(&key.active),
                         primary: value_as_bool(&key.primary),
                     })
@@ -124,6 +126,8 @@ struct KeyRecord {
     private_key: Option<String>,
     #[serde(rename = "Token", default)]
     token: Option<String>,
+    #[serde(rename = "Signature", default)]
+    signature: Option<String>,
 }
 
 #[derive(Deserialize)]

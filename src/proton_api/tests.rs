@@ -264,7 +264,14 @@ async fn key_material_fetches_private_keys_and_salts_without_json_summary() {
     assert_eq!(material.user_keys[0].id, "user-key-1");
     assert_eq!(material.user_keys[0].private_key, "USER_PRIVATE_KEY");
     assert_eq!(material.address_keys[0].private_key, "ADDRESS_PRIVATE_KEY");
-    assert_eq!(material.address_keys[0].token, "token-secret");
+    assert_eq!(
+        material.address_keys[0].token.as_deref(),
+        Some("token-secret")
+    );
+    assert_eq!(
+        material.address_keys[0].signature.as_deref(),
+        Some("signature-secret")
+    );
     assert_eq!(material.key_salts[0].key_id, "user-key-1");
     assert_eq!(material.key_salts[0].key_salt, "salt-b64");
     assert_eq!(material.key_salts.len(), 1);
@@ -369,7 +376,7 @@ fn user_body() -> &'static str {
 }
 
 fn addresses_body() -> &'static str {
-    r#"{"Addresses":[{"ID":"address-1","Email":"agent@proton.test","Status":1,"Receive":1,"Send":1,"HasKeys":1,"Keys":[{"ID":"address-key-1","Active":1,"Primary":1,"PrivateKey":"ADDRESS_PRIVATE_KEY","PublicKey":"ADDRESS_PUBLIC_KEY","Fingerprint":"fp-address","Token":"token-secret","Activation":"activation-secret"}]}]}"#
+    r#"{"Addresses":[{"ID":"address-1","Email":"agent@proton.test","Status":1,"Receive":1,"Send":1,"HasKeys":1,"Keys":[{"ID":"address-key-1","Active":1,"Primary":1,"PrivateKey":"ADDRESS_PRIVATE_KEY","PublicKey":"ADDRESS_PUBLIC_KEY","Fingerprint":"fp-address","Token":"token-secret","Signature":"signature-secret","Activation":"activation-secret"}]}]}"#
 }
 
 fn key_salts_body() -> &'static str {

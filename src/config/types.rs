@@ -14,6 +14,12 @@ pub struct Defaults {
     pub check_interval_secs: Option<u64>,
     #[serde(default)]
     pub reject_invalid_certs: bool,
+    /// Optional embedding provider name for semantic indexing/search.
+    pub embedding_provider: Option<String>,
+    /// Optional embedding model name for semantic indexing/search.
+    pub embedding_model: Option<String>,
+    /// Optional embedding endpoint URL for semantic indexing/search.
+    pub embedding_endpoint: Option<String>,
 }
 
 /// Credential and connection details from `accounts.toml`.
