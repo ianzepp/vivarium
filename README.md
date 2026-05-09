@@ -6,10 +6,12 @@ Local-first email archive and retrieval layer for private agents. Pulls email fr
 
 Local agents need access to email. Existing tools (offlineimap, mbsync, mutt) are built for humans and carry decades of assumptions. Vivarium keeps the important part simple: the raw message bytes stay local, stable, and directly readable as `.eml` files, while Vivi owns mailbox placement, flags, bindings, and indexes.
 
-Vivarium treats Proton Bridge as the transport/decryption boundary and does not attempt to speak ProtonMail private APIs by default.
-Experimental direct Proton API probes are available for container bootstrap work
-under `provider = "proton-api"`. This path is not a stable Proton public API
-contract yet; it exists to prove non-interactive auth bootstrap without Bridge.
+Vivarium treats Proton Bridge as the conservative supported transport/decryption
+boundary by default. Experimental direct Proton API support is available under
+`provider = "proton-api"` for container bootstrap work. This path is not a
+stable Proton public API contract, but it can perform non-interactive login,
+session refresh, read-only metadata sync, body fetch/decryption, and local
+semantic post-processing without Bridge.
 
 ## Install
 
@@ -75,7 +77,7 @@ provider = "protonmail"
 storage_mode = "headers" # proxy | headers | bodies | semantic
 ```
 
-For experimental direct Proton API probing without Bridge:
+For experimental direct Proton API sync without Bridge:
 
 ```toml
 [[accounts]]
@@ -85,10 +87,10 @@ username = "agent@proton.me"
 auth = "password"
 password_cmd = "printenv PROTON_PASSWORD"
 provider = "proton-api"
-storage_mode = "headers"
+storage_mode = "semantic" # headers | bodies | semantic
 ```
 
-Then verify the direct API bootstrap path:
+Then verify the direct API path:
 
 ```
 vivi proton auth-info --account agent-proton --json
@@ -96,19 +98,28 @@ vivi proton login-check --account agent-proton --json
 vivi proton login --account agent-proton --json
 vivi proton session-check --account agent-proton --json
 vivi proton identity --account agent-proton --json
-vivi sync --account agent-proton --limit 25 --index
+vivi sync --account agent-proton --limit 25 --index --json
+vivi sync --account agent-proton --limit 0 --index --embed --json
 ```
 
 `login-check` verifies credentials and discards returned tokens. `login` stores
 the direct Proton session under the account's Vivi state directory, and
 `session-check` refreshes that stored session without using the account
 password. `identity` uses the stored session to report non-secret user, address,
-and key-state metadata. Direct Proton sync currently supports header-only local
-storage without Bridge.
+and key-state metadata.
 
-If Proton reports that the web client is out of date, set
-`VIVI_PROTON_APP_VERSION` to the current `web-mail@<version>` from
-`https://mail.proton.me/assets/version.json` before rerunning the probe.
+Direct Proton sync is read-only. `storage_mode = "headers"` stores metadata-only
+local messages. `storage_mode = "bodies"` fetches encrypted Proton payloads,
+caches them privately under the account state directory, decrypts them locally,
+and stores reconstructed RFC-like message blobs in the normal Vivi store.
+`storage_mode = "semantic"` uses the same body fetch/decrypt/cache path, then
+allows `--embed` or `vivi index embeddings` to run as local post-processing over
+already-decrypted local bodies.
+
+Vivi sends a Bridge-style Proton app version by default because Proton scopes
+key access by client family. If Proton reports that the client is out of date,
+set `VIVI_PROTON_APP_VERSION` to a current Proton client app-version string
+before rerunning the command.
 
 The SMTP fields are still required by the account parser even when you only use
 the read-only sync/search commands.
@@ -185,6 +196,7 @@ vivi --version                                 # print installed version
 vivi sync                                      # sync all accounts
 vivi sync --account proton                     # sync one account
 vivi sync --account proton --limit 100         # cap new downloads for this run
+vivi sync --account proton --json              # machine-readable sync summary
 vivi sync --account proton --since 3mo         # sync messages from the last 3 months
 vivi sync --account proton --since 2025-05-02 --before 2026-05-02
 vivi sync --account proton --reset             # delete local cache, then full resync
