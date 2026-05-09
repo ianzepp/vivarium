@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use vivarium::VivariumError;
 use vivarium::cli::{Command, ComposeCommand};
+use vivarium::config::Provider;
 use vivarium::message::{self, ComposeDraft, ReplyDraft};
 use vivarium::store::{MailStore, message_id_from_path};
 
@@ -54,8 +55,12 @@ impl Runtime {
         if let Some(from) = from {
             data = message::replace_from_header(&data, from)?;
         }
-        let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
-        vivarium::smtp::send_raw(&acct, &data, reject_invalid_certs).await?;
+        if matches!(acct.provider, Provider::ProtonApi) {
+            vivarium::proton_send::send_raw(&acct, &self.config, &data).await?;
+        } else {
+            let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
+            vivarium::smtp::send_raw(&acct, &data, reject_invalid_certs).await?;
+        }
         let sent = reconcile_sent(&store, path, &data)?;
         println!("sent {}", path.display());
         println!("sent copy: {}", sent.display());

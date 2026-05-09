@@ -30,6 +30,24 @@ pub struct ProtonKeySalt {
     pub key_salt: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ProtonPublicKey {
+    #[serde(rename = "Flags", default)]
+    pub flags: u64,
+    #[serde(rename = "PublicKey", default)]
+    pub public_key: String,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct ProtonRecipientType(pub u8);
+
+impl ProtonPublicKey {
+    pub fn is_active(&self) -> bool {
+        self.flags & 2 != 0
+    }
+}
+
 impl ProtonKeyMaterial {
     pub(super) fn from_responses(
         user: UserKeyResponse,
@@ -98,6 +116,14 @@ pub(super) struct AddressKeyListResponse {
 pub(super) struct KeySaltResponse {
     #[serde(rename = "KeySalts", default)]
     key_salts: Vec<KeySaltRecord>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct PublicKeyResponse {
+    #[serde(rename = "Keys", default)]
+    pub keys: Vec<ProtonPublicKey>,
+    #[serde(rename = "RecipientType", default)]
+    pub recipient_type: Option<ProtonRecipientType>,
 }
 
 #[derive(Deserialize)]

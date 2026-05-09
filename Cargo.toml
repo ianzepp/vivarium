@@ -26,6 +26,7 @@ mail-builder = "0.3"
 mail-parser = "0.9"
 notify = "7"
 pgp = "0.19.0"
+rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["brotli", "deflate", "gzip", "json", "rustls-tls"] }
 proton-srp = "0.8.2"
 rusqlite = { version = "0.32", features = ["bundled"] }

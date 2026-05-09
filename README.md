@@ -1,17 +1,26 @@
 # Vivarium
 
-Local-first email archive and retrieval layer for private agents. Pulls email from IMAP (via Proton Bridge or any IMAP server) into a Vivi-managed local blob store. Raw RFC 5322 bytes stay on disk as `.eml` blobs, while mutable mailbox state and derived indexes live in SQLite.
+Local-first email archive, retrieval, and write layer for private agents. Vivi
+now supports a direct-to-Proton integration through `provider = "proton-api"`:
+it can log in non-interactively, refresh sessions, sync headers or decrypted
+bodies, build local indexes and embeddings, and send mail through Proton's API
+without running Proton Bridge. Bridge-backed IMAP/SMTP remains supported for
+users who prefer Proton's officially packaged local mail gateway, and standard
+IMAP providers continue to work through the same local storage model.
+
+Raw RFC 5322 bytes stay on disk as `.eml` blobs, while mutable mailbox state
+and derived indexes live in SQLite.
 
 ## Why
 
 Local agents need access to email. Existing tools (offlineimap, mbsync, mutt) are built for humans and carry decades of assumptions. Vivarium keeps the important part simple: the raw message bytes stay local, stable, and directly readable as `.eml` files, while Vivi owns mailbox placement, flags, bindings, and indexes.
 
-Vivarium treats Proton Bridge as the conservative supported transport/decryption
-boundary by default. Experimental direct Proton API support is available under
-`provider = "proton-api"` for container bootstrap work. This path is not a
-stable Proton public API contract, but it can perform non-interactive login,
-session refresh, read-only metadata sync, body fetch/decryption, and local
-semantic post-processing without Bridge.
+Vivarium is especially useful for isolated agent containers. A container can be
+initialized with a Proton username plus a password or `password_cmd`, run
+`vivi proton login`, and then sync or send mail directly through Proton without
+manual Bridge setup, generated Bridge passwords, or shared Bridge state. This
+direct path uses Proton's internal API shape rather than a stable public Proton
+API contract, so Bridge remains the conservative compatibility option.
 
 ## Install
 
@@ -77,7 +86,7 @@ provider = "protonmail"
 storage_mode = "headers" # proxy | headers | bodies | semantic
 ```
 
-For experimental direct Proton API sync without Bridge:
+For direct Proton API sync and send without Bridge:
 
 ```toml
 [[accounts]]
@@ -108,21 +117,38 @@ the direct Proton session under the account's Vivi state directory, and
 password. `identity` uses the stored session to report non-secret user, address,
 and key-state metadata.
 
-Direct Proton sync is read-only. `storage_mode = "headers"` stores metadata-only
-local messages. `storage_mode = "bodies"` fetches encrypted Proton payloads,
-caches them privately under the account state directory, decrypts them locally,
-and stores reconstructed RFC-like message blobs in the normal Vivi store.
-`storage_mode = "semantic"` uses the same body fetch/decrypt/cache path, then
-allows `--embed` or `vivi index embeddings` to run as local post-processing over
+Direct Proton accounts support local-first reads and draft-first sends.
+`storage_mode = "headers"` stores metadata-only local messages.
+`storage_mode = "bodies"` fetches encrypted Proton payloads, caches them
+privately under the account state directory, decrypts them locally, and stores
+reconstructed RFC-like message blobs in the normal Vivi store. `storage_mode =
+"semantic"` uses the same body fetch/decrypt/cache path, then allows `--embed`
+or `vivi index embeddings` to run as local post-processing over
 already-decrypted local bodies.
+
+To send through the direct Proton API, create or provide a local `.eml` draft
+and execute it with the direct account:
+
+```
+vivi compose --account agent-proton \
+  --from agent@proton.me \
+  --to you@example.com \
+  --subject "Hello" \
+  --body "Plain text" \
+  --html-body-auto
+vivi exec send --account agent-proton --from agent@proton.me path/to/draft.eml
+```
+
+Direct Proton send creates the Proton draft, builds Proton encrypted send
+packages, and submits the message through Proton's API. Clear external
+recipients, Proton/internal recipients, and text/plain external PGP recipients
+are supported. HTML or multipart external PGP recipients still require future
+PGP/MIME package support.
 
 Vivi sends a Bridge-style Proton app version by default because Proton scopes
 key access by client family. If Proton reports that the client is out of date,
 set `VIVI_PROTON_APP_VERSION` to a current Proton client app-version string
 before rerunning the command.
-
-The SMTP fields are still required by the account parser even when you only use
-the read-only sync/search commands.
 
 For `provider = "protonmail"`, Vivi defaults to IMAP implicit TLS on
 `127.0.0.1:1143` and SMTP STARTTLS on `127.0.0.1:1025` when host, port, or
@@ -139,13 +165,14 @@ vivi sync --account proton --reset
 `vivi sync --account <name> --reset` is the clean bootstrap path. It removes the
 local cache for that account and rebuilds it from the remote mailbox.
 
-Plain `vivi sync` is incremental. It downloads only missing IMAP messages, then
-updates storage-backed metadata and local indexes for new messages.
+Plain `vivi sync` is incremental. It downloads only missing messages from each
+account's configured provider, then updates storage-backed metadata and local
+indexes for new messages.
 
 Storage modes control how much mail Vivi keeps locally:
 
-- `headers` is the default. Sync stores IMAP headers, folder/UID identity, and
-  thread/search metadata, but not message bodies.
+- `headers` is the default. Sync stores provider metadata, folder or label
+  identity, and thread/search metadata, but not message bodies.
 - `bodies` stores full RFC 5322 messages locally for fast `show`, `thread`,
   export, and offline body access. It does not enable semantic indexing by
   itself.
@@ -195,6 +222,7 @@ vivi init                                      # create config directory and fil
 vivi --version                                 # print installed version
 vivi sync                                      # sync all accounts
 vivi sync --account proton                     # sync one account
+vivi sync --account agent-proton --json        # sync a direct Proton API account
 vivi sync --account proton --limit 100         # cap new downloads for this run
 vivi sync --account proton --json              # machine-readable sync summary
 vivi sync --account proton --since 3mo         # sync messages from the last 3 months
@@ -228,13 +256,16 @@ vivi index rebuild --account proton            # rebuild deterministic local ind
 vivi reply 4f8c2d1                             # draft a reply from a local message
 vivi compose --to you@example.com --subject hi # create a new local draft
 vivi compose --to you@example.com --subject hi --body "Plain text" --html-body-auto
+vivi exec send --account agent-proton --from agent@proton.me path/to/draft.eml
 ```
 
 `compose` and `reply` can create multipart drafts with both plain text and HTML.
 Use `--html-body <html>` for explicit HTML, or `--html-body-auto` with `--body`
 to generate a simple styled HTML alternative from the plain-text body. Drafts
-are still local-first; use `vivi exec send path/to/draft.eml` only after reviewing
-the generated `.eml`.
+are still local-first; use `vivi exec send path/to/draft.eml` only after
+reviewing the generated `.eml`. On `provider = "proton-api"` accounts, send
+uses Proton's API directly. On Bridge-backed or standard IMAP accounts, send
+uses the account's SMTP settings.
 
 Write commands are split by effect. `vivi exec ...` performs the external write
 now. `vivi enqueue ...` records a durable pending item under the selected
@@ -254,18 +285,20 @@ These surfaces are not available in the default CLI today:
 
 ## Providers
 
-Vivarium handles the differences between IMAP providers:
+Vivarium handles provider differences at the account boundary:
 
-| Provider     | `provider =` | Inbox source | Sent source          |
-|--------------|--------------|--------------|----------------------|
-| Gmail        | `"gmail"`    | INBOX label  | [Gmail]/Sent Mail    |
-| ProtonMail   | `"protonmail"` | INBOX      | Sent folder          |
-| Standard     | `"standard"` | INBOX folder | Sent folder          |
+| Provider | `provider =` | Read source | Send source |
+| --- | --- | --- | --- |
+| Direct Proton API | `"proton-api"` | Proton API | Proton API |
+| Proton Bridge | `"protonmail"` | Bridge IMAP | Bridge SMTP |
+| Gmail | `"gmail"` | Gmail IMAP labels | SMTP |
+| Standard | `"standard"` | IMAP folders | SMTP |
 
-Gmail and ProtonMail use their provider `All Mail` views only as internal sync
-sources for the local `Archive/` corpus. User-facing archive operations target
-the provider's real `Archive` folder. Standard IMAP accounts sync `INBOX` and
-`Sent` directly.
+Bridge-backed Gmail and ProtonMail use their provider `All Mail` views only as
+internal sync sources for the local `Archive/` corpus. User-facing archive
+operations target the provider's real `Archive` folder. Standard IMAP accounts
+sync `INBOX` and `Sent` directly. Direct Proton API accounts map Proton labels
+and message state into the same local roles without IMAP.
 
 ## Security
 
@@ -282,6 +315,11 @@ the provider's real `Archive` folder. Standard IMAP accounts sync `INBOX` and
   ```
 - Certificate validation is enabled for `provider = "protonmail"` by default
 - Set `reject_invalid_certs = false` on an account, or use `--insecure` as a one-run override, when a local bridge uses an untrusted certificate
+- Direct Proton API sessions are stored under the selected account's private
+  Vivi state directory and can be refreshed without reusing the account password
+  on every command
+- Direct Proton encrypted message payload caches are account-local private
+  implementation artifacts; do not publish or package them in release artifacts
 
 ## Local Operations
 
@@ -306,8 +344,9 @@ vivi sync --account <name> --reset
 ```
 
 That clears the local cache for the account, then redownloads and reindexes it
-from the IMAP source of truth. If deterministic search/thread state drifts
-without needing a full reset, use:
+from the selected remote source of truth: Proton API for `provider =
+"proton-api"`, or IMAP for Bridge, Gmail, and standard accounts. If
+deterministic search/thread state drifts without needing a full reset, use:
 
 ```
 vivi index rebuild --account <name>
@@ -317,6 +356,8 @@ vivi index rebuild --account <name>
 
 - **Raw `.eml` blobs are the source of truth.** They are preserved unchanged under `blobs/`.
 - **Mutable mailbox state lives in `storage.sqlite`.** Local role, flags, and remote bindings do not rename blobs.
+- **Remote access is provider-scoped.** Direct Proton API accounts bypass
+  Bridge entirely; Bridge, Gmail, and standard accounts keep using IMAP/SMTP.
 - **Derived data is disposable and rebuildable.** Deterministic indexes and embeddings can be rebuilt from blobs plus storage metadata.
 - **Search results point back to stable local content.** JSON search output includes the short handle, internal `message_id`, and `content_id` citation data.
 - **Full corpus contents never leave the machine by default.** Any cloud access would be explicit, narrow, and user-approved.

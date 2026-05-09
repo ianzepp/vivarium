@@ -9,6 +9,8 @@ mod auth;
 mod identity;
 mod keys;
 mod messages;
+mod public_keys;
+mod send;
 mod session;
 
 use app_version::default_app_version;
@@ -18,8 +20,12 @@ pub use identity::ProtonIdentity;
 use identity::{AddressListResponse, UserResponse};
 use keys::{AddressKeyListResponse, KeySaltResponse, UserKeyResponse};
 pub use keys::{ProtonAddressKeyMaterial, ProtonKeyMaterial, ProtonKeySalt, ProtonUserKeyMaterial};
+pub use keys::{ProtonPublicKey, ProtonRecipientType};
 use messages::{FullMessageResponse, MessageListResponse};
 pub use messages::{ProtonAddress, ProtonFullMessage, ProtonMessage};
+pub use send::{
+    CreateDraftReq, DraftTemplate, MessagePackage, MessageRecipient, SendDraftReq, SessionKey,
+};
 pub use session::{ProtonSession, ProtonSessionStore};
 
 const DEFAULT_BASE_URL: &str = "https://mail.proton.me/api";
@@ -385,11 +391,10 @@ async fn parse_response<T: for<'de> Deserialize<'de>>(
 }
 
 fn refresh_state() -> String {
-    let now = Utc::now()
-        .timestamp_nanos_opt()
-        .unwrap_or_else(|| Utc::now().timestamp_micros());
-    format!("vivi-{now}")
+    format!("vivi-{}", Utc::now().timestamp_micros())
 }
 
+#[cfg(test)]
+mod send_tests;
 #[cfg(test)]
 mod tests;

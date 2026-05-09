@@ -14,9 +14,9 @@ pub struct ProtonBodyDecryptor {
     address_keys: Vec<UnlockedAddressKey>,
 }
 
-struct UnlockedAddressKey {
-    key: SignedSecretKey,
-    password: Vec<u8>,
+pub(crate) struct UnlockedAddressKey {
+    pub(crate) key: SignedSecretKey,
+    pub(crate) password: Vec<u8>,
 }
 
 impl ProtonBodyDecryptor {
@@ -24,52 +24,7 @@ impl ProtonBodyDecryptor {
         login_password: &str,
         key_material: &ProtonKeyMaterial,
     ) -> Result<Self, VivariumError> {
-        let mut address_keys = Vec::new();
-        let mut diagnostics = UnlockDiagnostics::new(key_material);
-
-        for user_key in &key_material.user_keys {
-            let Some(key_salt) = key_material
-                .key_salts
-                .iter()
-                .find(|salt| salt.key_id == user_key.id)
-            else {
-                diagnostics.user_keys_without_salt += 1;
-                continue;
-            };
-            let mailbox_password = match derive_mailbox_password(&key_salt.key_salt, login_password)
-            {
-                Ok(password) => password,
-                Err(_) => {
-                    diagnostics.mailbox_hash_failures += 1;
-                    continue;
-                }
-            };
-            for address_key in sorted_address_keys(key_material) {
-                diagnostics.unlock_attempts += 1;
-                let password = if let (Some(token), Some(_signature)) =
-                    (&address_key.token, &address_key.signature)
-                {
-                    unlock_address_key_password(&user_key.private_key, &mailbox_password, token)
-                        .unwrap_or_else(|err| {
-                            diagnostics.token_decrypt_failures += 1;
-                            diagnostics.last_token_decrypt_error = Some(err.to_string());
-                            mailbox_password.clone()
-                        })
-                } else {
-                    mailbox_password.clone()
-                };
-                let Ok(key) = read_secret_key(&address_key.private_key) else {
-                    diagnostics.address_key_parse_failures += 1;
-                    continue;
-                };
-                address_keys.push(UnlockedAddressKey { key, password });
-            }
-        }
-
-        if address_keys.is_empty() {
-            return Err(VivariumError::Other(diagnostics.error_message()));
-        }
-
+        let address_keys = unlock_address_keys(login_password, key_material)?;
         Ok(Self { address_keys })
     }
 
@@ -87,6 +42,58 @@ impl ProtonBodyDecryptor {
             "Proton message body could not be decrypted with available address keys".into(),
         ))
     }
+}
+
+pub(crate) fn unlock_address_keys(
+    login_password: &str,
+    key_material: &ProtonKeyMaterial,
+) -> Result<Vec<UnlockedAddressKey>, VivariumError> {
+    let mut address_keys = Vec::new();
+    let mut diagnostics = UnlockDiagnostics::new(key_material);
+
+    for user_key in &key_material.user_keys {
+        let Some(key_salt) = key_material
+            .key_salts
+            .iter()
+            .find(|salt| salt.key_id == user_key.id)
+        else {
+            diagnostics.user_keys_without_salt += 1;
+            continue;
+        };
+        let mailbox_password = match derive_mailbox_password(&key_salt.key_salt, login_password) {
+            Ok(password) => password,
+            Err(_) => {
+                diagnostics.mailbox_hash_failures += 1;
+                continue;
+            }
+        };
+        for address_key in sorted_address_keys(key_material) {
+            diagnostics.unlock_attempts += 1;
+            let password = if let (Some(token), Some(_signature)) =
+                (&address_key.token, &address_key.signature)
+            {
+                unlock_address_key_password(&user_key.private_key, &mailbox_password, token)
+                    .unwrap_or_else(|err| {
+                        diagnostics.token_decrypt_failures += 1;
+                        diagnostics.last_token_decrypt_error = Some(err.to_string());
+                        mailbox_password.clone()
+                    })
+            } else {
+                mailbox_password.clone()
+            };
+            let Ok(key) = read_secret_key(&address_key.private_key) else {
+                diagnostics.address_key_parse_failures += 1;
+                continue;
+            };
+            address_keys.push(UnlockedAddressKey { key, password });
+        }
+    }
+
+    if address_keys.is_empty() {
+        return Err(VivariumError::Other(diagnostics.error_message()));
+    }
+
+    Ok(address_keys)
 }
 
 struct UnlockDiagnostics {
@@ -201,13 +208,13 @@ fn decode_base64_message(message: &str) -> Result<Vec<u8>, base64::DecodeError> 
         .or_else(|_| URL_SAFE_NO_PAD.decode(message))
 }
 
-fn read_secret_key(armored_key: &str) -> Result<SignedSecretKey, VivariumError> {
+pub(crate) fn read_secret_key(armored_key: &str) -> Result<SignedSecretKey, VivariumError> {
     SignedSecretKey::from_reader_single(armored_key.as_bytes())
         .map(|(key, _)| key)
         .map_err(|e| VivariumError::Other(format!("Proton PGP private key parse failed: {e}")))
 }
 
-fn sorted_address_keys(
+pub(crate) fn sorted_address_keys(
     key_material: &ProtonKeyMaterial,
 ) -> Vec<&crate::proton_api::ProtonAddressKeyMaterial> {
     let mut keys: Vec<_> = key_material.address_keys.iter().collect();
