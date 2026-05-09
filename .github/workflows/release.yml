@@ -17,6 +17,8 @@ jobs:
             os: macos-latest
           - target: x86_64-apple-darwin
             os: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
 
     runs-on: ${{ matrix.os }}
 
@@ -56,6 +58,7 @@ jobs:
           files: |
             vivi-aarch64-apple-darwin/vivi-aarch64-apple-darwin.tar.gz
             vivi-x86_64-apple-darwin/vivi-x86_64-apple-darwin.tar.gz
+            vivi-x86_64-unknown-linux-gnu/vivi-x86_64-unknown-linux-gnu.tar.gz
           generate_release_notes: true
 
   update-tap:

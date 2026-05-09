@@ -16,15 +16,10 @@ With Homebrew on macOS:
 brew install ianzepp/tap/vivarium
 ```
 
-With curl on macOS:
+With curl on macOS or Linux:
 
 ```sh
-target="$(case "$(uname -m)" in arm64) echo aarch64-apple-darwin ;; x86_64) echo x86_64-apple-darwin ;; *) echo "unsupported architecture" >&2; exit 1 ;; esac)"
-version="$(curl -fsSL https://api.github.com/repos/ianzepp/vivarium/releases/latest | sed -n 's/.*"tag_name": "\(v[^"]*\)".*/\1/p')"
-curl -fsSL "https://github.com/ianzepp/vivarium/releases/download/${version}/vivi-${target}.tar.gz" | tar -xz
-mkdir -p ~/.local/bin
-install -m 0755 vivi ~/.local/bin/vivi
-rm vivi
+curl -fsSL https://raw.githubusercontent.com/ianzepp/vivarium/main/install.sh | bash
 ```
 
 From source, requires Rust 1.93+:
