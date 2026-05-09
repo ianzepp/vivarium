@@ -33,6 +33,16 @@ fn parses_sync_embed_without_index() {
 }
 
 #[test]
+fn parses_sync_json() {
+    let cli = Cli::try_parse_from(["vivi", "sync", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Sync { json, .. } => assert!(json),
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_list_filter() {
     let cli = Cli::try_parse_from(["vivi", "list", "inbox", "--filter", "DoorDash"]).unwrap();
 

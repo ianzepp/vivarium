@@ -186,30 +186,8 @@ impl Runtime {
     }
 
     async fn run_sync_command(&self, command: Command) -> Result<(), VivariumError> {
-        let Command::Sync {
-            account,
-            limit,
-            since,
-            before,
-            reset,
-            index,
-            embed,
-            all,
-        } = command
-        else {
-            unreachable!();
-        };
-        self.sync(sync_command::SyncOptions {
-            account,
-            limit,
-            since,
-            before,
-            reset,
-            index,
-            embed,
-            all,
-        })
-        .await
+        self.sync(sync_command::SyncOptions::from_command(command))
+            .await
     }
 
     async fn run_search_command(&self, command: Command) -> Result<(), VivariumError> {

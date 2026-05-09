@@ -96,6 +96,10 @@ pub enum Command {
         #[arg(long)]
         embed: bool,
 
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
         /// Sync all IMAP folders (Inbox, Sent, All Mail)
         #[arg(long)]
         all: bool,
