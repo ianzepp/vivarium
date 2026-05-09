@@ -9,6 +9,12 @@ pub(super) struct MessageListResponse {
     pub total: usize,
 }
 
+#[derive(Debug, Deserialize)]
+pub(super) struct FullMessageResponse {
+    #[serde(rename = "Message")]
+    pub message: ProtonFullMessage,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProtonMessage {
     #[serde(rename = "ID", default)]
@@ -39,6 +45,18 @@ pub struct ProtonMessage {
     pub bcc: Vec<ProtonAddress>,
     #[serde(rename = "LabelIDs", default)]
     pub label_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProtonFullMessage {
+    #[serde(flatten)]
+    pub metadata: ProtonMessage,
+    #[serde(rename = "Header", default)]
+    pub header: String,
+    #[serde(rename = "Body", default)]
+    pub body: String,
+    #[serde(rename = "MIMEType", default)]
+    pub mime_type: String,
 }
 
 impl ProtonMessage {

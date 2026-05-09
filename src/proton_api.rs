@@ -6,6 +6,7 @@ use crate::error::VivariumError;
 
 mod auth;
 mod identity;
+mod keys;
 mod messages;
 mod session;
 
@@ -13,8 +14,10 @@ pub use auth::{AuthInfo, AuthInfoSummary, LoginCheck, TwoFaInfo};
 use auth::{AuthInfoRequest, AuthRefreshRequest, AuthRequest, AuthResponse};
 pub use identity::ProtonIdentity;
 use identity::{AddressListResponse, UserResponse};
-use messages::MessageListResponse;
-pub use messages::{ProtonAddress, ProtonMessage};
+use keys::{AddressKeyListResponse, KeySaltResponse, UserKeyResponse};
+pub use keys::{ProtonAddressKeyMaterial, ProtonKeyMaterial, ProtonKeySalt, ProtonUserKeyMaterial};
+use messages::{FullMessageResponse, MessageListResponse};
+pub use messages::{ProtonAddress, ProtonFullMessage, ProtonMessage};
 pub use session::{ProtonSession, ProtonSessionStore};
 
 const DEFAULT_BASE_URL: &str = "https://mail.proton.me/api";
@@ -176,6 +179,51 @@ impl ProtonApiClient {
         }
     }
 
+    pub async fn fetch_message(
+        &self,
+        session: &ProtonSession,
+        id: &str,
+    ) -> Result<(ProtonSession, ProtonFullMessage), VivariumError> {
+        match self.full_message_with_session(session, id).await? {
+            FullMessageAttempt::Ok(message) => Ok((session.clone(), *message)),
+            FullMessageAttempt::Unauthorized => {
+                let refreshed = self.refresh(session).await?;
+                let message = match self.full_message_with_session(&refreshed, id).await? {
+                    FullMessageAttempt::Ok(message) => *message,
+                    FullMessageAttempt::Unauthorized => {
+                        return Err(VivariumError::Other(
+                            "Proton API message fetch was unauthorized after session refresh"
+                                .into(),
+                        ));
+                    }
+                };
+                Ok((refreshed, message))
+            }
+        }
+    }
+
+    pub async fn key_material(
+        &self,
+        session: &ProtonSession,
+    ) -> Result<(ProtonSession, ProtonKeyMaterial), VivariumError> {
+        match self.key_material_with_session(session).await? {
+            KeyMaterialAttempt::Ok(material) => Ok((session.clone(), material)),
+            KeyMaterialAttempt::Unauthorized => {
+                let refreshed = self.refresh(session).await?;
+                let material = match self.key_material_with_session(&refreshed).await? {
+                    KeyMaterialAttempt::Ok(material) => material,
+                    KeyMaterialAttempt::Unauthorized => {
+                        return Err(VivariumError::Other(
+                            "Proton API key material request was unauthorized after session refresh"
+                                .into(),
+                        ));
+                    }
+                };
+                Ok((refreshed, material))
+            }
+        }
+    }
+
     async fn message_page_with_session(
         &self,
         session: &ProtonSession,
@@ -190,6 +238,21 @@ impl ProtonApiClient {
             return Ok(MessagePageAttempt::Unauthorized);
         };
         Ok(MessagePageAttempt::Ok(page))
+    }
+
+    async fn full_message_with_session(
+        &self,
+        session: &ProtonSession,
+        id: &str,
+    ) -> Result<FullMessageAttempt, VivariumError> {
+        let path = format!("/mail/v4/messages/{id}");
+        let Some(response) = self
+            .get_authenticated::<FullMessageResponse>(&path, session)
+            .await?
+        else {
+            return Ok(FullMessageAttempt::Unauthorized);
+        };
+        Ok(FullMessageAttempt::Ok(Box::new(response.message)))
     }
 
     async fn identity_with_session(
@@ -213,6 +276,33 @@ impl ProtonApiClient {
         )))
     }
 
+    async fn key_material_with_session(
+        &self,
+        session: &ProtonSession,
+    ) -> Result<KeyMaterialAttempt, VivariumError> {
+        let Some(user) = self
+            .get_authenticated::<UserKeyResponse>("/users", session)
+            .await?
+        else {
+            return Ok(KeyMaterialAttempt::Unauthorized);
+        };
+        let Some(addresses) = self
+            .get_authenticated::<AddressKeyListResponse>("/addresses", session)
+            .await?
+        else {
+            return Ok(KeyMaterialAttempt::Unauthorized);
+        };
+        let Some(salts) = self
+            .get_authenticated::<KeySaltResponse>("/keys/salts", session)
+            .await?
+        else {
+            return Ok(KeyMaterialAttempt::Unauthorized);
+        };
+        Ok(KeyMaterialAttempt::Ok(ProtonKeyMaterial::from_responses(
+            user, addresses, salts,
+        )))
+    }
+
     async fn get_authenticated<T: for<'de> Deserialize<'de>>(
         &self,
         path: &str,
@@ -232,7 +322,9 @@ impl ProtonApiClient {
         if response.status() == StatusCode::UNAUTHORIZED {
             return Ok(None);
         }
-        parse_response::<T>(response).await.map(Some)
+        parse_response::<T>(response).await.map(Some).map_err(|e| {
+            VivariumError::Other(format!("Proton API authenticated GET {path} failed: {e}"))
+        })
     }
 
     fn url(&self, path: &str) -> String {
@@ -247,6 +339,16 @@ enum IdentityAttempt {
 
 enum MessagePageAttempt {
     Ok(MessageListResponse),
+    Unauthorized,
+}
+
+enum FullMessageAttempt {
+    Ok(Box<ProtonFullMessage>),
+    Unauthorized,
+}
+
+enum KeyMaterialAttempt {
+    Ok(ProtonKeyMaterial),
     Unauthorized,
 }
 
@@ -273,9 +375,11 @@ async fn parse_response<T: for<'de> Deserialize<'de>>(
             "Proton API returned {status}: {reason}"
         )));
     }
-    response
-        .json::<T>()
+    let body = response
+        .text()
         .await
+        .map_err(|e| VivariumError::Other(format!("Proton API response body read failed: {e}")))?;
+    serde_json::from_str::<T>(&body)
         .map_err(|e| VivariumError::Other(format!("Proton API response JSON failed: {e}")))
 }
 

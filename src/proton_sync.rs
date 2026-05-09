@@ -4,7 +4,8 @@ use sha2::{Digest, Sha256};
 use crate::catalog::CatalogEntry;
 use crate::config::{Account, StorageMode};
 use crate::error::VivariumError;
-use crate::proton_api::{ProtonApiClient, ProtonMessage, ProtonSessionStore};
+use crate::proton_api::{ProtonApiClient, ProtonFullMessage, ProtonMessage, ProtonSessionStore};
+use crate::proton_decrypt::ProtonBodyDecryptor;
 use crate::storage::{MessageIngestRequest, Storage};
 use crate::store::MailStore;
 use crate::sync::{SyncResult, SyncWindow};
@@ -17,9 +18,12 @@ pub async fn sync_messages(
     limit: Option<usize>,
     window: SyncWindow,
 ) -> Result<SyncResult, VivariumError> {
-    if !matches!(account.resolved_storage_mode(), StorageMode::Headers) {
+    if !matches!(
+        account.resolved_storage_mode(),
+        StorageMode::Headers | StorageMode::Bodies
+    ) {
         return Err(VivariumError::Config(format!(
-            "account '{}' uses storage_mode = \"{}\"; direct Proton API sync currently supports storage_mode = \"headers\" only",
+            "account '{}' uses storage_mode = \"{}\"; direct Proton API sync currently supports storage_mode = \"headers\" or \"bodies\" only",
             account.name,
             account.resolved_storage_mode()
         )));
@@ -30,6 +34,7 @@ pub async fn sync_messages(
     let client = ProtonApiClient::default();
     let mut storage = Storage::open(store.root())?;
     let mut result = SyncResult::default();
+    let body_decryptor = body_decryptor(account, &client, &mut session, &session_store).await?;
     let mut page = 0;
 
     loop {
@@ -40,15 +45,18 @@ pub async fn sync_messages(
             break;
         }
         for message in messages {
-            if !message_in_window(&message, window) {
-                continue;
-            }
-            if let Some(entry) = ingest_header(account, &mut storage, &message)? {
-                result.new += 1;
-                result.cataloged_entries.push(entry);
-                if limit.is_some_and(|limit| result.new >= limit) {
-                    return Ok(result);
-                }
+            let mut ctx = SyncOneContext {
+                account,
+                client: &client,
+                session_store: &session_store,
+                session: &mut session,
+                storage: &mut storage,
+                body_decryptor: &body_decryptor,
+                result: &mut result,
+            };
+            sync_one_message(&mut ctx, window, &message).await?;
+            if limit.is_some_and(|limit| result.new >= limit) {
+                return Ok(result);
             }
         }
         page += 1;
@@ -60,11 +68,75 @@ pub async fn sync_messages(
     Ok(result)
 }
 
+struct SyncOneContext<'a> {
+    account: &'a Account,
+    client: &'a ProtonApiClient,
+    session_store: &'a ProtonSessionStore,
+    session: &'a mut crate::proton_api::ProtonSession,
+    storage: &'a mut Storage,
+    body_decryptor: &'a Option<ProtonBodyDecryptor>,
+    result: &'a mut SyncResult,
+}
+
+async fn sync_one_message(
+    ctx: &mut SyncOneContext<'_>,
+    window: SyncWindow,
+    message: &ProtonMessage,
+) -> Result<(), VivariumError> {
+    if !message_in_window(message, window) {
+        return Ok(());
+    }
+    let outcome = match ctx.body_decryptor {
+        Some(decryptor) => {
+            let (refreshed, full_message) =
+                ctx.client.fetch_message(ctx.session, &message.id).await?;
+            *ctx.session = refreshed;
+            ctx.session_store.save(ctx.session)?;
+            ingest_body(
+                ctx.account,
+                ctx.storage,
+                decryptor,
+                &full_message,
+                ctx.result,
+            )?
+        }
+        None => ingest_header(ctx.account, ctx.storage, message)?,
+    };
+    if let Some(entry) = outcome.entry {
+        if outcome.is_new {
+            ctx.result.new += 1;
+        }
+        ctx.result.cataloged_entries.push(entry);
+    }
+    Ok(())
+}
+
+async fn body_decryptor(
+    account: &Account,
+    client: &ProtonApiClient,
+    session: &mut crate::proton_api::ProtonSession,
+    session_store: &ProtonSessionStore,
+) -> Result<Option<ProtonBodyDecryptor>, VivariumError> {
+    if !matches!(account.resolved_storage_mode(), StorageMode::Bodies) {
+        return Ok(None);
+    }
+    let password = account.resolve_secret().await?;
+    let (refreshed, key_material) = client.key_material(session).await?;
+    *session = refreshed;
+    session_store.save(session)?;
+    ProtonBodyDecryptor::new(&password, &key_material).map(Some)
+}
+
+struct IngestOutcome {
+    entry: Option<CatalogEntry>,
+    is_new: bool,
+}
+
 fn ingest_header(
     account: &Account,
     storage: &mut Storage,
     message: &ProtonMessage,
-) -> Result<Option<CatalogEntry>, VivariumError> {
+) -> Result<IngestOutcome, VivariumError> {
     let message_id = local_message_id(&message.id);
     let existed = storage.catalog_entry(&account.name, &message_id)?.is_some();
     let local_role = local_role(&message.label_ids);
@@ -81,9 +153,49 @@ fn ingest_header(
         &header_bytes(message),
     )?;
     if existed {
-        return Ok(None);
+        return Ok(IngestOutcome {
+            entry: None,
+            is_new: false,
+        });
     }
-    storage.catalog_entry(&account.name, &stored.message_id)
+    Ok(IngestOutcome {
+        entry: storage.catalog_entry(&account.name, &stored.message_id)?,
+        is_new: true,
+    })
+}
+
+fn ingest_body(
+    account: &Account,
+    storage: &mut Storage,
+    decryptor: &ProtonBodyDecryptor,
+    message: &ProtonFullMessage,
+    result: &mut SyncResult,
+) -> Result<IngestOutcome, VivariumError> {
+    let decrypted = decryptor.decrypt_body(&message.body);
+    if decrypted.is_err() {
+        result.decryption_errors += 1;
+    }
+    let bytes = decrypted
+        .map(|body| body_bytes(message, &body))
+        .unwrap_or_else(|_| decryption_failure_bytes(&message.metadata));
+    let message_id = local_message_id(&message.metadata.id);
+    let existed = storage.catalog_entry(&account.name, &message_id)?.is_some();
+    let stored = storage.ingest_message(
+        &MessageIngestRequest {
+            account: account.name.clone(),
+            local_role: local_role(&message.metadata.label_ids),
+            read_state: message.metadata.unread == 0,
+            starred: false,
+            message_id_hint: Some(message_id),
+            seed_hint: format!("proton:{}", message.metadata.id),
+            remote: None,
+        },
+        &bytes,
+    )?;
+    Ok(IngestOutcome {
+        entry: storage.catalog_entry(&account.name, &stored.message_id)?,
+        is_new: !existed,
+    })
 }
 
 fn message_in_window(message: &ProtonMessage, window: SyncWindow) -> bool {
@@ -126,6 +238,36 @@ fn header_bytes(message: &ProtonMessage) -> Vec<u8> {
     headers.push(String::new());
     headers.push(String::new());
     headers.join("\r\n").into_bytes()
+}
+
+fn body_bytes(message: &ProtonFullMessage, body: &[u8]) -> Vec<u8> {
+    let mut bytes = if message.header.trim().is_empty() {
+        header_bytes(&message.metadata)
+    } else {
+        normalize_header_block(&message.header).into_bytes()
+    };
+    bytes.extend_from_slice(body);
+    bytes
+}
+
+fn decryption_failure_bytes(message: &ProtonMessage) -> Vec<u8> {
+    let mut headers = String::from_utf8(header_bytes(message)).unwrap_or_default();
+    let marker = "X-Vivarium-Proton-Decryption-Error: true\r\n";
+    if let Some(index) = headers.find("\r\n\r\n") {
+        headers.insert_str(index + 2, marker);
+    } else {
+        headers.push_str(marker);
+        headers.push_str("\r\n");
+    }
+    headers.into_bytes()
+}
+
+fn normalize_header_block(header: &str) -> String {
+    let mut header = header.replace("\r\n", "\n").replace('\r', "\n");
+    while header.ends_with('\n') {
+        header.pop();
+    }
+    format!("{}\r\n\r\n", header.replace('\n', "\r\n"))
 }
 
 fn push_header(headers: &mut Vec<String>, name: &str, value: &str) {
@@ -192,7 +334,43 @@ mod tests {
 
     #[test]
     fn header_bytes_redact_body_and_include_metadata() {
-        let message = ProtonMessage {
+        let message = test_message();
+        let header = String::from_utf8(header_bytes(&message)).unwrap();
+
+        assert!(header.contains("Subject: hello"));
+        assert!(header.contains("Message-ID: <external@example.com>"));
+        assert!(header.contains("X-Proton-Message-ID: proton-id"));
+        assert!(header.contains("X-Proton-Num-Attachments: 2"));
+        assert!(header.ends_with("\r\n\r\n"));
+    }
+
+    #[test]
+    fn body_bytes_normalize_header_and_append_cleartext() {
+        let message = ProtonFullMessage {
+            metadata: test_message(),
+            header: "Subject: hello\nContent-Type: text/plain\n\n".into(),
+            body: String::new(),
+            mime_type: "text/plain".into(),
+        };
+        let bytes = body_bytes(&message, b"clear body");
+
+        assert_eq!(
+            String::from_utf8(bytes).unwrap(),
+            "Subject: hello\r\nContent-Type: text/plain\r\n\r\nclear body"
+        );
+    }
+
+    #[test]
+    fn decryption_failure_bytes_record_local_marker() {
+        let bytes = decryption_failure_bytes(&test_message());
+        let message = String::from_utf8(bytes).unwrap();
+
+        assert!(message.contains("X-Vivarium-Proton-Decryption-Error: true\r\n"));
+        assert!(message.ends_with("\r\n\r\n"));
+    }
+
+    fn test_message() -> ProtonMessage {
+        ProtonMessage {
             id: "proton-id".into(),
             conversation_id: "conversation-id".into(),
             external_id: "external@example.com".into(),
@@ -213,13 +391,6 @@ mod tests {
             cc: Vec::new(),
             bcc: Vec::new(),
             label_ids: vec!["0".into(), "5".into()],
-        };
-        let header = String::from_utf8(header_bytes(&message)).unwrap();
-
-        assert!(header.contains("Subject: hello"));
-        assert!(header.contains("Message-ID: <external@example.com>"));
-        assert!(header.contains("X-Proton-Message-ID: proton-id"));
-        assert!(header.contains("X-Proton-Num-Attachments: 2"));
-        assert!(header.ends_with("\r\n\r\n"));
+        }
     }
 }

@@ -14,6 +14,7 @@ pub struct SyncResult {
     pub cataloged: usize,
     pub extracted: usize,
     pub extraction_errors: usize,
+    pub decryption_errors: usize,
     pub remote_identities: Vec<RemoteIdentityCandidate>,
     pub cataloged_entries: Vec<CatalogEntry>,
 }
@@ -75,6 +76,7 @@ pub async fn sync_account(
         cataloged = result.cataloged,
         extracted = result.extracted,
         extraction_errors = result.extraction_errors,
+        decryption_errors = result.decryption_errors,
         "sync complete"
     );
     Ok(result)

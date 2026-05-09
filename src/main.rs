@@ -389,7 +389,11 @@ impl Runtime {
 
 fn print_sync_result(account: &str, result: &vivarium::sync::SyncResult) {
     println!(
-        "synced {account}: {} new messages, {} cataloged, {} extracted, {} extraction errors",
-        result.new, result.cataloged, result.extracted, result.extraction_errors
+        "synced {account}: {} new messages, {} cataloged, {} extracted, {} extraction errors, {} decryption errors",
+        result.new,
+        result.cataloged,
+        result.extracted,
+        result.extraction_errors,
+        result.decryption_errors
     );
 }
