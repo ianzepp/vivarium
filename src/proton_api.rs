@@ -4,12 +4,14 @@ use serde::Deserialize;
 
 use crate::error::VivariumError;
 
+mod app_version;
 mod auth;
 mod identity;
 mod keys;
 mod messages;
 mod session;
 
+use app_version::default_app_version;
 pub use auth::{AuthInfo, AuthInfoSummary, LoginCheck, TwoFaInfo};
 use auth::{AuthInfoRequest, AuthRefreshRequest, AuthRequest, AuthResponse};
 pub use identity::ProtonIdentity;
@@ -21,7 +23,6 @@ pub use messages::{ProtonAddress, ProtonFullMessage, ProtonMessage};
 pub use session::{ProtonSession, ProtonSessionStore};
 
 const DEFAULT_BASE_URL: &str = "https://mail.proton.me/api";
-const DEFAULT_APP_VERSION: &str = "web-mail@5.0.113.4";
 
 #[derive(Clone)]
 pub struct ProtonApiClient {
@@ -41,7 +42,7 @@ impl ProtonApiClient {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
             app_version: std::env::var("VIVI_PROTON_APP_VERSION")
-                .unwrap_or_else(|_| DEFAULT_APP_VERSION.into()),
+                .unwrap_or_else(|_| default_app_version()),
             http: reqwest::Client::new(),
         }
     }
@@ -260,13 +261,13 @@ impl ProtonApiClient {
         session: &ProtonSession,
     ) -> Result<IdentityAttempt, VivariumError> {
         let Some(user) = self
-            .get_authenticated::<UserResponse>("/users", session)
+            .get_authenticated::<UserResponse>("/core/v4/users", session)
             .await?
         else {
             return Ok(IdentityAttempt::Unauthorized);
         };
         let Some(addresses) = self
-            .get_authenticated::<AddressListResponse>("/addresses", session)
+            .get_authenticated::<AddressListResponse>("/core/v4/addresses", session)
             .await?
         else {
             return Ok(IdentityAttempt::Unauthorized);
@@ -281,19 +282,19 @@ impl ProtonApiClient {
         session: &ProtonSession,
     ) -> Result<KeyMaterialAttempt, VivariumError> {
         let Some(user) = self
-            .get_authenticated::<UserKeyResponse>("/users", session)
+            .get_authenticated::<UserKeyResponse>("/core/v4/users", session)
             .await?
         else {
             return Ok(KeyMaterialAttempt::Unauthorized);
         };
         let Some(addresses) = self
-            .get_authenticated::<AddressKeyListResponse>("/addresses", session)
+            .get_authenticated::<AddressKeyListResponse>("/core/v4/addresses", session)
             .await?
         else {
             return Ok(KeyMaterialAttempt::Unauthorized);
         };
         let Some(salts) = self
-            .get_authenticated::<KeySaltResponse>("/keys/salts", session)
+            .get_authenticated::<KeySaltResponse>("/core/v4/keys/salts", session)
             .await?
         else {
             return Ok(KeyMaterialAttempt::Unauthorized);

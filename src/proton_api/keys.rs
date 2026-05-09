@@ -1,20 +1,20 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProtonKeyMaterial {
     pub user_keys: Vec<ProtonUserKeyMaterial>,
     pub address_keys: Vec<ProtonAddressKeyMaterial>,
     pub key_salts: Vec<ProtonKeySalt>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProtonUserKeyMaterial {
     pub id: String,
     pub private_key: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProtonAddressKeyMaterial {
     pub address: String,
     pub private_key: String,
@@ -24,7 +24,7 @@ pub struct ProtonAddressKeyMaterial {
     pub primary: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProtonKeySalt {
     pub key_id: String,
     pub key_salt: String,

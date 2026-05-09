@@ -15,7 +15,7 @@ pub(super) struct FullMessageResponse {
     pub message: ProtonFullMessage,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProtonMessage {
     #[serde(rename = "ID", default)]
     pub id: String,
@@ -47,7 +47,7 @@ pub struct ProtonMessage {
     pub label_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProtonFullMessage {
     #[serde(flatten)]
     pub metadata: ProtonMessage,

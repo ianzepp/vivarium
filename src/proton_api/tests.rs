@@ -33,7 +33,7 @@ async fn auth_info_posts_username_without_secret_material() {
     assert_eq!(auth_info.version, 4);
     let request = rx.await.unwrap();
     assert!(request.starts_with("POST /auth/v4/info HTTP/1.1"));
-    assert!(request.contains("x-pm-appversion: web-mail@"));
+    assert!(request.contains("x-pm-appversion: "));
     let body = request.split("\r\n\r\n").nth(1).unwrap();
     let body: Value = serde_json::from_str(body).unwrap();
     assert_eq!(body["Username"], "agent@proton.me");
@@ -143,10 +143,10 @@ async fn identity_sends_auth_headers_and_redacts_key_material() {
     assert!(!json.contains("token-secret"));
 
     let requests = rx.await.unwrap();
-    assert!(requests[0].starts_with("GET /users HTTP/1.1"));
+    assert!(requests[0].starts_with("GET /core/v4/users HTTP/1.1"));
     assert!(requests[0].contains("authorization: Bearer access-1"));
     assert!(requests[0].contains("x-pm-uid: uid-1"));
-    assert!(requests[1].starts_with("GET /addresses HTTP/1.1"));
+    assert!(requests[1].starts_with("GET /core/v4/addresses HTTP/1.1"));
     assert!(requests[1].contains("authorization: Bearer access-1"));
     assert!(requests[1].contains("x-pm-uid: uid-1"));
 }
@@ -192,12 +192,12 @@ async fn identity_refreshes_once_after_unauthorized() {
     assert_eq!(session.access_token, "access-2");
     assert_eq!(identity.user.email, "agent@proton.test");
     let requests = rx.await.unwrap();
-    assert!(requests[0].starts_with("GET /users HTTP/1.1"));
+    assert!(requests[0].starts_with("GET /core/v4/users HTTP/1.1"));
     assert!(requests[1].starts_with("POST /auth/v4/refresh HTTP/1.1"));
-    assert!(requests[2].starts_with("GET /users HTTP/1.1"));
+    assert!(requests[2].starts_with("GET /core/v4/users HTTP/1.1"));
     assert!(requests[2].contains("authorization: Bearer access-2"));
     assert!(requests[2].contains("x-pm-uid: uid-2"));
-    assert!(requests[3].starts_with("GET /addresses HTTP/1.1"));
+    assert!(requests[3].starts_with("GET /core/v4/addresses HTTP/1.1"));
     assert!(requests[3].contains("authorization: Bearer access-2"));
 }
 
@@ -276,9 +276,9 @@ async fn key_material_fetches_private_keys_and_salts_without_json_summary() {
     assert_eq!(material.key_salts[0].key_salt, "salt-b64");
     assert_eq!(material.key_salts.len(), 1);
     let requests = rx.await.unwrap();
-    assert!(requests[0].starts_with("GET /users HTTP/1.1"));
-    assert!(requests[1].starts_with("GET /addresses HTTP/1.1"));
-    assert!(requests[2].starts_with("GET /keys/salts HTTP/1.1"));
+    assert!(requests[0].starts_with("GET /core/v4/users HTTP/1.1"));
+    assert!(requests[1].starts_with("GET /core/v4/addresses HTTP/1.1"));
+    assert!(requests[2].starts_with("GET /core/v4/keys/salts HTTP/1.1"));
 }
 
 #[tokio::test]

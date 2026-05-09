@@ -4,9 +4,11 @@ use clap::{ArgGroup, Parser, Subcommand};
 
 mod draft_command;
 mod index_command;
+mod proton_command;
 mod write_command;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
+pub use proton_command::ProtonCommand;
 use std::ffi::OsString;
 pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
 
@@ -299,68 +301,6 @@ pub enum Command {
         /// Preview without changing mailbox state
         #[arg(long)]
         dry_run: bool,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub enum ProtonCommand {
-    /// Fetch non-secret SRP auth bootstrap metadata
-    AuthInfo {
-        /// Account to inspect (overrides --account)
-        #[arg(long)]
-        account: Option<String>,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Log in and store a reusable direct Proton API session
-    Login {
-        /// Account to inspect (overrides --account)
-        #[arg(long)]
-        account: Option<String>,
-        /// TOTP code for accounts that require one
-        #[arg(long)]
-        totp_code: Option<String>,
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Fetch non-secret authenticated user and address metadata
-    Identity {
-        /// Account to inspect (overrides --account)
-        #[arg(long)]
-        account: Option<String>,
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Verify username/password login without storing returned tokens
-    LoginCheck {
-        /// Account to inspect (overrides --account)
-        #[arg(long)]
-        account: Option<String>,
-        /// TOTP code for accounts that require one
-        #[arg(long)]
-        totp_code: Option<String>,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Refresh and validate a stored direct Proton API session
-    SessionCheck {
-        /// Account to inspect (overrides --account)
-        #[arg(long)]
-        account: Option<String>,
 
         /// Output as JSON
         #[arg(long)]

@@ -17,6 +17,7 @@ mod index_runner;
 mod label_runner;
 mod mutation_runner;
 mod proton_api_command;
+mod proton_fixture_command;
 mod queue_runner;
 mod sync_command;
 
@@ -24,7 +25,6 @@ use agent_runner::{AgentContext, AgentDispatch, AgentRunner};
 use draft_runner::DraftDispatch;
 use label_runner::LabelDispatch;
 use queue_runner::QueueDispatch;
-
 struct SearchRequest<'a> {
     query: &'a str,
     folder: Option<&'a str>,

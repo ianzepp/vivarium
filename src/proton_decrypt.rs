@@ -137,9 +137,15 @@ pub fn derive_mailbox_password(
     login_password: &str,
 ) -> Result<Vec<u8>, VivariumError> {
     let salt = normalized_mailbox_salt(encoded_salt)?;
-    mailbox_password_hash(login_password, &salt)
-        .map(|password| password.as_bytes().to_vec())
-        .map_err(|e| VivariumError::Other(format!("Proton mailbox password hash failed: {e}")))
+    let hash = mailbox_password_hash(login_password, &salt)
+        .map_err(|e| VivariumError::Other(format!("Proton mailbox password hash failed: {e}")))?;
+    let bytes = hash.as_bytes();
+    if bytes.len() < 31 {
+        return Err(VivariumError::Other(
+            "Proton mailbox password hash was shorter than expected".into(),
+        ));
+    }
+    Ok(bytes[bytes.len() - 31..].to_vec())
 }
 
 fn unlock_address_key_password(
@@ -252,6 +258,14 @@ mod tests {
         let encoded = STANDARD.encode([1u8; 12]);
         let err = normalized_mailbox_salt(&encoded).unwrap_err();
         assert!(err.to_string().contains("unsupported length 12"));
+    }
+
+    #[test]
+    fn mailbox_password_uses_key_pass_suffix() {
+        let salt = "imK9IHsRcA2Zsv+yROZgbw==";
+        let password = derive_mailbox_password(salt, "password").unwrap();
+        assert_eq!(password.len(), 31);
+        assert_eq!(password, b"Q.Gd9rSsqE0xQ8Qcf0Q9ckInb4hIzOu");
     }
 
     #[test]

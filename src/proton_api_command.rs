@@ -61,6 +61,24 @@ impl Runtime {
             ProtonCommand::SessionCheck { account, json } => {
                 self.proton_session_check(account, json).await
             }
+            ProtonCommand::CaptureFixture {
+                account,
+                message_id,
+                output,
+                json,
+            } => {
+                self.proton_capture_fixture(account, message_id.as_deref(), output, json)
+                    .await
+            }
+            ProtonCommand::DecryptFixture {
+                account,
+                fixture,
+                output,
+                json,
+            } => {
+                self.proton_decrypt_fixture(account, fixture, output, json)
+                    .await
+            }
         }
     }
 
@@ -207,7 +225,7 @@ impl Runtime {
         print_identity_report(&report, as_json)
     }
 
-    fn resolve_proton_api_account(
+    pub(crate) fn resolve_proton_api_account(
         &self,
         account: Option<String>,
     ) -> Result<vivarium::config::Account, VivariumError> {
@@ -246,7 +264,7 @@ fn print_identity_report(report: &IdentityReport, as_json: bool) -> Result<(), V
     })
 }
 
-fn print_report<T: Serialize>(
+pub(super) fn print_report<T: Serialize>(
     report: &T,
     as_json: bool,
     print_text: impl FnOnce(&T),
