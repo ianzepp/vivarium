@@ -352,6 +352,9 @@ deterministic search/thread state drifts without needing a full reset, use:
 vivi index rebuild --account <name>
 ```
 
+Before cutting a release that touches provider routing, sync, or send behavior,
+run the live checks in [docs/release-smoke-checks.md](docs/release-smoke-checks.md).
+
 ## Architecture
 
 - **Raw `.eml` blobs are the source of truth.** They are preserved unchanged under `blobs/`.
