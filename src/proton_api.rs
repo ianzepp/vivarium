@@ -6,6 +6,7 @@ use crate::error::VivariumError;
 
 mod app_version;
 mod auth;
+mod events;
 mod identity;
 mod keys;
 mod messages;
@@ -16,6 +17,7 @@ mod session;
 use app_version::default_app_version;
 pub use auth::{AuthInfo, AuthInfoSummary, LoginCheck, TwoFaInfo};
 use auth::{AuthInfoRequest, AuthRefreshRequest, AuthRequest, AuthResponse};
+pub use events::{ProtonEvent, ProtonEventAction, ProtonMessageEvent};
 pub use identity::ProtonIdentity;
 use identity::{AddressListResponse, UserResponse};
 use keys::{AddressKeyListResponse, KeySaltResponse, UserKeyResponse};
@@ -122,7 +124,7 @@ impl ProtonApiClient {
                 response_type: "token",
                 grant_type: "refresh_token",
                 redirect_uri: "https://protonmail.ch",
-                state: &refresh_state(),
+                state: &format!("vivi-{}", Utc::now().timestamp_micros()),
                 access_token: &session.access_token,
             })
             .send()
@@ -388,10 +390,6 @@ async fn parse_response<T: for<'de> Deserialize<'de>>(
         .map_err(|e| VivariumError::Other(format!("Proton API response body read failed: {e}")))?;
     serde_json::from_str::<T>(&body)
         .map_err(|e| VivariumError::Other(format!("Proton API response JSON failed: {e}")))
-}
-
-fn refresh_state() -> String {
-    format!("vivi-{}", Utc::now().timestamp_micros())
 }
 
 #[cfg(test)]

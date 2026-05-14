@@ -16,6 +16,7 @@ use crate::store::secure_create_dir_all;
 mod handles;
 mod ingest;
 mod metadata;
+mod mutate;
 mod query;
 mod schema;
 #[cfg(test)]

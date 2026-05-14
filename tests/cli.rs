@@ -43,6 +43,39 @@ fn parses_sync_json() {
 }
 
 #[test]
+fn parses_sync_events_watch() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "sync-events",
+        "--account",
+        "agent",
+        "--bootstrap",
+        "--watch",
+        "--interval",
+        "5m",
+        "--json",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::SyncEvents {
+            account,
+            bootstrap,
+            watch,
+            interval,
+            json,
+        } => {
+            assert_eq!(account.as_deref(), Some("agent"));
+            assert!(bootstrap);
+            assert!(watch);
+            assert_eq!(interval, "5m");
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_list_filter() {
     let cli = Cli::try_parse_from(["vivi", "list", "inbox", "--filter", "DoorDash"]).unwrap();
 

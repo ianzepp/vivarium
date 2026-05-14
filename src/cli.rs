@@ -105,6 +105,29 @@ pub enum Command {
         all: bool,
     },
 
+    /// Poll direct Proton API events and sync changed mail
+    SyncEvents {
+        /// Account to sync (overrides --account)
+        #[arg(long)]
+        account: Option<String>,
+
+        /// Run a normal direct Proton sync before initializing or polling the event cursor
+        #[arg(long)]
+        bootstrap: bool,
+
+        /// Continue polling for events
+        #[arg(long)]
+        watch: bool,
+
+        /// Poll interval for --watch, such as 30s, 5m, or a bare number of seconds
+        #[arg(long, default_value = "30s")]
+        interval: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// List remote IMAP folders and capabilities
     Folders {
         /// Account to inspect (overrides --account)

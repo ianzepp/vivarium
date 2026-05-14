@@ -33,9 +33,11 @@ pub struct AccountsFile {
 pub struct Account {
     pub name: String,
     pub email: String,
+    #[serde(default)]
     pub imap_host: String,
     pub imap_port: Option<u16>,
     pub imap_security: Option<Security>,
+    #[serde(default)]
     pub smtp_host: String,
     pub smtp_port: Option<u16>,
     pub smtp_security: Option<Security>,

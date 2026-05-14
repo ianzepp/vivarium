@@ -16,6 +16,7 @@ pub mod oauth;
 pub mod proton_api;
 pub mod proton_decrypt;
 pub mod proton_encrypt;
+pub mod proton_events;
 pub mod proton_send;
 pub mod proton_sync;
 pub mod queue;

@@ -201,8 +201,6 @@ fn account_parses_direct_proton_api_provider() {
         [[accounts]]
         name = "agent"
         email = "agent@proton.me"
-        imap_host = ""
-        smtp_host = ""
         username = "agent@proton.me"
         password_cmd = "printenv PROTON_PASSWORD"
         provider = "proton-api"
@@ -214,6 +212,10 @@ fn account_parses_direct_proton_api_provider() {
     let account = accounts.find_account("agent").unwrap();
 
     assert_eq!(account.provider, types::Provider::ProtonApi);
+    assert_eq!(account.imap_host, "");
+    assert_eq!(account.smtp_host, "");
+    assert_eq!(account.resolved_imap_host(), "");
+    assert_eq!(account.resolved_smtp_host(), "");
     assert_eq!(
         account.password_cmd.as_deref(),
         Some("printenv PROTON_PASSWORD")

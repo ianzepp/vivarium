@@ -20,6 +20,7 @@ mod proton_api_command;
 mod proton_fixture_command;
 mod queue_runner;
 mod sync_command;
+mod sync_events_command;
 
 use agent_runner::{AgentContext, AgentDispatch, AgentRunner};
 use draft_runner::DraftDispatch;
@@ -106,6 +107,7 @@ impl Runtime {
             #[cfg(feature = "outbox")]
             Command::Token { account } => self.token(account).await,
             command @ Command::Sync { .. } => self.run_sync_command(command).await,
+            command @ Command::SyncEvents { .. } => self.run_sync_events_command(command).await,
             Command::Folders { account, json } => self.folders(account, json).await,
             Command::Doctor { account, json } => self.doctor(account, json).await,
             Command::Proton { command } => self.proton_command(command).await,
@@ -188,6 +190,13 @@ impl Runtime {
     async fn run_sync_command(&self, command: Command) -> Result<(), VivariumError> {
         self.sync(sync_command::SyncOptions::from_command(command))
             .await
+    }
+
+    async fn run_sync_events_command(&self, command: Command) -> Result<(), VivariumError> {
+        self.sync_events(sync_events_command::SyncEventsOptions::from_command(
+            command,
+        ))
+        .await
     }
 
     async fn run_search_command(&self, command: Command) -> Result<(), VivariumError> {

@@ -11,10 +11,12 @@ use crate::store::MailStore;
 use crate::sync::{SyncResult, SyncWindow};
 
 mod cache;
+mod events;
 #[cfg(test)]
 mod tests;
 
 use cache::ProtonRawMessageCache;
+pub use events::{delete_message_id, sync_message_ids};
 
 const PAGE_SIZE: usize = 150;
 
