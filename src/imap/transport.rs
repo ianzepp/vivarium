@@ -17,6 +17,8 @@ pub(super) struct RemoteMessage {
     pub(super) uidvalidity: Option<u32>,
     pub(super) size: u64,
     pub(super) rfc_message_id: Option<String>,
+    pub(super) read_state: bool,
+    pub(super) starred: bool,
 }
 
 struct Xoauth2 {

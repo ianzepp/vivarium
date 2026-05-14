@@ -1,13 +1,15 @@
 use chrono::{Datelike, NaiveDate};
 use futures::{TryStream, TryStreamExt};
 
+use async_imap::types::Flag;
+
 use super::transport::{ImapSession, RemoteMessage, connect};
 use crate::config::Account;
 use crate::error::VivariumError;
 use crate::message::message_id_from_bytes;
 use crate::sync::SyncWindow;
 
-const METADATA_FETCH_ITEMS: &str = "(UID RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])";
+const METADATA_FETCH_ITEMS: &str = "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])";
 
 pub(super) async fn fetch_remote_messages(
     account: &Account,
@@ -81,11 +83,14 @@ async fn collect_remote_metadata(
         .filter_map(|f| {
             let uid = f.uid?;
             let size = u64::from(f.size?);
+            let flags = f.flags().collect::<Vec<_>>();
             Some(RemoteMessage {
                 uid,
                 uidvalidity,
                 size,
                 rfc_message_id: f.header().and_then(message_id_from_bytes),
+                read_state: flags.iter().any(|flag| matches!(flag, Flag::Seen)),
+                starred: flags.iter().any(|flag| matches!(flag, Flag::Flagged)),
             })
         })
         .collect())
@@ -139,6 +144,7 @@ mod tests {
     #[test]
     fn metadata_fetch_items_include_message_id_header() {
         assert!(METADATA_FETCH_ITEMS.contains("UID"));
+        assert!(METADATA_FETCH_ITEMS.contains("FLAGS"));
         assert!(METADATA_FETCH_ITEMS.contains("RFC822.SIZE"));
         assert!(METADATA_FETCH_ITEMS.contains("BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]"));
     }

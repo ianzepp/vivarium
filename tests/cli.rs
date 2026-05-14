@@ -77,12 +77,25 @@ fn parses_sync_events_watch() {
 
 #[test]
 fn parses_list_filter() {
-    let cli = Cli::try_parse_from(["vivi", "list", "inbox", "--filter", "DoorDash"]).unwrap();
+    let cli = Cli::try_parse_from([
+        "vivi", "list", "inbox", "--filter", "DoorDash", "--unread", "--json",
+    ])
+    .unwrap();
 
     match cli.command {
-        Command::List { folder, filter, .. } => {
+        Command::List {
+            folder,
+            filter,
+            unread,
+            read,
+            json,
+            ..
+        } => {
             assert_eq!(folder, "inbox");
             assert_eq!(filter.as_deref(), Some("DoorDash"));
+            assert!(unread);
+            assert!(!read);
+            assert!(json);
         }
         other => panic!("unexpected command: {other:?}"),
     }

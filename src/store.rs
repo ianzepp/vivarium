@@ -87,6 +87,8 @@ impl MailStore {
                     subject: message.subject,
                     date: parse_storage_date(&message.date),
                     path: self.root.join(message.blob_relpath),
+                    read_state: message.read_state,
+                    starred: message.starred,
                 })
                 .collect();
             entries.sort_by_key(|entry| Reverse(entry.date));

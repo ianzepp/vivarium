@@ -158,6 +158,12 @@ async fn sync_folder(request: SyncFolderRequest<'_>) -> Result<SyncResult, Vivar
     if remote_messages.is_empty() {
         return Ok(SyncResult::default());
     }
+    refresh_remote_flags(
+        request.account,
+        request.store,
+        remote_folder,
+        &remote_messages,
+    )?;
     let mut missing = find_missing(
         &remote_messages,
         request.store,
@@ -202,6 +208,29 @@ fn truncate_missing(missing: &mut Vec<RemoteMessage>, limit: Option<usize>) {
     }
 }
 
+fn refresh_remote_flags(
+    account: &Account,
+    store: &MailStore,
+    remote_folder: &str,
+    remote_messages: &[RemoteMessage],
+) -> Result<(), VivariumError> {
+    let mut storage = Storage::open(store.root())?;
+    for remote in remote_messages {
+        let Some(uidvalidity) = remote.uidvalidity else {
+            continue;
+        };
+        storage.update_remote_flags(
+            &account.name,
+            remote_folder,
+            uidvalidity,
+            remote.uid,
+            remote.read_state,
+            remote.starred,
+        )?;
+    }
+    Ok(())
+}
+
 /// Store a single parsed message in hash-addressed storage.
 fn store_message(
     account: &Account,
@@ -217,8 +246,8 @@ fn store_message(
         &MessageIngestRequest {
             account: account.name.clone(),
             local_role: local_folder.to_string(),
-            read_state: local_folder != "inbox",
-            starred: false,
+            read_state: remote.read_state,
+            starred: remote.starred,
             message_id_hint: None,
             seed_hint: format!("remote_uid:{uid}"),
             remote: remote.uidvalidity.map(|uidvalidity| RemoteBindingInput {

@@ -184,6 +184,18 @@ pub enum Command {
         /// List messages before this date (YYYY-MM-DD)
         #[arg(long)]
         before: Option<String>,
+
+        /// List only unread messages
+        #[arg(long, conflicts_with = "read")]
+        unread: bool,
+
+        /// List only read messages
+        #[arg(long)]
+        read: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Show one or more messages by ID

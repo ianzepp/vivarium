@@ -6,11 +6,13 @@ pub fn filter_entries(
     window: SyncWindow,
     limit: Option<usize>,
     text_filter: Option<&str>,
+    read_state: Option<bool>,
 ) -> Vec<MessageEntry> {
     let mut entries: Vec<MessageEntry> = entries
         .into_iter()
         .filter(|entry| window.contains_datetime(entry.date))
         .filter(|entry| matches_text_filter(entry, text_filter))
+        .filter(|entry| read_state.is_none_or(|read_state| entry.read_state == read_state))
         .collect();
     if let Some(limit) = limit {
         entries.truncate(limit);
@@ -57,7 +59,7 @@ mod tests {
             entry("inbox-4", 2026, 4, 30),
         ];
 
-        let filtered = filter_entries(entries, window, Some(2), None);
+        let filtered = filter_entries(entries, window, Some(2), None, None);
 
         assert_eq!(filtered.len(), 2);
         assert_eq!(filtered[0].message_id, "inbox-2");
@@ -73,10 +75,24 @@ mod tests {
             entry_with_text("inbox-3", "DoorDash", "Second deal"),
         ];
 
-        let filtered = filter_entries(entries, window, Some(1), Some("doordash"));
+        let filtered = filter_entries(entries, window, Some(1), Some("doordash"), None);
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].message_id, "inbox-1");
+    }
+
+    #[test]
+    fn filter_entries_applies_read_state() {
+        let window = SyncWindow::parse(None, None).unwrap();
+        let entries = vec![
+            entry_with_read_state("read", true),
+            entry_with_read_state("unread", false),
+        ];
+
+        let filtered = filter_entries(entries, window, None, None, Some(false));
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].message_id, "unread");
     }
 
     fn entry(message_id: &str, year: i32, month: u32, day: u32) -> MessageEntry {
@@ -86,6 +102,8 @@ mod tests {
             subject: "subject".into(),
             date: Utc.with_ymd_and_hms(year, month, day, 12, 0, 0).unwrap(),
             path: PathBuf::from(format!("{message_id}.eml")),
+            read_state: false,
+            starred: false,
         }
     }
 
@@ -96,6 +114,20 @@ mod tests {
             subject: subject.into(),
             date: Utc.with_ymd_and_hms(2026, 5, 3, 12, 0, 0).unwrap(),
             path: PathBuf::from(format!("{message_id}.eml")),
+            read_state: false,
+            starred: false,
+        }
+    }
+
+    fn entry_with_read_state(message_id: &str, read_state: bool) -> MessageEntry {
+        MessageEntry {
+            message_id: message_id.into(),
+            from: "a@example.com".into(),
+            subject: "subject".into(),
+            date: Utc.with_ymd_and_hms(2026, 5, 3, 12, 0, 0).unwrap(),
+            path: PathBuf::from(format!("{message_id}.eml")),
+            read_state,
+            starred: false,
         }
     }
 }

@@ -17,6 +17,8 @@ fn find_missing_skips_remote_uid_remap_when_message_id_matches() {
         uidvalidity: Some(123),
         size: 999,
         rfc_message_id: Some("stable@example.com".to_string()),
+        read_state: true,
+        starred: false,
     };
 
     let missing = find_missing(&[remote], &store, "inbox", DedupeScope::LocalFolder).unwrap();
@@ -39,6 +41,8 @@ fn find_missing_can_dedupe_all_mail_against_inbox() {
         uidvalidity: Some(123),
         size: 999,
         rfc_message_id: Some("stable@example.com".to_string()),
+        read_state: true,
+        starred: false,
     };
 
     let local_only = find_missing(
@@ -66,6 +70,8 @@ fn find_missing_does_not_scan_legacy_maildir_without_message_id() {
         uidvalidity: Some(123),
         size: body.len() as u64,
         rfc_message_id: None,
+        read_state: false,
+        starred: false,
     };
 
     let missing = find_missing(&[remote], &store, "inbox", DedupeScope::LocalFolder).unwrap();
@@ -104,10 +110,86 @@ fn find_missing_falls_back_to_uid_and_size_with_storage_backed_rows() {
         uidvalidity: Some(123),
         size: body.len() as u64,
         rfc_message_id: None,
+        read_state: false,
+        starred: false,
     };
 
     let missing = find_missing(&[remote], &store, "inbox", DedupeScope::LocalFolder).unwrap();
     assert!(missing.is_empty());
+}
+
+#[test]
+fn store_message_preserves_remote_read_and_starred_flags() {
+    let tmp = tempfile::tempdir().unwrap();
+    let account = account_with_provider(Provider::Standard);
+    let store = MailStore::new(tmp.path());
+    let remote = RemoteMessage {
+        uid: 42,
+        uidvalidity: Some(123),
+        size: 29,
+        rfc_message_id: Some("m@example.com".to_string()),
+        read_state: true,
+        starred: true,
+    };
+
+    let entry = store_message(
+        &account,
+        &store,
+        "INBOX",
+        "inbox",
+        b"Message-ID: <m@example.com>\r\n\r\nbody",
+        &remote,
+    )
+    .unwrap();
+
+    assert!(entry.read_state);
+    assert!(entry.starred);
+}
+
+#[test]
+fn refresh_remote_flags_updates_existing_storage_rows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let account = account_with_provider(Provider::Standard);
+    let store = MailStore::new(tmp.path());
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    let stored = storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "test".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: "remote_uid:7".into(),
+                remote: Some(RemoteBindingInput {
+                    account: "test".into(),
+                    provider: "standard".into(),
+                    remote_mailbox: "INBOX".into(),
+                    remote_uid: 7,
+                    remote_uidvalidity: 123,
+                }),
+            },
+            b"Message-ID: <m@example.com>\r\n\r\nbody",
+        )
+        .unwrap();
+    let remote = RemoteMessage {
+        uid: 7,
+        uidvalidity: Some(123),
+        size: 29,
+        rfc_message_id: Some("m@example.com".to_string()),
+        read_state: true,
+        starred: true,
+    };
+
+    refresh_remote_flags(&account, &store, "INBOX", &[remote]).unwrap();
+
+    let updated = Storage::open(tmp.path())
+        .unwrap()
+        .catalog_entry("test", &stored.message_id)
+        .unwrap()
+        .unwrap();
+    assert!(updated.read_state);
+    assert!(updated.starred);
 }
 
 #[test]
@@ -150,6 +232,8 @@ fn remote_identity_candidates_preserve_uidvalidity() {
         uidvalidity: Some(77),
         size: 100,
         rfc_message_id: Some("m@example.com".to_string()),
+        read_state: true,
+        starred: true,
     };
 
     let candidates = remote_identity_candidates(&account, "INBOX", "inbox", &[remote]);

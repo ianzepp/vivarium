@@ -15,6 +15,7 @@ mod draft_runner;
 mod folders_command;
 mod index_runner;
 mod label_runner;
+mod list_runner;
 mod mutation_runner;
 mod proton_api_command;
 mod proton_fixture_command;
@@ -26,6 +27,7 @@ use agent_runner::{AgentContext, AgentDispatch, AgentRunner};
 use draft_runner::DraftDispatch;
 use label_runner::LabelDispatch;
 use queue_runner::QueueDispatch;
+
 struct SearchRequest<'a> {
     query: &'a str,
     folder: Option<&'a str>,
@@ -111,13 +113,7 @@ impl Runtime {
             Command::Folders { account, json } => self.folders(account, json).await,
             Command::Doctor { account, json } => self.doctor(account, json).await,
             Command::Proton { command } => self.proton_command(command).await,
-            Command::List {
-                folder,
-                limit,
-                filter,
-                since,
-                before,
-            } => self.list(&folder, limit, filter.as_deref(), since, before),
+            command @ Command::List { .. } => self.run_list_command(command),
             Command::Show { message_ids, json } => self.show(&message_ids, json),
             Command::Thread {
                 message_id,
@@ -247,29 +243,6 @@ impl Runtime {
         let acct = self.resolve_account(self.selected_account_name(account))?;
         let client = vivarium::oauth::oauth_client(&acct, None, None)?;
         vivarium::oauth::print_access_token(&acct, client).await
-    }
-
-    fn list(
-        &self,
-        folder: &str,
-        limit: Option<usize>,
-        filter: Option<&str>,
-        since: Option<String>,
-        before: Option<String>,
-    ) -> Result<(), VivariumError> {
-        let window = vivarium::sync::SyncWindow::parse(since.as_deref(), before.as_deref())?;
-        let accounts = match &self.account {
-            Some(name) => vec![self.accounts.find_account(name)?.clone()],
-            None => self.accounts.accounts.clone(),
-        };
-        for acct in &accounts {
-            println!("# {}", acct.name);
-            let store = MailStore::new(&acct.mail_path(&self.config));
-            let entries = store.list_messages(folder)?;
-            let entries = vivarium::list::filter_entries(entries, window, limit, filter);
-            vivarium::list::print_entries(folder, &entries);
-        }
-        Ok(())
     }
 
     fn show(&self, message_ids: &[String], as_json: bool) -> Result<(), VivariumError> {

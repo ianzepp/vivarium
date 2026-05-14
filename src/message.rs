@@ -2,6 +2,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 
 use crate::error::VivariumError;
 use crate::store::message_id_from_path;
@@ -12,13 +13,15 @@ pub use compose::{
     build_reply_template, replace_from_header, validate_message_headers,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MessageEntry {
     pub message_id: String,
     pub from: String,
     pub subject: String,
     pub date: DateTime<Utc>,
     pub path: PathBuf,
+    pub read_state: bool,
+    pub starred: bool,
 }
 
 impl MessageEntry {
@@ -54,6 +57,11 @@ impl MessageEntry {
             subject,
             date,
             path: path.to_path_buf(),
+            read_state: path
+                .parent()
+                .and_then(|parent| parent.file_name())
+                .is_some_and(|folder| folder == "cur"),
+            starred: false,
         })
     }
 }
@@ -61,10 +69,12 @@ impl MessageEntry {
 impl fmt::Display for MessageEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let date = self.date.format("%Y-%m-%d %H:%M");
+        let read_state = if self.read_state { "read" } else { "unread" };
+        let starred = if self.starred { "*" } else { " " };
         write!(
             f,
-            "{:<16}  {date}  {:<30}  {}",
-            self.message_id, self.from, self.subject
+            "{:<16}  {:<6} {starred}  {date}  {:<30}  {}",
+            self.message_id, read_state, self.from, self.subject
         )
     }
 }
