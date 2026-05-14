@@ -17,22 +17,23 @@ Use a repo-external home such as:
 
 ```sh
 export VIVI_PROTON_CHECKPOINT_HOME=/tmp/vivi-proton-agent-checkpoint
-mkdir -p "$VIVI_PROTON_CHECKPOINT_HOME/.config/vivarium"
+export VIVI_HOME="$VIVI_PROTON_CHECKPOINT_HOME"
+mkdir -p "$VIVI_HOME"
 ```
 
 Write config once:
 
 ```sh
-cat > "$VIVI_PROTON_CHECKPOINT_HOME/.config/vivarium/config.toml" <<EOF
+cat > "$VIVI_HOME/config.toml" <<EOF
 [defaults]
-mail_root = "$VIVI_PROTON_CHECKPOINT_HOME/mail"
+mail_root = "$VIVI_HOME/mail"
 EOF
 ```
 
 Write account config once:
 
 ```sh
-cat > "$VIVI_PROTON_CHECKPOINT_HOME/.config/vivarium/accounts.toml" <<EOF
+cat > "$VIVI_HOME/accounts.toml" <<EOF
 [[accounts]]
 name = "agent-direct"
 email = "$PROTON_USERNAME"
@@ -43,7 +44,7 @@ storage_mode = "bodies"
 imap_host = ""
 smtp_host = ""
 EOF
-chmod 600 "$VIVI_PROTON_CHECKPOINT_HOME/.config/vivarium/accounts.toml"
+chmod 600 "$VIVI_HOME/accounts.toml"
 ```
 
 ## Login Policy
@@ -51,13 +52,13 @@ chmod 600 "$VIVI_PROTON_CHECKPOINT_HOME/.config/vivarium/accounts.toml"
 First try to reuse an existing session:
 
 ```sh
-HOME="$VIVI_PROTON_CHECKPOINT_HOME" target/debug/vivi proton session-check --account agent-direct
+target/debug/vivi proton session-check --account agent-direct
 ```
 
 Only run login when the session file is missing or refresh fails:
 
 ```sh
-HOME="$VIVI_PROTON_CHECKPOINT_HOME" PROTON_PASSWORD="$PROTON_PASSWORD" \
+PROTON_PASSWORD="$PROTON_PASSWORD" \
   target/debug/vivi proton login --account agent-direct
 ```
 
@@ -68,18 +69,16 @@ If Proton returns `429 Too Many Requests`, stop and wait. Do not retry in a loop
 After a valid session exists:
 
 ```sh
-HOME="$VIVI_PROTON_CHECKPOINT_HOME" PROTON_PASSWORD="$PROTON_PASSWORD" \
+PROTON_PASSWORD="$PROTON_PASSWORD" \
   target/debug/vivi sync --account agent-direct --limit 1
 ```
 
 Then verify structurally without printing message contents:
 
 ```sh
-HANDLE=$(HOME="$VIVI_PROTON_CHECKPOINT_HOME" \
-  target/debug/vivi list inbox --account agent-direct --limit 1 | awk 'NR==2 {print $1}')
+HANDLE=$(target/debug/vivi list inbox --account agent-direct --limit 1 | awk 'NR==2 {print $1}')
 
-HOME="$VIVI_PROTON_CHECKPOINT_HOME" \
-  target/debug/vivi export --account agent-direct --text "$HANDLE" > /tmp/vivi-phase5-export.txt
+target/debug/vivi export --account agent-direct --text "$HANDLE" > /tmp/vivi-phase5-export.txt
 
 python3 - <<'PY'
 from pathlib import Path

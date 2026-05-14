@@ -115,5 +115,5 @@ Validation completed:
 - `cargo test --lib`
 - `cargo run -- --account personal-proton index rebuild`
 - `cargo run -- --account personal-proton search Proton --limit 3 --json`
-- verified that `~/.local/share/vivarium/personal-proton/.vivarium/index.sqlite`
+- verified that `~/.vivarium/personal-proton/.vivarium/index.sqlite`
   no longer exists after rebuild

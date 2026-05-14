@@ -32,7 +32,7 @@ There is no GUI. There is no daemon with an API. Messages are files. The filesys
                                │
                                ▼
                     ┌─────────────────────┐
-                    │   ~/.local/share/vivarium/           │
+                    │   ~/.vivarium/       │
                     │   ├── account/      │
                     │   │   ├── Inbox/    │
                     │   │   │   ├── cur/  │
@@ -115,10 +115,10 @@ vivarium compose --to someone@example.com --subject "Hello"
 ## Configuration
 
 ```toml
-# ~/.config/vivarium/config.toml
+# ~/.vivarium/config.toml
 
 [defaults]
-mail_root = "~/.local/share/vivarium"
+mail_root = "~/.vivarium"
 reject_invalid_certs = true
 
 [[accounts]]

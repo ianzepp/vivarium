@@ -13,7 +13,7 @@ Local-first, file-native IMAP-to-Maildir email sync tool written in Rust.
 - **Small files**: target 200 lines, ceiling 400
 - **Short functions**: target 30 lines, ceiling 60
 - **Inline tests**: `#[cfg(test)] mod tests` at bottom of files
-- **Config**: serde + toml, `~/.config/vivarium/config.toml`, tilde expansion via dirs crate
+- **Config**: serde + toml, `~/.vivarium/config.toml` by default, overridable with `VIVI_HOME`
 - **Logging**: `tracing` + `tracing-subscriber`
 - **Async**: `tokio` with full features, `#[tokio::main]`
 

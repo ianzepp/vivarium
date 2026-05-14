@@ -50,7 +50,7 @@ cargo install --path .
 vivi init
 ```
 
-This creates `~/.config/vivarium/` with two files:
+This creates `~/.vivarium/` with two files:
 
 - `config.toml` - general settings such as mail root and TLS policy
 - `accounts.toml` - account credentials, created with mode `600`
@@ -191,10 +191,10 @@ IDs, and thread references. Semantic search is body-derived and requires
 
 ## Storage Layout
 
-Each account lives under `~/.local/share/vivarium/{account}/`:
+Each account lives under `~/.vivarium/{account}/`:
 
 ```
-~/.local/share/vivarium/proton/
+~/.vivarium/proton/
 ├── blobs/
 │   └── ab/cd/<content_id>.eml
 ├── outbox/

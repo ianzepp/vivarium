@@ -6,7 +6,7 @@ use crate::config::{AccountsFile, Config};
 use crate::error::VivariumError;
 
 const DEFAULT_CONFIG: &str = r#"[defaults]
-# mail_root = "~/.local/share/vivarium"
+# mail_root = "~/.vivarium"
 # check_interval_secs = 300
 # Semantic search/indexing is opt-in. Set these to your own embedding service.
 # embedding_provider = "ollama"
@@ -73,7 +73,7 @@ Use your judgment about what action, if any, is appropriate. After processing, s
 Use Vivi's draft/send surfaces for the reply and send from the receiving account. Do not send from another account unless the instruction explicitly asks you to.
 
 To customize per account, create:
-  ~/.config/vivarium/agent/prompts/<account-name>.md
+  ~/.vivarium/agent/prompts/<account-name>.md
 "#;
 
 pub fn run_init() -> Result<(), VivariumError> {
@@ -105,6 +105,9 @@ fn write_if_missing(path: &Path, content: &str) -> Result<(), VivariumError> {
     if path.exists() {
         println!("exists  {}", path.display());
     } else {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         fs::write(path, content)?;
         println!("created {}", path.display());
     }

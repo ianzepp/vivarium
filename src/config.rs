@@ -12,11 +12,27 @@ use crate::error::VivariumError;
 #[cfg(test)]
 mod tests;
 
+const VIVI_HOME_ENV: &str = "VIVI_HOME";
+const DEFAULT_VIVI_HOME: &str = ".vivarium";
+
+fn vivi_home_dir() -> PathBuf {
+    vivi_home_dir_from(std::env::var_os(VIVI_HOME_ENV), dirs::home_dir())
+}
+
+fn vivi_home_dir_from(vivi_home: Option<std::ffi::OsString>, home: Option<PathBuf>) -> PathBuf {
+    if let Some(path) = vivi_home
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+    {
+        return expand_tilde_with_home(&path.to_string_lossy(), home.as_deref());
+    }
+
+    home.map(|path| path.join(DEFAULT_VIVI_HOME))
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_VIVI_HOME))
+}
+
 fn config_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".config")
-        .join("vivarium")
+    vivi_home_dir()
 }
 
 impl Config {
@@ -41,11 +57,7 @@ impl Config {
     }
 
     pub fn default_mail_root() -> PathBuf {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".local")
-            .join("share")
-            .join("vivarium")
+        vivi_home_dir()
     }
 }
 
@@ -103,10 +115,55 @@ fn check_permissions(path: &Path, ignore_permissions: bool) -> Result<(), Vivari
 }
 
 pub fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/")
-        && let Some(home) = dirs::home_dir()
-    {
-        return home.join(rest);
+    expand_tilde_with_home(path, dirs::home_dir().as_deref())
+}
+
+fn expand_tilde_with_home(path: &str, home: Option<&Path>) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = home {
+            return home.join(rest);
+        }
     }
     PathBuf::from(path)
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+    use std::ffi::OsString;
+
+    #[test]
+    fn vivi_home_overrides_home_for_defaults() {
+        assert_eq!(
+            vivi_home_dir_from(
+                Some(OsString::from("/tmp/vivi-home")),
+                Some(PathBuf::from("/tmp/home"))
+            ),
+            PathBuf::from("/tmp/vivi-home")
+        );
+    }
+
+    #[test]
+    fn vivi_home_expands_tilde_from_real_home() {
+        assert_eq!(
+            vivi_home_dir_from(
+                Some(OsString::from("~/custom-vivi")),
+                Some(PathBuf::from("/tmp/home"))
+            ),
+            PathBuf::from("/tmp/home/custom-vivi")
+        );
+    }
+
+    #[test]
+    fn empty_vivi_home_falls_back_to_default_vivi_home() {
+        assert_eq!(
+            vivi_home_dir_from(Some(OsString::new()), Some(PathBuf::from("/tmp/home"))),
+            PathBuf::from("/tmp/home/.vivarium")
+        );
+    }
+
+    #[test]
+    fn missing_home_falls_back_to_local_vivi_home() {
+        assert_eq!(vivi_home_dir_from(None, None), PathBuf::from(".vivarium"));
+    }
 }
