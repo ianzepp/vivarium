@@ -82,6 +82,21 @@ pub enum MailCommand {
         #[arg(long)]
         project: Option<PathBuf>,
     },
+
+    /// Show one or more local mail messages by handle
+    Show {
+        /// Local mail handle or unambiguous prefix
+        #[arg(required = true)]
+        handles: Vec<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Parser)]

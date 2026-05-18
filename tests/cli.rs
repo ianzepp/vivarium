@@ -150,6 +150,27 @@ fn parses_local_mail_send() {
 }
 
 #[test]
+fn parses_local_mail_show() {
+    let cli = Cli::try_parse_from(["vivi", "mail", "show", "abc123", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Mail {
+            command:
+                MailCommand::Show {
+                    handles,
+                    json,
+                    project,
+                },
+        } => {
+            assert_eq!(handles, vec!["abc123"]);
+            assert!(json);
+            assert_eq!(project, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_task_done() {
     let cli = Cli::try_parse_from(["vivi", "task", "done", "abc123", "--for", "cto"]).unwrap();
 

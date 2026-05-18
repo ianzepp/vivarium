@@ -104,6 +104,14 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
             let mailspace = Mailspace::discover(project.as_deref())?;
             print_local_list(&mailspace, for_identity, folder)?;
         }
+        MailCommand::Show {
+            handles,
+            json,
+            project,
+        } => {
+            let mailspace = Mailspace::discover(project.as_deref())?;
+            print_local_messages(&mailspace, handles, *json)?;
+        }
     }
     Ok(())
 }
@@ -183,6 +191,37 @@ fn print_local_list(
                 message.handle, message.from_addr, message.subject
             );
         }
+    }
+    Ok(())
+}
+
+fn print_local_messages(
+    mailspace: &Mailspace,
+    handles: &[String],
+    as_json: bool,
+) -> Result<(), VivariumError> {
+    let storage = mailspace.storage()?;
+    if as_json {
+        let mut messages = Vec::new();
+        for handle in handles {
+            let resolved = storage.resolve_message_token(handle)?;
+            let data = storage.read_message(&resolved)?;
+            let display_handle = storage.display_handle(&resolved)?;
+            messages.push(message::to_json_message(&display_handle, &data)?);
+        }
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&messages)
+                .map_err(|e| VivariumError::Other(format!("failed to encode JSON: {e}")))?
+        );
+        return Ok(());
+    }
+    for (i, handle) in handles.iter().enumerate() {
+        if i > 0 {
+            println!("\n---\n");
+        }
+        let data = storage.read_message(handle)?;
+        println!("{}", message::render_message(&data)?);
     }
     Ok(())
 }

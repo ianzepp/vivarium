@@ -43,6 +43,40 @@ fn local_mail_send_creates_readable_inbox_and_sent_copy() {
         "{list_stdout}"
     );
 
+    let show = vivi([
+        "mail",
+        "show",
+        "--project",
+        project.path().to_str().unwrap(),
+        &delivered,
+    ]);
+    assert_success(&show);
+    let show_stdout = stdout(&show);
+    assert!(
+        show_stdout.contains("review: local delivery"),
+        "{show_stdout}"
+    );
+    assert!(
+        show_stdout.contains("Please review the API shape."),
+        "{show_stdout}"
+    );
+
+    let show_json = vivi([
+        "mail",
+        "show",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--json",
+        &delivered,
+    ]);
+    assert_success(&show_json);
+    let show_json_stdout = stdout(&show_json);
+    assert!(show_json_stdout.contains(&delivered), "{show_json_stdout}");
+    assert!(
+        show_json_stdout.contains("review: local delivery"),
+        "{show_json_stdout}"
+    );
+
     let sent_list = vivi([
         "mail",
         "list",
