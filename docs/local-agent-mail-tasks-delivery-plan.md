@@ -1,5 +1,77 @@
 # Local Agent Mail And Task Delivery Plan
 
+## Implementation Status - 2026-05-18
+
+Core V1 local mailspace work has landed in commit `0d132d0`
+(`Add project-local mailspaces`).
+
+Completed:
+
+- `vivi mailspace init` creates an explicit `.vivi/` mailspace with
+  `mailspace.toml`, `mail.sqlite`, and `blobs/`.
+- `vivi mailspace status` and `vivi mailspace status --json` report the
+  resolved root, store path, identities, unread inbox counts, open task counts,
+  and done counts.
+- Mailspace detection walks upward from the current directory, and `--project`
+  overrides detection for mailspace commands.
+- Local identities are explicitly managed with
+  `vivi mailspace identity add <identity>` and
+  `vivi mailspace identity list`.
+- Local address resolution supports identity shorthand, `@local`, and the
+  generated `<mailspace>.local` domain.
+- Unknown local identities are rejected.
+- External and mixed local/external recipients are rejected by local delivery
+  because they do not resolve inside the current mailspace.
+- `Bcc` is rejected for local delivery in V1.
+- Local mail is stored as RFC 5322 `.eml` blobs in `.vivi/blobs/`, with
+  mailbox state in `.vivi/mail.sqlite`.
+- `vivi mail send --from <identity> --to <identity> --subject ... --body ...`
+  delivers to the recipient's `inbox` and writes a sender `sent` copy without
+  SMTP, IMAP, Proton, or network side effects.
+- `vivi mail deliver <path.eml> --folder <folder>` delivers explicit RFC 5322
+  messages into local recipients.
+- `vivi mail list --for <identity> [--folder <folder>]` lists project-local
+  messages.
+- Storage, listing, and search folder canonicalization now recognize `tasks`
+  and `done`.
+- `vivi task send` delivers task messages to the recipient's `tasks` folder.
+- `vivi task list --for <identity> [--status open|done]` lists open and done
+  tasks.
+- `vivi task done <handle> --for <identity>` moves a task from `tasks` to
+  `done`.
+- `vivi task reopen <handle> --for <identity>` moves a task from `done` back
+  to `tasks`.
+- `vivi task show <handle>` renders the root task message.
+- Task handles remain stable when moved between `tasks` and `done`.
+- README documentation now includes project mailspace, local identity, local
+  mail, task send, and task completion examples.
+
+Verified:
+
+- `cargo fmt --check`
+- `cargo test --test hygiene`
+- `cargo test`
+- Manual CLI smoke test covering mailspace init, identity add, local mail
+  send/list, task send/done/list, and status counts.
+
+Partially completed or deferred:
+
+- Ordinary top-level `vivi show`, `vivi thread`, `vivi search`, `vivi index`,
+  and `vivi export` still operate through configured accounts. Local mailspace
+  equivalents are currently exposed through `vivi mail list` and
+  `vivi task show`; full project-mailspace integration for those existing
+  top-level commands remains follow-up work.
+- `vivi task done --note ...` and `vivi task reopen --note ...` are not yet
+  implemented as reply-thread notes. The commands currently reject `--note`
+  with a clear error.
+- `vivi mail reply <task-handle>` does not yet resolve task handles as thread
+  roots.
+- `vivi task show` renders the root message, but does not yet render full
+  thread context.
+- Parser and unit coverage exist for the landed surfaces, but additional
+  end-to-end integration tests should be added for the full CLI workflow.
+- Patch-mail submission and merge-gate behavior remains a follow-up stage.
+
 ## Interpreted Problem
 
 Vivi is already the local-first mail surface for agents and humans, but it does
