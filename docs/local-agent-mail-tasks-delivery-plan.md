@@ -134,6 +134,69 @@ mention the nearest Git root as a suggestion, but creation must be explicit.
 This avoids scattered `.vivi/` directories when a user or agent runs a command
 from the wrong place.
 
+### Mailspace Status
+
+`vivi mailspace status` is the safe preflight command for humans and agents.
+It is read-only and must never create `.vivi/`.
+
+```sh
+vivi mailspace status
+vivi mailspace status --json
+vivi mailspace status --project /path/to/project
+```
+
+If no mailspace is found, it exits nonzero and prints a concrete diagnostic:
+
+```text
+No Vivi mailspace found.
+cwd: /path/to/project/src/deep
+nearest git root: /path/to/project
+init: vivi mailspace init --project /path/to/project
+```
+
+If a mailspace is found, it prints the resolved root and current waiting work:
+
+```text
+mailspace hanta-monitor
+root      /Users/ianzepp/work/hanta/hanta-monitor
+store     /Users/ianzepp/work/hanta/hanta-monitor/.vivi/mail.sqlite
+
+identity  inbox unread  tasks open  done
+ceo       3             1           7
+cto       0             2           4
+cpo       1             0           2
+
+total unread mail: 4
+total open tasks: 3
+```
+
+For status, "new mail" means unread messages in `Inbox`. "Open tasks" means
+messages in `Tasks`. `Done` is optional but useful for orientation.
+
+The JSON form should expose the same data for startup checks:
+
+```json
+{
+  "found": true,
+  "name": "hanta-monitor",
+  "root": "/Users/ianzepp/work/hanta/hanta-monitor",
+  "store": "/Users/ianzepp/work/hanta/hanta-monitor/.vivi/mail.sqlite",
+  "identities": [
+    {
+      "identity": "ceo",
+      "address": "ceo@hanta-monitor.local",
+      "inbox_unread": 3,
+      "tasks_open": 1,
+      "done": 7
+    }
+  ],
+  "totals": {
+    "inbox_unread": 4,
+    "tasks_open": 3
+  }
+}
+```
+
 ### Local Identities And Addresses
 
 Local identities are lightweight project-scoped addresses, not configured
@@ -235,8 +298,13 @@ Expected outputs:
 - `--project <path>` overrides cwd-based detection
 - missing mailspace errors explain how to initialize one and may suggest the
   nearest Git root without creating anything there
+- `vivi mailspace status` reports whether a mailspace can be found and, when
+  found, summarizes unread inbox mail and open tasks per identity
+- `vivi mailspace status --json` returns the same information in a stable
+  machine-readable shape for agents
 - tests cover detection from project root, detection from subdirectories,
-  explicit `--project`, and missing-mailspace failure
+  explicit `--project`, missing-mailspace failure, read-only status behavior,
+  and per-identity count summaries
 
 Checkpoint:
 
@@ -248,7 +316,8 @@ cd src/deep
 vivi mailspace status
 ```
 
-reports the original project root and does not create any nested `.vivi/`.
+reports the original project root, does not create any nested `.vivi/`, and
+shows waiting unread mail plus open task counts.
 
 ### Stage 2: Folder Role Expansion
 
@@ -391,7 +460,8 @@ without network access.
 - Add `vivi mailspace init`.
 - Add conservative upward mailspace detection.
 - Add `--project <path>` override for local mailspace commands.
-- Add `vivi mailspace status`.
+- Add `vivi mailspace status` and `vivi mailspace status --json`.
+- Add unread inbox, open task, and optional done counts per identity.
 - Add tests proving commands do not create `.vivi/` implicitly.
 
 ### Epic: Local Role And Folder Support
@@ -436,14 +506,17 @@ without network access.
 
 1. Project mailspace initialization and detection work without accidental
    `.vivi/` creation.
-2. `tasks` and `done` are first-class local roles for list/search/show/thread.
-3. Local delivery can move an RFC 5322 message from one project-local identity
+2. `vivi mailspace status` is a read-only preflight that reports resolved root,
+   store path, unread inbox mail, open task counts, and missing-mailspace
+   diagnostics.
+3. `tasks` and `done` are first-class local roles for list/search/show/thread.
+4. Local delivery can move an RFC 5322 message from one project-local identity
    to another with no remote side effects.
-4. `vivi mail send` provides a friendly agent-to-agent mail command.
-5. `vivi task send/list/done/reopen` provides folder-based task workflow.
-6. External human email remains gated behind existing draft/queue/send
+5. `vivi mail send` provides a friendly agent-to-agent mail command.
+6. `vivi task send/list/done/reopen` provides folder-based task workflow.
+7. External human email remains gated behind existing draft/queue/send
    semantics.
-7. Docs let an executive-team skill use Vivi as its communication substrate.
+8. Docs let an executive-team skill use Vivi as its communication substrate.
 
 ## Companion Skill Plan
 
@@ -474,6 +547,9 @@ For local delivery phases, add fixture-level checks that prove:
 
 - commands from a project subdirectory use the parent mailspace
 - commands outside a mailspace fail instead of creating `.vivi/`
+- `mailspace status` is read-only in both found and not-found cases
+- `mailspace status --json` includes per-identity `inbox_unread` and
+  `tasks_open` counts
 - no SMTP transport is constructed
 - no Proton API send is called
 - no IMAP mutation is attempted
