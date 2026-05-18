@@ -7,6 +7,11 @@ use crate::error::VivariumError;
 use crate::message::{ComposeDraft, build_compose_draft, validate_message_headers};
 use crate::storage::{MessageIngestRequest, Storage, StoredMessageView};
 
+struct DeliveredMessageId {
+    identity: String,
+    message_id: String,
+}
+
 impl Mailspace {
     pub fn send(&self, request: SendRequest) -> Result<DeliveryResult, VivariumError> {
         if !request.bcc.is_empty() {
@@ -24,8 +29,10 @@ impl Mailspace {
         let eml = self.compose_message(&from, &request)?;
         let mut storage = self.storage()?;
         let seed = Utc::now().timestamp_nanos_opt().unwrap_or_default();
-        let delivered = ingest_for_recipients(&mut storage, recipients, &request.role, &eml, seed)?;
+        let delivered_ids =
+            ingest_for_recipients(&mut storage, recipients, &request.role, &eml, seed)?;
         let sent = ingest_sent_copy(&mut storage, &from, &eml, seed)?;
+        let delivered = delivered_with_handles(&storage, delivered_ids)?;
         Ok(DeliveryResult {
             delivered,
             sent: storage.display_handle(&sent)?,
@@ -161,7 +168,7 @@ fn ingest_for_recipients(
     role: &str,
     eml: &str,
     seed: i64,
-) -> Result<Vec<DeliveredMessage>, VivariumError> {
+) -> Result<Vec<DeliveredMessageId>, VivariumError> {
     let mut delivered = Vec::new();
     for recipient in recipients {
         let stored = storage.ingest_message(
@@ -176,12 +183,27 @@ fn ingest_for_recipients(
             },
             eml.as_bytes(),
         )?;
-        delivered.push(DeliveredMessage {
+        delivered.push(DeliveredMessageId {
             identity: recipient,
-            handle: storage.display_handle(&stored.message_id)?,
+            message_id: stored.message_id,
         });
     }
     Ok(delivered)
+}
+
+fn delivered_with_handles(
+    storage: &Storage,
+    delivered: Vec<DeliveredMessageId>,
+) -> Result<Vec<DeliveredMessage>, VivariumError> {
+    delivered
+        .into_iter()
+        .map(|message| {
+            Ok(DeliveredMessage {
+                identity: message.identity,
+                handle: storage.display_handle(&message.message_id)?,
+            })
+        })
+        .collect()
 }
 
 fn ingest_sent_copy(

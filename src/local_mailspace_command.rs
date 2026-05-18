@@ -4,7 +4,6 @@ use vivarium::cli::{
 };
 use vivarium::mailspace::{Mailspace, SendRequest};
 use vivarium::message;
-use vivarium::store::MailStore;
 
 pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumError> {
     match command {
@@ -139,8 +138,8 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
         }
         TaskCommand::Show { handle, project } => {
             let mailspace = Mailspace::discover(project.as_deref())?;
-            let store = MailStore::new(&mailspace.dir);
-            let data = store.read_message(handle)?;
+            let storage = mailspace.storage()?;
+            let data = storage.read_message(handle)?;
             println!("{}", message::render_message(&data)?);
         }
         TaskCommand::Done {
