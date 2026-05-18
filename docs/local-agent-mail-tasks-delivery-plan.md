@@ -29,15 +29,17 @@ folder-based task handling.
 The first useful version should let a project define local agents and then:
 
 ```sh
-vivi local send --from ceo@hanta-monitor.local --to cto@hanta-monitor.local \
+vivi mailspace init
+
+vivi mail send --from ceo --to cto \
   --subject "review: local delivery" --body "Please review the API shape."
 
-vivi task create --from ceo@hanta-monitor.local --to cto@hanta-monitor.local \
-  --title "Implement local delivery" --body task.md
+vivi task send --from ceo --to cto \
+  --subject "Implement local delivery" --body @task.md
 
-vivi list inbox --account cto-hanta-monitor
-vivi list tasks --account cto-hanta-monitor
-vivi task done <handle> --account cto-hanta-monitor
+vivi mail list --for cto
+vivi task list --for cto
+vivi task done <handle> --for cto
 ```
 
 The exact command spelling can change during implementation, but the behavior
@@ -45,7 +47,10 @@ should remain:
 
 - local mail is email-shaped and stored as raw RFC 5322 `.eml` blobs
 - local delivery has no SMTP, IMAP, Proton, or external side effects
-- local agent addresses are validated against a project-local roster
+- local agent identities are scoped to an explicitly initialized project
+  mailspace
+- Vivi auto-detects existing mailspaces by walking upward from the current
+  directory, but never creates `.vivi/` implicitly
 - mail messages land in the recipient's `Inbox`
 - task messages land in the recipient's `Tasks`
 - completing a task moves the message from `Tasks` to `Done`
@@ -62,6 +67,7 @@ should remain:
 - No remote synchronization of local project mail in the first version.
 - No automatic external sending for mixed local and real recipients.
 - No separate task database unless the folder model proves insufficient.
+- No automatic `.vivi/` creation from arbitrary working directories.
 
 ## Repo-Aware Baseline
 
@@ -80,53 +86,73 @@ Vivi already has most of the storage primitives needed for this:
   external send from queued external send
 - `vivi list`, `show`, `thread`, `search`, `index`, and `export` already read
   from local storage
+- the implementation can reuse or adapt these primitives for a project
+  mailspace, but should not force local mailspaces through `accounts.toml`
 
 Important constraints:
 
-- Provider config is currently account-shaped and assumes a remote-capable
-  provider enum: `gmail`, `proton-api`, `protonmail`, or `standard`.
+- Provider config is currently account-shaped for upstream mail providers:
+  `gmail`, `proton-api`, `protonmail`, or `standard`.
 - Folder canonicalization currently knows the core mail roles but not `tasks`
   or `done`.
-- Local account storage is account-scoped. A project-local address model needs
-  a clear mapping from an address like `cto@hanta-monitor.local` to an account
-  or local mailbox root.
+- Local project mail should not require new `accounts.toml` entries. A
+  project-local address model needs a clear mapping from the current project
+  root and identity strings such as `cto` to local mailboxes.
 - Existing send commands are external-write oriented. Local delivery should not
   reuse a code path that can accidentally call SMTP or Proton APIs.
 
 ## Proposed Model
 
-### Local Provider
+### Project-Local Mailspace
 
-Add a `provider = "local"` account type. A local account never resolves IMAP,
-SMTP, OAuth, Proton sessions, or remote folder capabilities.
+Add a project-local mailspace that is initialized explicitly and discovered
+conservatively.
 
-Example account shape:
-
-```toml
-[[accounts]]
-name = "cto-hanta-monitor"
-email = "cto@hanta-monitor.local"
-provider = "local"
-mail_dir = ".vivi/agents/cto"
+```sh
+cd /path/to/project
+vivi mailspace init
 ```
 
-This keeps the initial implementation compatible with Vivi's account-scoped
-storage. A later project roster layer can generate these local accounts instead
-of asking users to hand-edit them.
+This creates:
 
-### Local Address Registry
+```text
+<project>/.vivi/
+  mailspace.toml
+  mail.sqlite
+  blobs/
+```
 
-Add a local address lookup helper over configured `provider = "local"`
-accounts:
+Root detection rules:
 
-- address must match exactly one local account email
-- recipient validation fails if no configured local account owns the address
-- ambiguous ownership is a config error
-- local domains are not special by themselves; configured accounts are the
-  authority
+1. If `--project <path>` is passed, use that project root.
+2. Else walk upward from cwd looking for an existing `.vivi/mailspace.toml`.
+3. Else fail with a message such as:
+   `No Vivi mailspace found. Run vivi mailspace init from the project root.`
 
-This keeps delivery explicit and avoids accidentally treating arbitrary
-`*.local` strings as valid recipients.
+Vivi must not use the nearest Git root as an automatic creation target. It may
+mention the nearest Git root as a suggestion, but creation must be explicit.
+This avoids scattered `.vivi/` directories when a user or agent runs a command
+from the wrong place.
+
+### Local Identities And Addresses
+
+Local identities are lightweight project-scoped addresses, not configured
+accounts.
+
+```text
+ceo        -> ceo@<mailspace>.local
+cto        -> cto@<mailspace>.local
+ceo@local  -> ceo@<mailspace>.local
+```
+
+The exact shorthand rules can be finalized during implementation, but the
+principle is: local identities live inside the project mailspace, while
+upstream human email still lives in configured external accounts.
+
+The mailspace should maintain a small roster or identity table so Vivi can
+validate local recipients and list known participants. Unknown local
+recipients can either be rejected in v1 or auto-created only when an explicit
+`--create-recipient` style flag is provided.
 
 ### Folder Roles
 
@@ -141,39 +167,46 @@ done   -> Done
 discussion can continue as ordinary mail replies in `Inbox`, but the task
 message itself moves through `Tasks` and `Done`.
 
-### Local Delivery Commands
+### Mail Commands
 
-Prefer a small, explicit local surface instead of overloading external send:
+Prefer a mail-shaped surface instead of making users name the transport:
 
 ```sh
-vivi local send --from <addr> --to <addr> [--cc <addr>] [--bcc <addr>] \
+vivi mail send --from <addr-or-identity> --to <addr-or-identity> \
+  [--cc <addr-or-identity>] [--bcc <addr-or-identity>] \
   --subject <subject> --body <body>
 
-vivi local deliver <path-to-eml> --folder inbox
+vivi mail deliver <path-to-eml> --folder inbox
+vivi mail list --for <identity> [--folder inbox]
 ```
 
-`local send` is a convenience around compose plus local delivery. `local
-deliver` accepts an explicit `.eml` and delivers it locally only.
+`mail send` should route by recipient and policy:
 
-Both must reject external recipients by default. If mixed local/external
-delivery is ever supported, it should be a later phase with explicit queueing
-and review semantics.
+- all recipients resolve to local identities in the current mailspace: deliver
+  locally and immediately
+- any external recipient is present: use the external draft/queue/send safety
+  model, not silent immediate delivery
+- mixed local and external recipients: reject or queue for review in v1
+
+`mail deliver` is the low-level/debug surface for an explicit `.eml`. It should
+still obey project mailspace detection and reject external delivery in v1.
 
 ### Task Commands
 
 Tasks are email messages delivered to `Tasks`.
 
 ```sh
-vivi task create --from <addr> --to <addr> --title <title> --body <body|@file>
-vivi task list --account <local-account> [--status open|done]
+vivi task send --from <addr-or-identity> --to <addr-or-identity> \
+  --subject <title> --body <body|@file>
+vivi task list --for <identity> [--status open|done]
 vivi task show <handle>
-vivi task done <handle> [--note <body>]
-vivi task reopen <handle> [--note <body>]
+vivi task done <handle> --for <identity> [--note <body>]
+vivi task reopen <handle> --for <identity> [--note <body>]
 ```
 
 Implementation:
 
-- `task create` builds an RFC 5322 message and locally delivers it to each
+- `task send` builds an RFC 5322 message and locally delivers it to each
   recipient's `Tasks` folder
 - sender gets a copy in `Sent`
 - `task list --status open` lists `local_role = "tasks"`
@@ -187,26 +220,35 @@ projection, but folder placement is the source of open/done lifecycle.
 
 ## Stage Graph
 
-### Stage 1: Local Provider And Config Validation
+### Stage 1: Project Mailspace Initialization And Detection
 
-Add `Provider::Local` and make account validation understand local accounts.
+Add an explicit project mailspace lifecycle.
 
 Expected outputs:
 
-- `provider = "local"` parses from `accounts.toml`
-- local accounts do not require remote host, username, password, token, OAuth,
-  IMAP, or SMTP fields
-- `doctor` reports local accounts as local-only rather than trying remote
-  connectivity
-- tests cover config parsing and local account secret bypass behavior
+- `vivi mailspace init` creates `.vivi/mailspace.toml`, `.vivi/mail.sqlite`,
+  and `.vivi/blobs/` under the selected project root
+- mailspace creation is explicit and never happens as a side effect of
+  `mail send`, `task send`, list, search, or show commands
+- commands that need a local mailspace walk upward from cwd to find an existing
+  `.vivi/mailspace.toml`
+- `--project <path>` overrides cwd-based detection
+- missing mailspace errors explain how to initialize one and may suggest the
+  nearest Git root without creating anything there
+- tests cover detection from project root, detection from subdirectories,
+  explicit `--project`, and missing-mailspace failure
 
 Checkpoint:
 
 ```sh
-vivi doctor --account cto-hanta-monitor
+cd /path/to/project
+vivi mailspace init
+mkdir -p src/deep
+cd src/deep
+vivi mailspace status
 ```
 
-returns a clear local-only status without network access.
+reports the original project root and does not create any nested `.vivi/`.
 
 ### Stage 2: Folder Role Expansion
 
@@ -215,8 +257,10 @@ Teach storage, listing, search filters, and folder canonicalization about
 
 Expected outputs:
 
-- `vivi list tasks --account <local-account>` works
-- `vivi list done --account <local-account>` works
+- `vivi mail list --for <identity> --folder tasks` works
+- `vivi mail list --for <identity> --folder done` works
+- `vivi task list --for <identity> --status open` works
+- `vivi task list --for <identity> --status done` works
 - `vivi search <query> --folder tasks` works
 - local role names remain lowercase in SQLite
 - remote providers do not start assuming `Tasks` or `Done` exist upstream
@@ -226,11 +270,11 @@ Checkpoint:
 Tests can ingest synthetic local messages into `tasks` and `done`, then list,
 show, search, and thread them.
 
-### Stage 3: Local Delivery Primitive
+### Stage 3: Mailspace Delivery Primitive
 
 Add an internal delivery function that takes raw `.eml` bytes and a target
 local role, validates local recipients, and ingests one message per recipient
-account.
+identity inside the project mailspace.
 
 Expected outputs:
 
@@ -245,7 +289,8 @@ Expected outputs:
 Checkpoint:
 
 A unit test sends from `ceo@project.local` to `cto@project.local` and verifies
-the CTO inbox plus CEO sent copy without network mocks.
+the CTO inbox plus CEO sent copy in the same project mailspace without network
+mocks.
 
 ### Stage 4: Local Mail CLI
 
@@ -254,15 +299,15 @@ Expose a small command surface for local-only mail.
 Candidate CLI:
 
 ```sh
-vivi local send --from ceo@project.local --to cto@project.local \
+vivi mail send --from ceo --to cto \
   --subject "review: API" --body "Please review."
 
-vivi local deliver draft.eml --folder inbox
+vivi mail deliver draft.eml --folder inbox
 ```
 
 Expected outputs:
 
-- parser tests for `local send` and `local deliver`
+- parser tests for `mail send` and `mail deliver`
 - help text explicitly says local delivery has no external side effects
 - delivery rejects non-local recipients
 - delivery supports `To`, `Cc`, and `Bcc`
@@ -281,15 +326,15 @@ Add task commands as semantic wrappers over local mail and folder moves.
 Candidate CLI:
 
 ```sh
-vivi task create --from ceo@project.local --to cto@project.local \
-  --title "Implement local delivery" --body @task.md
-vivi task list --account cto-project
-vivi task done <handle> --account cto-project --note "Implemented."
+vivi task send --from ceo --to cto \
+  --subject "Implement local delivery" --body @task.md
+vivi task list --for cto
+vivi task done <handle> --for cto --note "Implemented."
 ```
 
 Expected outputs:
 
-- `task create` delivers to `tasks`, not `inbox`
+- `task send` delivers to `tasks`, not `inbox`
 - `task list` is a task-focused view over the `tasks` folder
 - `task done` moves from `tasks` to `done`
 - `task reopen` moves from `done` back to `tasks`
@@ -318,8 +363,8 @@ Expected outputs:
 
 Checkpoint:
 
-Tests prove `vivi local send --to human@example.com` fails and points callers
-to external draft/queue commands.
+Tests prove `vivi mail send --to human@example.com` fails or queues according
+to the selected v1 policy and points callers to external draft/queue commands.
 
 ### Stage 7: Documentation And Example Executive Team Setup
 
@@ -327,26 +372,27 @@ Document a project-local executive team setup without requiring Orqa.
 
 Expected outputs:
 
-- README section for `provider = "local"`
-- README section for local agent addresses
+- README section for project mailspaces
+- README section for local identities and addresses
 - README section for tasks-as-folders
-- example `accounts.toml` for CEO/CPO/CTO/COO/CSO/CMO/CFO/CXO local accounts
 - example commands for agent-to-agent mail, task creation, task completion, and
   external human draft handoff
 
 Checkpoint:
 
-A user can follow the docs to create local accounts and run a two-agent mail
-and task exchange without network access.
+A user can follow the docs to initialize a project mailspace and run a
+two-agent mail and task exchange without editing upstream account config and
+without network access.
 
 ## Epic Candidates And Scopable Issues
 
-### Epic: Local Provider Foundation
+### Epic: Project Mailspace Foundation
 
-- Add `Provider::Local`.
-- Relax local account required fields.
-- Make doctor report local-only accounts.
-- Add tests for local config parsing and validation.
+- Add `vivi mailspace init`.
+- Add conservative upward mailspace detection.
+- Add `--project <path>` override for local mailspace commands.
+- Add `vivi mailspace status`.
+- Add tests proving commands do not create `.vivi/` implicitly.
 
 ### Epic: Local Role And Folder Support
 
@@ -357,7 +403,7 @@ and task exchange without network access.
 
 ### Epic: Local Delivery
 
-- Add address registry over configured local accounts.
+- Add local identity roster inside the project mailspace.
 - Add delivery function for raw `.eml` bytes.
 - Add sent-copy behavior.
 - Add rejection for external recipients.
@@ -365,14 +411,15 @@ and task exchange without network access.
 
 ### Epic: Local Mail CLI
 
-- Add `vivi local send`.
-- Add `vivi local deliver`.
+- Add `vivi mail send`.
+- Add `vivi mail deliver`.
+- Add `vivi mail list --for <identity>`.
 - Add parser and help tests.
 - Add end-to-end CLI tests.
 
 ### Epic: Task Mail CLI
 
-- Add `vivi task create`.
+- Add `vivi task send`.
 - Add `vivi task list`.
 - Add `vivi task done`.
 - Add `vivi task reopen`.
@@ -382,17 +429,18 @@ and task exchange without network access.
 ### Epic: Safety And Docs
 
 - Document local versus external delivery boundaries.
-- Add examples for executive-team local accounts.
+- Add examples for executive-team identities in a project mailspace.
 - Add release smoke checks for local delivery and tasks.
 
 ## Checkpoints
 
-1. Local provider is parseable and inspectable without network access.
+1. Project mailspace initialization and detection work without accidental
+   `.vivi/` creation.
 2. `tasks` and `done` are first-class local roles for list/search/show/thread.
-3. Local delivery can move an RFC 5322 message from one configured local
-   address to another with no remote side effects.
-4. `vivi local send` provides a friendly agent-to-agent mail command.
-5. `vivi task create/list/done/reopen` provides folder-based task workflow.
+3. Local delivery can move an RFC 5322 message from one project-local identity
+   to another with no remote side effects.
+4. `vivi mail send` provides a friendly agent-to-agent mail command.
+5. `vivi task send/list/done/reopen` provides folder-based task workflow.
 6. External human email remains gated behind existing draft/queue/send
    semantics.
 7. Docs let an executive-team skill use Vivi as its communication substrate.
@@ -417,12 +465,15 @@ cargo fmt --check
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo run -- --help
-cargo run -- local --help
+cargo run -- mailspace --help
+cargo run -- mail --help
 cargo run -- task --help
 ```
 
 For local delivery phases, add fixture-level checks that prove:
 
+- commands from a project subdirectory use the parent mailspace
+- commands outside a mailspace fail instead of creating `.vivi/`
 - no SMTP transport is constructed
 - no Proton API send is called
 - no IMAP mutation is attempted
@@ -438,18 +489,17 @@ For task phases, add checks that prove:
 
 ## Open Questions
 
-1. Should local agent accounts be manually configured `[[accounts]]` entries in
-   v1, or should Vivi generate them from a project roster file?
-2. Should local mail live under the global Vivi mail root by default, or under a
-   project-local path such as `.vivi/agents/<role>`?
+1. Should `mailspace init` create an explicit roster file, or should identities
+   be created lazily by the first local send?
+2. Should local mailspace identity shorthand require a known roster entry, or
+   can `--to cto` create/resolve `cto@<mailspace>.local` automatically?
 3. Should `task done --note` send a reply to the task creator by default, or
    only record a local note when explicitly requested?
 4. Should `Bcc` be supported for local delivery in v1, or rejected until we can
    strip recipient-specific headers correctly?
 5. Should task priority and due dates be headers, body conventions, or left out
    of v1?
-6. Should local domains such as `hanta-monitor.local` be reserved/validated, or
-   should configured local account email addresses be the only source of truth?
+6. Should local domains such as `hanta-monitor.local` be derived from
+   `mailspace.toml`, the directory name, or an explicit init flag?
 7. Should a future mixed local/external send split delivery automatically, or
    require a reviewed queue item every time?
-
