@@ -14,17 +14,21 @@ mod tests;
 
 const VIVI_HOME_ENV: &str = "VIVI_HOME";
 const DEFAULT_VIVI_HOME: &str = ".vivarium";
+const LEGACY_CONFIG_DIR: &[&str] = &[".config", "vivarium"];
+const LEGACY_MAIL_ROOT: &[&str] = &[".local", "share", "vivarium"];
 
-fn vivi_home_dir() -> PathBuf {
-    vivi_home_dir_from(std::env::var_os(VIVI_HOME_ENV), dirs::home_dir())
+fn vivi_home_env_dir(
+    vivi_home: Option<std::ffi::OsString>,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    vivi_home
+        .filter(|value| !value.is_empty())
+        .map(|path| expand_tilde_with_home(&PathBuf::from(path).to_string_lossy(), home))
 }
 
 fn vivi_home_dir_from(vivi_home: Option<std::ffi::OsString>, home: Option<PathBuf>) -> PathBuf {
-    if let Some(path) = vivi_home
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-    {
-        return expand_tilde_with_home(&path.to_string_lossy(), home.as_deref());
+    if let Some(path) = vivi_home_env_dir(vivi_home, home.as_deref()) {
+        return path;
     }
 
     home.map(|path| path.join(DEFAULT_VIVI_HOME))
@@ -32,7 +36,57 @@ fn vivi_home_dir_from(vivi_home: Option<std::ffi::OsString>, home: Option<PathBu
 }
 
 fn config_dir() -> PathBuf {
-    vivi_home_dir()
+    let home = dirs::home_dir();
+    config_dir_from(
+        std::env::var_os(VIVI_HOME_ENV),
+        home.clone(),
+        legacy_config_exists(home.as_deref()),
+    )
+}
+
+fn config_dir_from(
+    vivi_home: Option<std::ffi::OsString>,
+    home: Option<PathBuf>,
+    legacy_exists: bool,
+) -> PathBuf {
+    if let Some(path) = vivi_home_env_dir(vivi_home, home.as_deref()) {
+        return path;
+    }
+    if legacy_exists && let Some(path) = legacy_path(home.as_deref(), LEGACY_CONFIG_DIR) {
+        return path;
+    }
+    vivi_home_dir_from(None, home)
+}
+
+fn default_mail_root_from(
+    vivi_home: Option<std::ffi::OsString>,
+    home: Option<PathBuf>,
+    legacy_exists: bool,
+) -> PathBuf {
+    if let Some(path) = vivi_home_env_dir(vivi_home, home.as_deref()) {
+        return path;
+    }
+    if legacy_exists && let Some(path) = legacy_path(home.as_deref(), LEGACY_MAIL_ROOT) {
+        return path;
+    }
+    vivi_home_dir_from(None, home)
+}
+
+fn legacy_config_exists(home: Option<&Path>) -> bool {
+    legacy_path(home, LEGACY_CONFIG_DIR).is_some_and(|path| path.exists())
+}
+
+fn legacy_mail_root_exists(home: Option<&Path>) -> bool {
+    legacy_config_exists(home)
+        || legacy_path(home, LEGACY_MAIL_ROOT).is_some_and(|path| path.exists())
+}
+
+fn legacy_path(home: Option<&Path>, parts: &[&str]) -> Option<PathBuf> {
+    let mut path = home?.to_path_buf();
+    for part in parts {
+        path.push(part);
+    }
+    Some(path)
 }
 
 impl Config {
@@ -57,7 +111,12 @@ impl Config {
     }
 
     pub fn default_mail_root() -> PathBuf {
-        vivi_home_dir()
+        let home = dirs::home_dir();
+        default_mail_root_from(
+            std::env::var_os(VIVI_HOME_ENV),
+            home.clone(),
+            legacy_mail_root_exists(home.as_deref()),
+        )
     }
 }
 
@@ -165,5 +224,41 @@ mod path_tests {
     #[test]
     fn missing_home_falls_back_to_local_vivi_home() {
         assert_eq!(vivi_home_dir_from(None, None), PathBuf::from(".vivarium"));
+    }
+
+    #[test]
+    fn existing_legacy_config_dir_stays_default_without_vivi_home() {
+        assert_eq!(
+            config_dir_from(None, Some(PathBuf::from("/tmp/home")), true),
+            PathBuf::from("/tmp/home/.config/vivarium")
+        );
+    }
+
+    #[test]
+    fn existing_legacy_mail_root_stays_default_without_vivi_home() {
+        assert_eq!(
+            default_mail_root_from(None, Some(PathBuf::from("/tmp/home")), true),
+            PathBuf::from("/tmp/home/.local/share/vivarium")
+        );
+    }
+
+    #[test]
+    fn vivi_home_overrides_legacy_paths() {
+        assert_eq!(
+            config_dir_from(
+                Some(OsString::from("/tmp/vivi-home")),
+                Some(PathBuf::from("/tmp/home")),
+                true
+            ),
+            PathBuf::from("/tmp/vivi-home")
+        );
+        assert_eq!(
+            default_mail_root_from(
+                Some(OsString::from("/tmp/vivi-home")),
+                Some(PathBuf::from("/tmp/home")),
+                true
+            ),
+            PathBuf::from("/tmp/vivi-home")
+        );
     }
 }
