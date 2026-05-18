@@ -69,6 +69,16 @@ should remain:
 - No separate task database unless the folder model proves insufficient.
 - No automatic `.vivi/` creation from arbitrary working directories.
 
+## V1 Decisions
+
+- `mailspace init` creates an empty explicit roster.
+- Unknown local recipients are rejected.
+- Local identities are added explicitly.
+- The local domain defaults to a sanitized project directory name.
+- `Bcc` is rejected for local delivery in v1.
+- Task priority and due dates are out of v1.
+- Mixed local/external sends are rejected in v1.
+
 ## Repo-Aware Baseline
 
 Vivi already has most of the storage primitives needed for this:
@@ -213,9 +223,8 @@ principle is: local identities live inside the project mailspace, while
 upstream human email still lives in configured external accounts.
 
 The mailspace should maintain a small roster or identity table so Vivi can
-validate local recipients and list known participants. Unknown local
-recipients can either be rejected in v1 or auto-created only when an explicit
-`--create-recipient` style flag is provided.
+validate local recipients and list known participants. In v1, identities are
+added explicitly and unknown local recipients are rejected.
 
 ### Folder Roles
 
@@ -379,9 +388,8 @@ Expected outputs:
 - parser tests for `mail send` and `mail deliver`
 - help text explicitly says local delivery has no external side effects
 - delivery rejects non-local recipients
-- delivery supports `To`, `Cc`, and `Bcc`
-- Bcc should be handled deliberately: either preserve existing Vivi compose
-  behavior or strip Bcc from recipient-visible blobs before delivery
+- delivery supports `To` and `Cc`
+- `Bcc` is rejected for local delivery in v1
 
 Checkpoint:
 
@@ -427,8 +435,7 @@ Expected outputs:
 - external sends continue to use `compose`, `enqueue send`, and `exec send`
 - docs explain the boundary: internal local mail is immediate, external mail is
   draft/queue/approval oriented
-- mixed local/external recipient handling is either rejected or queued with an
-  explicit future design note
+- mixed local/external recipient handling is rejected in v1
 
 Checkpoint:
 
@@ -565,17 +572,11 @@ For task phases, add checks that prove:
 
 ## Open Questions
 
-1. Should `mailspace init` create an explicit roster file, or should identities
-   be created lazily by the first local send?
-2. Should local mailspace identity shorthand require a known roster entry, or
-   can `--to cto` create/resolve `cto@<mailspace>.local` automatically?
-3. Should `task done --note` send a reply to the task creator by default, or
+1. Should `task done --note` send a reply to the task creator by default, or
    only record a local note when explicitly requested?
-4. Should `Bcc` be supported for local delivery in v1, or rejected until we can
-   strip recipient-specific headers correctly?
-5. Should task priority and due dates be headers, body conventions, or left out
-   of v1?
-6. Should local domains such as `hanta-monitor.local` be derived from
-   `mailspace.toml`, the directory name, or an explicit init flag?
-7. Should a future mixed local/external send split delivery automatically, or
+2. Should a future mixed local/external send split delivery automatically, or
    require a reviewed queue item every time?
+3. Should a future task metadata layer use headers, body conventions, or a
+   projection table for priority and due dates?
+4. Should a future local delivery mode support `Bcc` by stripping
+   recipient-specific headers per delivered copy?
