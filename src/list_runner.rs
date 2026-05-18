@@ -1,4 +1,5 @@
 use super::{Runtime, VivariumError};
+use std::io::{self, Write};
 use vivarium::{cli::Command, message::MessageEntry, store::MailStore};
 
 struct ListRequest<'a> {
@@ -59,6 +60,7 @@ impl Runtime {
             None => self.accounts.accounts.clone(),
         };
         let mut json_output = Vec::new();
+        let mut stdout = io::stdout().lock();
         for acct in &accounts {
             let store = MailStore::new(&acct.mail_path(&self.config));
             let entries = store.list_messages(request.folder)?;
@@ -76,17 +78,56 @@ impl Runtime {
                     messages: entries,
                 });
             } else {
-                println!("# {}", acct.name);
-                vivarium::list::print_entries(request.folder, &entries);
+                handle_output_result(print_account_entries(
+                    &mut stdout,
+                    &acct.name,
+                    request.folder,
+                    &entries,
+                ))?;
             }
         }
         if request.json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&json_output)
-                    .map_err(|e| VivariumError::Other(format!("failed to encode JSON: {e}")))?
-            );
+            let raw = serde_json::to_string_pretty(&json_output)
+                .map_err(|e| VivariumError::Other(format!("failed to encode JSON: {e}")))?;
+            handle_output_result(writeln!(stdout, "{raw}"))?;
         }
         Ok(())
+    }
+}
+
+fn handle_output_result(result: io::Result<()>) -> Result<(), VivariumError> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn print_account_entries(
+    writer: &mut impl Write,
+    account: &str,
+    folder: &str,
+    entries: &[MessageEntry],
+) -> io::Result<()> {
+    writeln!(writer, "# {account}")?;
+    vivarium::list::write_entries(writer, folder, entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn broken_pipe_output_is_not_an_error() {
+        let result = handle_output_result(Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed")));
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn other_output_errors_are_reported() {
+        let result = handle_output_result(Err(io::Error::other("disk sad")));
+
+        assert!(result.is_err());
     }
 }

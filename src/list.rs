@@ -1,3 +1,5 @@
+use std::io::{self, Write};
+
 use crate::message::MessageEntry;
 use crate::sync::SyncWindow;
 
@@ -31,14 +33,22 @@ fn matches_text_filter(entry: &MessageEntry, text_filter: Option<&str>) -> bool 
 }
 
 pub fn print_entries(folder: &str, entries: &[MessageEntry]) {
+    let _ = write_entries(&mut io::stdout().lock(), folder, entries);
+}
+
+pub fn write_entries<W: Write>(
+    writer: &mut W,
+    folder: &str,
+    entries: &[MessageEntry],
+) -> io::Result<()> {
     if entries.is_empty() {
-        println!("  no messages in {folder}");
+        writeln!(writer, "  no messages in {folder}")?;
     } else {
         for entry in entries {
-            println!("  {entry}");
+            writeln!(writer, "  {entry}")?;
         }
     }
-    println!();
+    writeln!(writer)
 }
 
 #[cfg(test)]
