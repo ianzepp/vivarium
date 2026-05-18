@@ -16,6 +16,7 @@ mod folders_command;
 mod index_runner;
 mod label_runner;
 mod list_runner;
+mod local_mailspace_command;
 mod mutation_runner;
 mod proton_api_command;
 mod proton_fixture_command;
@@ -26,6 +27,7 @@ mod sync_events_command;
 use agent_runner::{AgentContext, AgentDispatch, AgentRunner};
 use draft_runner::DraftDispatch;
 use label_runner::LabelDispatch;
+use local_mailspace_command::run_mailspace_command;
 use queue_runner::QueueDispatch;
 
 struct SearchRequest<'a> {
@@ -64,6 +66,9 @@ async fn main() {
 async fn run(cli: Cli) -> Result<(), VivariumError> {
     if let Command::Init = cli.command {
         return vivarium::init::run_init();
+    }
+    if run_mailspace_command(&cli.command)? {
+        return Ok(());
     }
 
     let runtime = Runtime::load(&cli)?;
@@ -114,6 +119,9 @@ impl Runtime {
             Command::Doctor { account, json } => self.doctor(account, json).await,
             Command::Proton { command } => self.proton_command(command).await,
             command @ Command::List { .. } => self.run_list_command(command),
+            Command::Mailspace { .. } | Command::Mail { .. } | Command::Task { .. } => {
+                unreachable!()
+            }
             Command::Show { message_ids, json } => self.show(&message_ids, json),
             Command::Thread {
                 message_id,

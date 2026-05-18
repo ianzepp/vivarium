@@ -27,6 +27,7 @@ use schema::{ensure_schema, message_query};
 
 const INTERNAL_DIR: &str = ".vivarium";
 const STORAGE_DB_FILENAME: &str = "storage.sqlite";
+const MAILSPACE_DB_FILENAME: &str = "mail.sqlite";
 const BLOBS_DIR: &str = "blobs";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,16 +95,25 @@ impl Storage {
         let internal_dir = mail_root.join(INTERNAL_DIR);
         secure_create_dir_all(&internal_dir)
             .map_err(|e| VivariumError::Other(format!("failed to create storage dir: {e}")))?;
+        Self::open_with_db(mail_root, &internal_dir.join(STORAGE_DB_FILENAME))
+    }
+
+    pub fn open_mailspace(mailspace_dir: &Path) -> Result<Self, VivariumError> {
+        secure_create_dir_all(mailspace_dir)
+            .map_err(|e| VivariumError::Other(format!("failed to create mailspace dir: {e}")))?;
+        Self::open_with_db(mailspace_dir, &mailspace_dir.join(MAILSPACE_DB_FILENAME))
+    }
+
+    fn open_with_db(mail_root: &Path, db_path: &Path) -> Result<Self, VivariumError> {
         secure_create_dir_all(&mail_root.join(BLOBS_DIR))
             .map_err(|e| VivariumError::Other(format!("failed to create blob dir: {e}")))?;
 
-        let db_path = internal_dir.join(STORAGE_DB_FILENAME);
-        let conn = Connection::open(&db_path)
+        let conn = Connection::open(db_path)
             .map_err(|e| VivariumError::Other(format!("failed to open storage database: {e}")))?;
         conn.busy_timeout(Duration::from_secs(5))
             .map_err(|e| VivariumError::Other(format!("failed to set SQLite timeout: {e}")))?;
         #[cfg(unix)]
-        fs::set_permissions(&db_path, fs::Permissions::from_mode(0o600))?;
+        fs::set_permissions(db_path, fs::Permissions::from_mode(0o600))?;
 
         ensure_schema(&conn)?;
 

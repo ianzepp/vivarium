@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use vivarium::cli::{
-    AgentCommand, Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, ProtonCommand,
-    QueueCommand,
+    AgentCommand, Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, MailCommand,
+    MailspaceCommand, MailspaceIdentityCommand, ProtonCommand, QueueCommand, TaskCommand,
+    TaskStatus,
 };
 
 #[test]
@@ -96,6 +97,98 @@ fn parses_list_filter() {
             assert!(unread);
             assert!(!read);
             assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_mailspace_identity_add() {
+    let cli = Cli::try_parse_from(["vivi", "mailspace", "identity", "add", "cto"]).unwrap();
+
+    match cli.command {
+        Command::Mailspace {
+            command:
+                MailspaceCommand::Identity {
+                    command: MailspaceIdentityCommand::Add { identity, project },
+                },
+        } => {
+            assert_eq!(identity, "cto");
+            assert_eq!(project, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_local_mail_send() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "mail",
+        "send",
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "review",
+        "--body",
+        "please review",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Mail {
+            command: MailCommand::Send(command),
+        } => {
+            assert_eq!(command.from, "ceo");
+            assert_eq!(command.to, vec!["cto"]);
+            assert_eq!(command.subject, "review");
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_task_done() {
+    let cli = Cli::try_parse_from(["vivi", "task", "done", "abc123", "--for", "cto"]).unwrap();
+
+    match cli.command {
+        Command::Task {
+            command:
+                TaskCommand::Done {
+                    handle,
+                    for_identity,
+                    note,
+                    project,
+                },
+        } => {
+            assert_eq!(handle, "abc123");
+            assert_eq!(for_identity, "cto");
+            assert_eq!(note, None);
+            assert_eq!(project, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_task_list_done_status() {
+    let cli =
+        Cli::try_parse_from(["vivi", "task", "list", "--for", "cto", "--status", "done"]).unwrap();
+
+    match cli.command {
+        Command::Task {
+            command:
+                TaskCommand::List {
+                    for_identity,
+                    status,
+                    project,
+                },
+        } => {
+            assert_eq!(for_identity, "cto");
+            assert!(matches!(status, TaskStatus::Done));
+            assert_eq!(project, None);
         }
         other => panic!("unexpected command: {other:?}"),
     }

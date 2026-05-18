@@ -189,6 +189,53 @@ uses headers and metadata: sender, recipients, subject, date, folder, message
 IDs, and thread references. Semantic search is body-derived and requires
 `storage_mode = "semantic"`.
 
+## Project Mailspaces
+
+Project mailspaces are local-only mailboxes for project-scoped agent addresses.
+They are explicit: Vivi discovers an existing `.vivi/mailspace.toml` by walking
+upward from the current directory, but it never creates `.vivi/` as a side
+effect of send, list, search, or show commands.
+
+```sh
+cd /path/to/project
+vivi mailspace init
+vivi mailspace identity add ceo
+vivi mailspace identity add cto
+vivi mailspace status
+```
+
+The default local domain is derived from the project directory name. In a
+project named `hanta-monitor`, `cto` resolves to
+`cto@hanta-monitor.local`. Unknown local identities are rejected, external
+recipients are rejected by the local delivery commands, and mixed
+local/external sends are not sent automatically. Use the existing
+`compose`, `enqueue send`, and `exec send` flows for human or external mail.
+
+Local agent mail is stored as raw RFC 5322 `.eml` blobs under `.vivi/blobs/`
+with mailbox state in `.vivi/mail.sqlite`:
+
+```sh
+vivi mail send --from ceo --to cto \
+  --subject "review: local delivery" \
+  --body "Please review the API shape."
+
+vivi mail list --for cto
+```
+
+Tasks are ordinary local messages delivered to the recipient's `Tasks` folder.
+Completing a task moves the same message to `Done`, so the handle remains
+stable across the lifecycle.
+
+```sh
+vivi task send --from ceo --to cto \
+  --subject "Implement local delivery" \
+  --body @task.md
+
+vivi task list --for cto
+vivi task done <handle> --for cto
+vivi task list --for cto --status done
+```
+
 ## Storage Layout
 
 Each account lives under `~/.vivarium/{account}/`:

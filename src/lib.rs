@@ -10,6 +10,7 @@ pub mod imap;
 pub mod init;
 pub mod labels;
 pub mod list;
+pub mod mailspace;
 pub mod message;
 pub mod mutation_command;
 pub mod oauth;

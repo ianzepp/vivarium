@@ -1,6 +1,31 @@
 use super::*;
 
 impl Storage {
+    pub fn move_message_to_role(
+        &mut self,
+        account: &str,
+        message_id: &str,
+        local_role: &str,
+    ) -> Result<(), VivariumError> {
+        let resolved = self.resolve_message_token(message_id)?;
+        let now = Utc::now().to_rfc3339();
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE messages
+                 SET local_role = ?3, updated_at = ?4
+                 WHERE account = ?1 AND message_id = ?2 AND deleted_at IS NULL",
+                params![account, resolved, local_role, now],
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to move message: {e}")))?;
+        if changed == 0 {
+            return Err(VivariumError::Message(format!(
+                "message not found for {account}: {message_id}"
+            )));
+        }
+        Ok(())
+    }
+
     pub fn update_remote_flags(
         &mut self,
         account: &str,

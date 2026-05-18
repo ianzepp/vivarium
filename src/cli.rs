@@ -2,14 +2,20 @@ use std::path::PathBuf;
 
 use clap::{ArgGroup, Parser, Subcommand};
 
+mod agent_command;
 mod draft_command;
 mod index_command;
+mod mailspace_command;
 mod proton_command;
 mod write_command;
+pub use agent_command::AgentCommand;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
+pub use mailspace_command::{
+    LocalSendCommand, MailCommand, MailspaceCommand, MailspaceIdentityCommand, TaskCommand,
+    TaskStatus,
+};
 pub use proton_command::ProtonCommand;
-use std::ffi::OsString;
 pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
 
 #[derive(Debug, Parser)]
@@ -198,6 +204,24 @@ pub enum Command {
         json: bool,
     },
 
+    /// Manage a project-local Vivi mailspace
+    Mailspace {
+        #[command(subcommand)]
+        command: MailspaceCommand,
+    },
+
+    /// Send and inspect project-local mail with no external side effects
+    Mail {
+        #[command(subcommand)]
+        command: MailCommand,
+    },
+
+    /// Send and complete project-local tasks as folder-based mail
+    Task {
+        #[command(subcommand)]
+        command: TaskCommand,
+    },
+
     /// Show one or more messages by ID
     Show {
         /// Message identifiers (filename stems)
@@ -344,35 +368,5 @@ pub enum Command {
         /// Output as JSON
         #[arg(long)]
         json: bool,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub enum AgentCommand {
-    /// Claim one trusted inbox thread and process it with Codex
-    Poll {
-        /// Exact sender email address allowed to issue agent instructions
-        #[arg(long = "from")]
-        from_addr: String,
-
-        /// Folder role to scan
-        #[arg(long, default_value = "inbox")]
-        folder: String,
-
-        /// Preview the next thread without claiming or invoking Codex
-        #[arg(long)]
-        dry_run: bool,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-
-        /// Codex executable to run
-        #[arg(long, default_value = "codex")]
-        codex_command: OsString,
-
-        /// Argument passed to the Codex command; defaults to `exec -`
-        #[arg(long = "codex-arg", default_values = ["exec", "-"])]
-        codex_args: Vec<OsString>,
     },
 }

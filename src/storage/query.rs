@@ -125,6 +125,34 @@ impl Storage {
             .map_err(|e| VivariumError::Other(format!("failed to count stored messages: {e}")))
     }
 
+    pub fn count_messages_for_account_role(
+        &self,
+        account: &str,
+        local_role: &str,
+        read_state: Option<bool>,
+    ) -> Result<usize, VivariumError> {
+        let read_clause = if read_state.is_some() {
+            " AND read_state = ?3"
+        } else {
+            ""
+        };
+        let sql = format!(
+            "SELECT COUNT(*) FROM messages
+             WHERE account = ?1 AND local_role = ?2 AND deleted_at IS NULL{read_clause}"
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| {
+            VivariumError::Other(format!("failed to prepare message count query: {e}"))
+        })?;
+        let count = if let Some(read_state) = read_state {
+            stmt.query_row(params![account, local_role, i64::from(read_state)], |row| {
+                row.get(0)
+            })
+        } else {
+            stmt.query_row(params![account, local_role], |row| row.get(0))
+        };
+        count.map_err(|e| VivariumError::Other(format!("failed to count stored messages: {e}")))
+    }
+
     pub fn local_sizes_by_role(
         &self,
         local_role: &str,

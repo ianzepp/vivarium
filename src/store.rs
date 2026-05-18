@@ -22,7 +22,9 @@ pub(crate) use secure::secure_create_dir_all;
 use secure::{secure_create_file, secure_file};
 
 /// Local staging folders retained for draft/outbox file workflows.
-const FOLDERS: &[&str] = &["INBOX", "Archive", "Trash", "Sent", "Drafts", "outbox"];
+const FOLDERS: &[&str] = &[
+    "INBOX", "Archive", "Trash", "Sent", "Drafts", "Tasks", "Done", "outbox",
+];
 const MAILDIR_DIRS: &[&str] = &["tmp", "new", "cur"];
 
 /// Account-local storage facade.
@@ -349,7 +351,7 @@ impl MailStore {
 pub(super) fn resolve_folder(folder: &str) -> Result<&'static str, VivariumError> {
     canonical_folder(folder).ok_or_else(|| {
         VivariumError::Message(format!(
-            "invalid folder '{folder}', expected inbox, archive, trash, sent, drafts, or outbox"
+            "invalid folder '{folder}', expected inbox, archive, trash, sent, drafts, tasks, done, or outbox"
         ))
     })
 }
@@ -361,6 +363,8 @@ fn storage_role(folder: &str) -> String {
         "Trash" => "trash".into(),
         "Sent" => "sent".into(),
         "Drafts" => "drafts".into(),
+        "Tasks" => "tasks".into(),
+        "Done" => "done".into(),
         other => other.to_ascii_lowercase(),
     }
 }

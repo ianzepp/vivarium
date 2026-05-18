@@ -13,6 +13,8 @@ pub(super) fn canonical_folder(folder: &str) -> Option<&'static str> {
         "trash" | "deleted" => "Trash",
         "sent" => "Sent",
         "draft" | "drafts" => "Drafts",
+        "task" | "tasks" => "Tasks",
+        "done" => "Done",
         "outbox" => "outbox",
         _ => return None,
     })
