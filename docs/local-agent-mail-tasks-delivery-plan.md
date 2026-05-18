@@ -290,6 +290,38 @@ Implementation:
 Headers such as `X-Vivi-Kind: task` may be added for clarity and future
 projection, but folder placement is the source of open/done lifecycle.
 
+### Task Identity And Threads
+
+Tasks should have stable Git-style handles derived from the original task
+message. Do not invent fixed semantic prefixes such as `tsk_`.
+
+Use the root task message as the identity basis:
+
+- full identity: the root task message's stable internal message id or content
+  id
+- display handle: shortest unambiguous hash prefix, with the same style as
+  existing Vivi short handles
+- command input: any unambiguous prefix
+- ambiguity: fail with candidate matches rather than guessing
+
+The handle must stay stable when the task moves from `Tasks` to `Done`, so the
+hash basis must not include the current folder.
+
+The email thread remains primary. Clarifying questions and status updates
+should be replies to the root task message, not detached task comments in a
+separate system:
+
+```sh
+vivi task show 9f3a8c2
+vivi mail reply 9f3a8c2 --from cto --body "Do you want this in v1?"
+vivi task done 9f3a8c2 --for cto --note "Implemented and tested."
+```
+
+`task show <handle>` should render the root task and relevant thread context.
+`mail reply <handle>` should resolve task handles as thread roots, so agents can
+clarify task scope through ordinary mail while still using stable task
+references.
+
 ## Stage Graph
 
 ### Stage 1: Project Mailspace Initialization And Detection
@@ -405,14 +437,23 @@ Candidate CLI:
 ```sh
 vivi task send --from ceo --to cto \
   --subject "Implement local delivery" --body @task.md
+# created 9f3a8c2
 vivi task list --for cto
-vivi task done <handle> --for cto --note "Implemented."
+vivi mail reply 9f3a8c2 --from cto --body "Clarifying question..."
+vivi task done 9f3a8c2 --for cto --note "Implemented."
 ```
 
 Expected outputs:
 
 - `task send` delivers to `tasks`, not `inbox`
+- task list shows Git-style abbreviated hash handles derived from root task
+  messages
+- task commands accept any unambiguous task handle prefix and reject ambiguous
+  prefixes with candidate matches
+- task handles remain stable after moving from `tasks` to `done`
 - `task list` is a task-focused view over the `tasks` folder
+- `task show <handle>` renders the root task plus thread context
+- `mail reply <task-handle>` resolves the task handle as the root thread
 - `task done` moves from `tasks` to `done`
 - `task reopen` moves from `done` back to `tasks`
 - optional done/reopen notes create reply messages in the thread when provided
@@ -422,7 +463,8 @@ Expected outputs:
 Checkpoint:
 
 An end-to-end test creates a task, lists it, marks it done, verifies it leaves
-`tasks`, verifies it appears in `done`, and verifies the thread remains intact.
+`tasks`, verifies it appears in `done`, verifies the abbreviated task handle is
+still accepted, and verifies clarification replies remain in the task thread.
 
 ### Stage 6: Human Boundary And Safety Rules
 
@@ -498,6 +540,9 @@ without network access.
 
 - Add `vivi task send`.
 - Add `vivi task list`.
+- Add Git-style abbreviated task handles.
+- Add task-handle resolution for `task show`, `task done`, `task reopen`, and
+  `mail reply`.
 - Add `vivi task done`.
 - Add `vivi task reopen`.
 - Add optional note replies.
@@ -567,6 +612,10 @@ For task phases, add checks that prove:
 
 - task creation lands in `tasks`
 - task completion moves to `done`
+- task handles are abbreviated unambiguous hash prefixes
+- task handles stay stable across `tasks` to `done` moves
+- ambiguous task prefixes produce a clear ambiguity error with candidates
+- `mail reply <task-handle>` replies to the root task thread
 - ordinary mail search/thread/show/export still work on task messages
 - optional status notes are threaded replies, not destructive rewrites
 
