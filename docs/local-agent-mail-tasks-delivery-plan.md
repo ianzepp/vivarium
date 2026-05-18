@@ -78,6 +78,8 @@ should remain:
 - `Bcc` is rejected for local delivery in v1.
 - Task priority and due dates are out of v1.
 - Mixed local/external sends are rejected in v1.
+- Patch submission and application are a follow-up phase after local mail and
+  task folders work.
 
 ## Repo-Aware Baseline
 
@@ -502,6 +504,52 @@ A user can follow the docs to initialize a project mailspace and run a
 two-agent mail and task exchange without editing upstream account config and
 without network access.
 
+### Follow-Up Stage: Patch Mail And CTO Merge Gate
+
+After local mail and task folders work, add a patch-mail workflow for agent
+changes. This should not be part of v1.
+
+The goal is to let agents propose repository changes without mutating the
+canonical worktree directly. Agents can work in temporary sandboxes or scratch
+copies, produce a patch, and send it to the CTO or another merge owner for
+review and application.
+
+Candidate CLI:
+
+```sh
+vivi patch submit --from cpo --to cto \
+  --subject "clarify onboarding copy" --body @rationale.md --patch proposal.patch
+
+vivi patch list --for cto
+vivi patch show <handle>
+vivi patch apply --check <handle>
+vivi patch apply <handle>
+vivi patch reject <handle> --reason "Needs tests."
+```
+
+Expected behavior:
+
+- patch submissions are email-shaped messages, not a separate coordination
+  database
+- patch payloads are stored as attachments or mail-linked blobs
+- patch review discussion happens as replies in the patch thread
+- patch handles use the same abbreviated-hash style as task/message handles
+- `patch apply --check` validates the patch against the selected project root
+  without mutating files
+- `patch apply` applies to the selected project root only after the merge owner
+  chooses to do so
+- applying a patch should record a reply/status message in the patch thread
+- rejected patches remain searchable and auditable
+
+This stage shifts default agent collaboration away from shared write access and
+toward a Git-native review loop:
+
+- most roles propose findings, tasks, and patches
+- CTO owns normal code application and merge decisions
+- COO verifies applied changes
+- CSO reviews risky or security-sensitive patches
+- CEO resolves priority conflicts when patch threads disagree
+
 ## Epic Candidates And Scopable Issues
 
 ### Epic: Project Mailspace Foundation
@@ -554,6 +602,15 @@ without network access.
 - Add examples for executive-team identities in a project mailspace.
 - Add release smoke checks for local delivery and tasks.
 
+### Future Epic: Patch Mail
+
+- Add `vivi patch submit`.
+- Add `vivi patch list` and `vivi patch show`.
+- Add `vivi patch apply --check`.
+- Add gated `vivi patch apply`.
+- Add `vivi patch reject`.
+- Preserve patch review as ordinary mail threads.
+
 ## Checkpoints
 
 1. Project mailspace initialization and detection work without accidental
@@ -569,6 +626,7 @@ without network access.
 7. External human email remains gated behind existing draft/queue/send
    semantics.
 8. Docs let an executive-team skill use Vivi as its communication substrate.
+9. Follow-up patch-mail design is captured without expanding v1 scope.
 
 ## Companion Skill Plan
 
@@ -618,6 +676,13 @@ For task phases, add checks that prove:
 - `mail reply <task-handle>` replies to the root task thread
 - ordinary mail search/thread/show/export still work on task messages
 - optional status notes are threaded replies, not destructive rewrites
+
+For the follow-up patch-mail phase, add checks that prove:
+
+- `patch apply --check` does not mutate the worktree
+- `patch apply` applies only to the selected project root
+- patch payloads remain inspectable through the patch thread
+- rejected patches stay searchable and auditable
 
 ## Open Questions
 
