@@ -4,7 +4,7 @@ use clap::Parser;
 use vivarium::cli::{
     AgentCommand, Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, MailCommand,
     MailspaceCommand, MailspaceIdentityCommand, ProtonCommand, QueueCommand, TaskCommand,
-    TaskStatus,
+    TaskDumpStatusArg, TaskStatus,
 };
 
 #[test]
@@ -171,6 +171,41 @@ fn parses_local_mail_show() {
 }
 
 #[test]
+fn parses_local_mail_dump_filters() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "mail",
+        "dump",
+        "--participant",
+        "cto",
+        "--from",
+        "ceo",
+        "--subject",
+        "review",
+        "--body",
+        "blocker",
+        "--since",
+        "24h",
+        "--json",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Mail {
+            command: MailCommand::Dump(command),
+        } => {
+            assert_eq!(command.participant.as_deref(), Some("cto"));
+            assert_eq!(command.from.as_deref(), Some("ceo"));
+            assert_eq!(command.subject.as_deref(), Some("review"));
+            assert_eq!(command.body.as_deref(), Some("blocker"));
+            assert_eq!(command.since.as_deref(), Some("24h"));
+            assert!(command.json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_task_done() {
     let cli = Cli::try_parse_from(["vivi", "task", "done", "abc123", "--for", "cto"]).unwrap();
 
@@ -210,6 +245,25 @@ fn parses_task_list_done_status() {
             assert_eq!(for_identity, "cto");
             assert!(matches!(status, TaskStatus::Done));
             assert_eq!(project, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_task_dump_status_all() {
+    let cli = Cli::try_parse_from([
+        "vivi", "task", "dump", "--for", "cto", "--status", "all", "--output", "tasks.md",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Task {
+            command: TaskCommand::Dump(command),
+        } => {
+            assert_eq!(command.for_identity.as_deref(), Some("cto"));
+            assert!(matches!(command.status, TaskDumpStatusArg::All));
+            assert_eq!(command.output, Some(PathBuf::from("tasks.md")));
         }
         other => panic!("unexpected command: {other:?}"),
     }

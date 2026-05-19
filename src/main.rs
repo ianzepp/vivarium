@@ -17,6 +17,7 @@ mod index_runner;
 mod label_runner;
 mod list_runner;
 mod local_mailspace_command;
+mod local_mailspace_dump;
 mod mutation_runner;
 mod proton_api_command;
 mod proton_fixture_command;

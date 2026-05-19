@@ -207,6 +207,97 @@ fn task_send_show_done_and_reopen_reads_expected_task() {
     assert!(stdout(&reopened).contains(&format!("reopened {handle}")));
 }
 
+#[test]
+fn dump_commands_filter_mail_and_tasks_for_board_review() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+
+    assert_success(&vivi([
+        "mail",
+        "send",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "status: blocker review",
+        "--body",
+        "The release blocker is now assigned.",
+    ]));
+    let task = vivi([
+        "task",
+        "send",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "Resolve release blocker",
+        "--body",
+        "Validate the release blocker fix.",
+    ]);
+    assert_success(&task);
+    let task_handle = handle_after(&stdout(&task), "created cto");
+    assert_success(&vivi([
+        "task",
+        "done",
+        "--project",
+        project.path().to_str().unwrap(),
+        &task_handle,
+        "--for",
+        "cto",
+    ]));
+
+    let mail_dump = vivi([
+        "mail",
+        "dump",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--participant",
+        "cto",
+        "--body",
+        "release blocker",
+    ]);
+    assert_success(&mail_dump);
+    let mail_stdout = stdout(&mail_dump);
+    assert!(mail_stdout.contains("# Vivi Mail Dump"), "{mail_stdout}");
+    assert!(
+        mail_stdout.contains("status: blocker review"),
+        "{mail_stdout}"
+    );
+    assert!(
+        mail_stdout.contains("The release blocker is now assigned."),
+        "{mail_stdout}"
+    );
+
+    let task_dump = vivi([
+        "task",
+        "dump",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--participant",
+        "cto",
+        "--status",
+        "all",
+        "--json",
+    ]);
+    assert_success(&task_dump);
+    let task_stdout = stdout(&task_dump);
+    assert!(task_stdout.contains(&task_handle), "{task_stdout}");
+    assert!(
+        task_stdout.contains("\"status\": \"done\""),
+        "{task_stdout}"
+    );
+    assert!(
+        task_stdout.contains("Resolve release blocker"),
+        "{task_stdout}"
+    );
+}
+
 fn init_roster(project: &std::path::Path) {
     assert_success(&vivi([
         "mailspace",

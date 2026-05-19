@@ -1,8 +1,9 @@
 use vivarium::VivariumError;
 use vivarium::cli::{
-    Command, MailCommand, MailspaceCommand, MailspaceIdentityCommand, TaskCommand, TaskStatus,
+    Command, MailCommand, MailDumpCommand, MailspaceCommand, MailspaceIdentityCommand, TaskCommand,
+    TaskDumpCommand, TaskDumpStatusArg, TaskStatus,
 };
-use vivarium::mailspace::{Mailspace, SendRequest};
+use vivarium::mailspace::{DumpFilters, MailDumpRequest, Mailspace, SendRequest, TaskDumpRequest};
 use vivarium::message;
 
 pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumError> {
@@ -112,6 +113,16 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
             let mailspace = Mailspace::discover(project.as_deref())?;
             print_local_messages(&mailspace, handles, *json)?;
         }
+        MailCommand::Dump(command) => {
+            let mailspace = Mailspace::discover(command.project.as_deref())?;
+            let records = mailspace.dump_mail(mail_dump_request(command))?;
+            crate::local_mailspace_dump::write_dump(
+                "Vivi Mail Dump",
+                &records,
+                command.json,
+                command.output.as_deref(),
+            )?;
+        }
     }
     Ok(())
 }
@@ -150,16 +161,16 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             let data = storage.read_message(handle)?;
             println!("{}", message::render_message(&data)?);
         }
+        TaskCommand::Dump(command) => {
+            dump_tasks(command)?;
+        }
         TaskCommand::Done {
             handle,
             for_identity,
             note,
             project,
         } => {
-            reject_task_note(note)?;
-            let mailspace = Mailspace::discover(project.as_deref())?;
-            let handle = mailspace.move_task(for_identity, handle, "done")?;
-            println!("done {handle}");
+            move_task(handle, for_identity, note, project.as_deref(), "done")?;
         }
         TaskCommand::Reopen {
             handle,
@@ -167,12 +178,35 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             note,
             project,
         } => {
-            reject_task_note(note)?;
-            let mailspace = Mailspace::discover(project.as_deref())?;
-            let handle = mailspace.move_task(for_identity, handle, "tasks")?;
-            println!("reopened {handle}");
+            move_task(handle, for_identity, note, project.as_deref(), "tasks")?;
         }
     }
+    Ok(())
+}
+
+fn dump_tasks(command: &TaskDumpCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    let records = mailspace.dump_tasks(task_dump_request(command))?;
+    crate::local_mailspace_dump::write_dump(
+        "Vivi Task Dump",
+        &records,
+        command.json,
+        command.output.as_deref(),
+    )
+}
+
+fn move_task(
+    handle: &str,
+    for_identity: &str,
+    note: &Option<String>,
+    project: Option<&std::path::Path>,
+    role: &str,
+) -> Result<(), VivariumError> {
+    reject_task_note(note)?;
+    let mailspace = Mailspace::discover(project)?;
+    let handle = mailspace.move_task(for_identity, handle, role)?;
+    let verb = if role == "done" { "done" } else { "reopened" };
+    println!("{verb} {handle}");
     Ok(())
 }
 
@@ -230,6 +264,64 @@ fn task_status_role(status: &TaskStatus) -> &'static str {
     match status {
         TaskStatus::Open => "tasks",
         TaskStatus::Done => "done",
+    }
+}
+
+fn mail_dump_request(command: &MailDumpCommand) -> MailDumpRequest {
+    MailDumpRequest {
+        folder: command.folder.clone(),
+        filters: dump_filters(
+            &command.for_identity,
+            &command.from,
+            &command.to,
+            &command.participant,
+            &command.subject,
+            &command.body,
+            &command.since,
+            &command.before,
+        ),
+    }
+}
+
+fn task_dump_request(command: &TaskDumpCommand) -> TaskDumpRequest {
+    TaskDumpRequest {
+        status: match command.status {
+            TaskDumpStatusArg::Open => vivarium::mailspace::TaskDumpStatus::Open,
+            TaskDumpStatusArg::Done => vivarium::mailspace::TaskDumpStatus::Done,
+            TaskDumpStatusArg::All => vivarium::mailspace::TaskDumpStatus::All,
+        },
+        filters: dump_filters(
+            &command.for_identity,
+            &command.from,
+            &command.to,
+            &command.participant,
+            &command.subject,
+            &command.body,
+            &command.since,
+            &command.before,
+        ),
+    }
+}
+
+fn dump_filters(
+    for_identity: &Option<String>,
+    from: &Option<String>,
+    to: &Option<String>,
+    participant: &Option<String>,
+    subject: &Option<String>,
+    body: &Option<String>,
+    since: &Option<String>,
+    before: &Option<String>,
+) -> DumpFilters {
+    DumpFilters {
+        for_identity: for_identity.clone(),
+        from: from.clone(),
+        to: to.clone(),
+        participant: participant.clone(),
+        subject: subject.clone(),
+        body: body.clone(),
+        since: since.clone(),
+        before: before.clone(),
     }
 }
 

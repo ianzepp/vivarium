@@ -8,8 +8,11 @@ use crate::storage::Storage;
 use crate::store::secure_create_dir_all;
 
 mod delivery;
+mod dump;
 #[cfg(test)]
 mod tests;
+
+pub use dump::{DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus};
 
 const MAILSPACE_DIR: &str = ".vivi";
 const MAILSPACE_CONFIG: &str = "mailspace.toml";

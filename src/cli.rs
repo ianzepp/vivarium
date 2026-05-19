@@ -12,8 +12,8 @@ pub use agent_command::AgentCommand;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
 pub use mailspace_command::{
-    LocalSendCommand, MailCommand, MailspaceCommand, MailspaceIdentityCommand, TaskCommand,
-    TaskStatus,
+    LocalSendCommand, MailCommand, MailDumpCommand, MailspaceCommand, MailspaceIdentityCommand,
+    TaskCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus,
 };
 pub use proton_command::ProtonCommand;
 pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};

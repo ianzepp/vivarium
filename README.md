@@ -236,6 +236,15 @@ vivi task done <handle> --for cto
 vivi task list --for cto --status done
 ```
 
+For board reviews and agent audits, dump local mail or tasks into one
+chronological dossier. Dumps can filter by mailbox owner, sender, recipient,
+participant, subject, body text, and review window:
+
+```sh
+vivi mail dump --participant cto --since 48h --output board-mail-cto.md
+vivi task dump --participant cto --status all --body blocker --json
+```
+
 ## Storage Layout
 
 Each account lives under `~/.vivarium/{account}/`:

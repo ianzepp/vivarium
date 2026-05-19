@@ -66,6 +66,27 @@ impl Storage {
         self.decorate_handles(messages?)
     }
 
+    pub fn list_messages(&self) -> Result<Vec<StoredMessageView>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!(
+                "{} ORDER BY md.date DESC, m.message_id",
+                message_query("WHERE m.deleted_at IS NULL")
+            ))
+            .map_err(|e| VivariumError::Other(format!("failed to prepare storage listing: {e}")))?;
+        let rows = stmt
+            .query_map([], raw_stored_message_from_row)
+            .map_err(|e| VivariumError::Other(format!("failed to list stored messages: {e}")))?;
+        let messages: Result<Vec<_>, _> = rows
+            .map(|row| {
+                row.map_err(|e| {
+                    VivariumError::Other(format!("failed to read stored message row: {e}"))
+                })
+            })
+            .collect();
+        self.decorate_handles(messages?)
+    }
+
     pub fn list_catalog_entries(&self, account: &str) -> Result<Vec<CatalogEntry>, VivariumError> {
         let mut stmt = self
             .conn
