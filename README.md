@@ -245,6 +245,12 @@ vivi mail dump --participant cto --since 48h --output board-mail-cto.md
 vivi task dump --participant cto --status all --body blocker --json
 ```
 
+Mailspace actions performed through Vivi are recorded in a local event ledger.
+For example, local sends record sent-copy and delivery events, and task
+completion/reopen commands record folder moves with optional `--note` text.
+Dump output includes those events so a board review can distinguish current
+state from command history.
+
 ## Storage Layout
 
 Each account lives under `~/.vivarium/{account}/`:

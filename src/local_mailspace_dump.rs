@@ -57,8 +57,34 @@ fn push_record(out: &mut String, record: &DumpRecord) {
         out.push_str(&format!("Cc: {}\n", record.cc));
     }
     out.push_str(&format!("Subject: {}\n\n", empty_marker(&record.subject)));
+    push_events(out, record);
     out.push_str(record.body.trim());
     out.push_str("\n\n---\n\n");
+}
+
+fn push_events(out: &mut String, record: &DumpRecord) {
+    if record.events.is_empty() {
+        return;
+    }
+    out.push_str("Events:\n");
+    for event in &record.events {
+        out.push_str(&format!(
+            "- {} {} {}",
+            event.occurred_at, event.command, event.event_type
+        ));
+        if let Some(actor) = &event.actor_identity {
+            out.push_str(&format!(" by {actor}"));
+        }
+        if event.from_role.is_some() || event.to_role.is_some() {
+            out.push_str(&format!(
+                " ({} -> {})",
+                event.from_role.as_deref().unwrap_or("(none)"),
+                event.to_role.as_deref().unwrap_or("(none)")
+            ));
+        }
+        out.push('\n');
+    }
+    out.push('\n');
 }
 
 fn empty_marker(value: &str) -> &str {

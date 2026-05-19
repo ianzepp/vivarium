@@ -49,6 +49,26 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
            subject TEXT NOT NULL,
            normalized_message_id TEXT
          );
+         CREATE TABLE IF NOT EXISTS mailspace_events (
+           event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+           occurred_at TEXT NOT NULL,
+           command TEXT NOT NULL,
+           event_type TEXT NOT NULL,
+           actor_identity TEXT,
+           account TEXT NOT NULL,
+           message_id TEXT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
+           content_id TEXT NOT NULL,
+           from_role TEXT,
+           to_role TEXT,
+           from_identity TEXT,
+           to_identity TEXT,
+           subject TEXT NOT NULL,
+           note TEXT
+         );
+         CREATE INDEX IF NOT EXISTS mailspace_events_message_idx
+           ON mailspace_events(message_id, occurred_at, event_id);
+         CREATE INDEX IF NOT EXISTS mailspace_events_account_idx
+           ON mailspace_events(account, occurred_at, event_id);
          COMMIT;",
     )
     .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))

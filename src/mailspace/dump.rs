@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use super::{Mailspace, canonical_local_role};
 use crate::error::VivariumError;
-use crate::storage::StoredMessageView;
+use crate::storage::{MailspaceEvent, StoredMessageView};
 
 #[derive(Debug, Clone, Default)]
 pub struct DumpFilters {
@@ -49,6 +49,7 @@ pub struct DumpRecord {
     pub cc: String,
     pub subject: String,
     pub body: String,
+    pub events: Vec<MailspaceEvent>,
 }
 
 struct PreparedFilters {
@@ -116,6 +117,7 @@ impl Mailspace {
             return Ok(None);
         }
         Ok(Some(DumpRecord {
+            events: storage.list_mailspace_events(&view.message_id)?,
             handle: view.handle,
             message_id: view.message_id,
             account: view.account,

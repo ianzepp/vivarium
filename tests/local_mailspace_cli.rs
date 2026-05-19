@@ -250,6 +250,8 @@ fn dump_commands_filter_mail_and_tasks_for_board_review() {
         &task_handle,
         "--for",
         "cto",
+        "--note",
+        "Validated blocker fix.",
     ]));
 
     let mail_dump = vivi([
@@ -273,6 +275,8 @@ fn dump_commands_filter_mail_and_tasks_for_board_review() {
         mail_stdout.contains("The release blocker is now assigned."),
         "{mail_stdout}"
     );
+    assert!(mail_stdout.contains("Events:"), "{mail_stdout}");
+    assert!(mail_stdout.contains("mail send delivered"), "{mail_stdout}");
 
     let task_dump = vivi([
         "task",
@@ -290,6 +294,23 @@ fn dump_commands_filter_mail_and_tasks_for_board_review() {
     assert!(task_stdout.contains(&task_handle), "{task_stdout}");
     assert!(
         task_stdout.contains("\"status\": \"done\""),
+        "{task_stdout}"
+    );
+    assert!(task_stdout.contains("\"events\""), "{task_stdout}");
+    assert!(
+        task_stdout.contains("\"command\": \"task send\""),
+        "{task_stdout}"
+    );
+    assert!(
+        task_stdout.contains("\"command\": \"task done\""),
+        "{task_stdout}"
+    );
+    assert!(
+        task_stdout.contains("\"event_type\": \"moved\""),
+        "{task_stdout}"
+    );
+    assert!(
+        task_stdout.contains("\"note\": \"Validated blocker fix.\""),
         "{task_stdout}"
     );
     assert!(

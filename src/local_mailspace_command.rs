@@ -202,9 +202,8 @@ fn move_task(
     project: Option<&std::path::Path>,
     role: &str,
 ) -> Result<(), VivariumError> {
-    reject_task_note(note)?;
     let mailspace = Mailspace::discover(project)?;
-    let handle = mailspace.move_task(for_identity, handle, role)?;
+    let handle = mailspace.move_task(for_identity, handle, role, note.as_deref())?;
     let verb = if role == "done" { "done" } else { "reopened" };
     println!("{verb} {handle}");
     Ok(())
@@ -323,13 +322,4 @@ fn dump_filters(
         since: since.clone(),
         before: before.clone(),
     }
-}
-
-fn reject_task_note(note: &Option<String>) -> Result<(), VivariumError> {
-    if note.is_some() {
-        return Err(VivariumError::Message(
-            "--note task replies are reserved for a follow-up; move the task without --note".into(),
-        ));
-    }
-    Ok(())
 }

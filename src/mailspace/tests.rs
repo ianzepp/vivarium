@@ -57,7 +57,7 @@ fn task_move_keeps_handle_stable() {
         .unwrap();
     let handle = sent.delivered[0].handle.clone();
 
-    let done = mailspace.move_task("cto", &handle, "done").unwrap();
+    let done = mailspace.move_task("cto", &handle, "done", None).unwrap();
     let open = mailspace.list("cto", "tasks").unwrap();
     let closed = mailspace.list("cto", "done").unwrap();
 

@@ -175,7 +175,7 @@ pub enum TaskCommand {
         #[arg(long = "for")]
         for_identity: String,
 
-        /// Optional completion note; reserved for reply-thread notes
+        /// Optional completion note recorded in the mailspace event ledger
         #[arg(long)]
         note: Option<String>,
 
@@ -193,7 +193,7 @@ pub enum TaskCommand {
         #[arg(long = "for")]
         for_identity: String,
 
-        /// Optional reopen note; reserved for reply-thread notes
+        /// Optional reopen note recorded in the mailspace event ledger
         #[arg(long)]
         note: Option<String>,
 

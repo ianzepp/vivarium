@@ -13,6 +13,7 @@ use crate::catalog::{CatalogEntry, RemoteIdentity};
 use crate::error::VivariumError;
 use crate::store::secure_create_dir_all;
 
+mod events;
 mod handles;
 mod ingest;
 mod metadata;
@@ -83,6 +84,40 @@ pub struct StoredMessageView {
     pub subject: String,
     pub normalized_message_id: Option<String>,
     pub remote: Option<RemoteBindingInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MailspaceEventInput {
+    pub command: String,
+    pub event_type: String,
+    pub actor_identity: Option<String>,
+    pub account: String,
+    pub message_id: String,
+    pub content_id: String,
+    pub from_role: Option<String>,
+    pub to_role: Option<String>,
+    pub from_identity: Option<String>,
+    pub to_identity: Option<String>,
+    pub subject: String,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct MailspaceEvent {
+    pub event_id: i64,
+    pub occurred_at: String,
+    pub command: String,
+    pub event_type: String,
+    pub actor_identity: Option<String>,
+    pub account: String,
+    pub message_id: String,
+    pub content_id: String,
+    pub from_role: Option<String>,
+    pub to_role: Option<String>,
+    pub from_identity: Option<String>,
+    pub to_identity: Option<String>,
+    pub subject: String,
+    pub note: Option<String>,
 }
 
 pub struct Storage {
