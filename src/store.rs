@@ -351,7 +351,7 @@ impl MailStore {
 pub(super) fn resolve_folder(folder: &str) -> Result<&'static str, VivariumError> {
     canonical_folder(folder).ok_or_else(|| {
         VivariumError::Message(format!(
-            "invalid folder '{folder}', expected inbox, archive, trash, sent, drafts, tasks, done, or outbox"
+            "invalid folder '{folder}', expected inbox, archive, trash, sent, drafts, tasks, needs, wants, done, or outbox"
         ))
     })
 }

@@ -1,6 +1,7 @@
 use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
 use serde::Serialize;
 
+use super::kind::{effective_kind, matches_kind};
 use super::{Mailspace, canonical_local_role};
 use crate::error::VivariumError;
 use crate::storage::{MailspaceEvent, StoredMessageView};
@@ -20,12 +21,15 @@ pub struct DumpFilters {
 #[derive(Debug, Clone)]
 pub struct MailDumpRequest {
     pub folder: String,
+    pub kind: Option<String>,
     pub filters: DumpFilters,
 }
 
 #[derive(Debug, Clone)]
 pub struct TaskDumpRequest {
     pub status: TaskDumpStatus,
+    pub open_role: String,
+    pub kind: String,
     pub filters: DumpFilters,
 }
 
@@ -42,6 +46,7 @@ pub struct DumpRecord {
     pub message_id: String,
     pub account: String,
     pub role: String,
+    pub kind: Option<String>,
     pub status: Option<String>,
     pub date: String,
     pub from: String,
@@ -76,18 +81,24 @@ struct DumpWindow {
 impl Mailspace {
     pub fn dump_mail(&self, request: MailDumpRequest) -> Result<Vec<DumpRecord>, VivariumError> {
         let roles = mail_roles(&request.folder)?;
-        self.dump_records(&roles, None, request.filters)
+        self.dump_records(&roles, None, request.kind.as_deref(), request.filters)
     }
 
     pub fn dump_tasks(&self, request: TaskDumpRequest) -> Result<Vec<DumpRecord>, VivariumError> {
-        let roles = task_roles(request.status);
-        self.dump_records(&roles, Some(request.status), request.filters)
+        let roles = status_roles(&request.open_role, request.status);
+        self.dump_records(
+            &roles,
+            Some((request.status, request.open_role.as_str())),
+            Some(&request.kind),
+            request.filters,
+        )
     }
 
     fn dump_records(
         &self,
         roles: &[String],
-        task_status: Option<TaskDumpStatus>,
+        status: Option<(TaskDumpStatus, &str)>,
+        kind: Option<&str>,
         filters: DumpFilters,
     ) -> Result<Vec<DumpRecord>, VivariumError> {
         let filters = self.prepare_filters(filters)?;
@@ -97,7 +108,7 @@ impl Mailspace {
             if !roles.iter().any(|role| role == &view.local_role) {
                 continue;
             }
-            if let Some(record) = self.filtered_record(&storage, view, task_status, &filters)? {
+            if let Some(record) = self.filtered_record(&storage, view, status, kind, &filters)? {
                 records.push(record);
             }
         }
@@ -108,21 +119,28 @@ impl Mailspace {
         &self,
         storage: &crate::storage::Storage,
         view: StoredMessageView,
-        task_status: Option<TaskDumpStatus>,
+        status: Option<(TaskDumpStatus, &str)>,
+        kind: Option<&str>,
         filters: &PreparedFilters,
     ) -> Result<Option<DumpRecord>, VivariumError> {
         let data = storage.read_message(&view.message_id)?;
+        let events = storage.list_mailspace_events(&view.message_id)?;
         let body = text_body(&data);
+        if kind.is_some_and(|kind| !matches_kind(&view.local_role, &data, &events, kind)) {
+            return Ok(None);
+        }
+        let message_kind = effective_kind(&view.local_role, &data, &events);
         if !matches_filters(&view, &body, filters) {
             return Ok(None);
         }
         Ok(Some(DumpRecord {
-            events: storage.list_mailspace_events(&view.message_id)?,
+            events,
             handle: view.handle,
             message_id: view.message_id,
             account: view.account,
             role: view.local_role.clone(),
-            status: task_status.and_then(|_| task_status_for_role(&view.local_role)),
+            kind: message_kind,
+            status: status.and_then(|(_, open_role)| status_for_role(&view.local_role, open_role)),
             date: view.date,
             from: view.from_addr,
             to: view.to_addr,
@@ -215,19 +233,21 @@ fn mail_roles(folder: &str) -> Result<Vec<String>, VivariumError> {
     canonical_local_role(folder).map(|role| vec![role])
 }
 
-fn task_roles(status: TaskDumpStatus) -> Vec<String> {
+fn status_roles(open_role: &str, status: TaskDumpStatus) -> Vec<String> {
     match status {
-        TaskDumpStatus::Open => vec!["tasks".into()],
+        TaskDumpStatus::Open => vec![open_role.into()],
         TaskDumpStatus::Done => vec!["done".into()],
-        TaskDumpStatus::All => vec!["tasks".into(), "done".into()],
+        TaskDumpStatus::All => vec![open_role.into(), "done".into()],
     }
 }
 
-fn task_status_for_role(role: &str) -> Option<String> {
-    match role {
-        "tasks" => Some("open".into()),
-        "done" => Some("done".into()),
-        _ => None,
+fn status_for_role(role: &str, open_role: &str) -> Option<String> {
+    if role == open_role {
+        Some("open".into())
+    } else if role == "done" {
+        Some("done".into())
+    } else {
+        None
     }
 }
 

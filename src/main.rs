@@ -18,6 +18,7 @@ mod label_runner;
 mod list_runner;
 mod local_mailspace_command;
 mod local_mailspace_dump;
+mod local_work_command;
 mod mutation_runner;
 mod proton_api_command;
 mod proton_fixture_command;
@@ -120,9 +121,11 @@ impl Runtime {
             Command::Doctor { account, json } => self.doctor(account, json).await,
             Command::Proton { command } => self.proton_command(command).await,
             command @ Command::List { .. } => self.run_list_command(command),
-            Command::Mailspace { .. } | Command::Mail { .. } | Command::Task { .. } => {
-                unreachable!()
-            }
+            Command::Mailspace { .. }
+            | Command::Mail { .. }
+            | Command::Task { .. }
+            | Command::Need { .. }
+            | Command::Want { .. } => unreachable!(),
             Command::Show { message_ids, json } => self.show(&message_ids, json),
             Command::Thread {
                 message_id,

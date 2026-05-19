@@ -50,9 +50,11 @@ pub fn canonical_search_folder(folder: &str) -> Result<String, VivariumError> {
         "sent" => Ok("sent".into()),
         "draft" | "drafts" => Ok("drafts".into()),
         "task" | "tasks" => Ok("tasks".into()),
+        "need" | "needs" => Ok("needs".into()),
+        "want" | "wants" => Ok("wants".into()),
         "done" => Ok("done".into()),
         _ => Err(VivariumError::Message(format!(
-            "unsupported search folder '{folder}'; expected inbox, archive, trash, sent, drafts, tasks, or done"
+            "unsupported search folder '{folder}'; expected inbox, archive, trash, sent, drafts, tasks, needs, wants, or done"
         ))),
     }
 }

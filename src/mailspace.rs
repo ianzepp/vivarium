@@ -9,6 +9,8 @@ use crate::store::secure_create_dir_all;
 
 mod delivery;
 mod dump;
+mod event_log;
+mod kind;
 #[cfg(test)]
 mod tests;
 
@@ -52,6 +54,8 @@ pub struct IdentityStatus {
     pub address: String,
     pub inbox_unread: usize,
     pub tasks_open: usize,
+    pub needs_open: usize,
+    pub wants_open: usize,
     pub done: usize,
 }
 
@@ -59,6 +63,8 @@ pub struct IdentityStatus {
 pub struct StatusTotals {
     pub inbox_unread: usize,
     pub tasks_open: usize,
+    pub needs_open: usize,
+    pub wants_open: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -207,14 +213,22 @@ impl Mailspace {
                 storage.count_messages_for_account_role(&identity.name, "inbox", Some(false))?;
             let tasks_open =
                 storage.count_messages_for_account_role(&identity.name, "tasks", None)?;
+            let needs_open =
+                storage.count_messages_for_account_role(&identity.name, "needs", None)?;
+            let wants_open =
+                storage.count_messages_for_account_role(&identity.name, "wants", None)?;
             let done = storage.count_messages_for_account_role(&identity.name, "done", None)?;
             totals.inbox_unread += inbox_unread;
             totals.tasks_open += tasks_open;
+            totals.needs_open += needs_open;
+            totals.wants_open += wants_open;
             identities.push(IdentityStatus {
                 identity: identity.name.clone(),
                 address: self.address_for(&identity.name),
                 inbox_unread,
                 tasks_open,
+                needs_open,
+                wants_open,
                 done,
             });
         }
@@ -234,16 +248,23 @@ pub fn print_status(status: &MailspaceStatus) {
     println!("root      {}", status.root.display());
     println!("store     {}", status.store.display());
     println!();
-    println!("identity  inbox unread  tasks open  done");
+    println!("identity  inbox unread  tasks open  needs open  wants open  done");
     for identity in &status.identities {
         println!(
-            "{:<9} {:<13} {:<11} {}",
-            identity.identity, identity.inbox_unread, identity.tasks_open, identity.done
+            "{:<9} {:<13} {:<11} {:<11} {:<11} {}",
+            identity.identity,
+            identity.inbox_unread,
+            identity.tasks_open,
+            identity.needs_open,
+            identity.wants_open,
+            identity.done
         );
     }
     println!();
     println!("total unread mail: {}", status.totals.inbox_unread);
     println!("total open tasks: {}", status.totals.tasks_open);
+    println!("total open needs: {}", status.totals.needs_open);
+    println!("total open wants: {}", status.totals.wants_open);
 }
 
 pub fn canonical_local_role(role: &str) -> Result<String, VivariumError> {
@@ -254,9 +275,11 @@ pub fn canonical_local_role(role: &str) -> Result<String, VivariumError> {
         "sent" => Ok("sent".into()),
         "draft" | "drafts" => Ok("drafts".into()),
         "task" | "tasks" | "open" => Ok("tasks".into()),
+        "need" | "needs" => Ok("needs".into()),
+        "want" | "wants" => Ok("wants".into()),
         "done" | "closed" => Ok("done".into()),
         _ => Err(VivariumError::Message(format!(
-            "unsupported local folder '{role}'; expected inbox, archive, trash, sent, drafts, tasks, or done"
+            "unsupported local folder '{role}'; expected inbox, archive, trash, sent, drafts, tasks, needs, wants, or done"
         ))),
     }
 }

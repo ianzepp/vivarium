@@ -319,6 +319,122 @@ fn dump_commands_filter_mail_and_tasks_for_board_review() {
     );
 }
 
+#[test]
+fn want_promotes_to_need_and_done_without_polluting_task_done() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+
+    let want = vivi([
+        "want",
+        "send",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "ceo",
+        "--to",
+        "ceo",
+        "--subject",
+        "Improve board visibility",
+        "--body",
+        "Consider a future governance dashboard.",
+    ]);
+    assert_success(&want);
+    let want_handle = handle_after(&stdout(&want), "created ceo");
+
+    let want_list = vivi([
+        "want",
+        "list",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "ceo",
+    ]);
+    assert_success(&want_list);
+    assert!(stdout(&want_list).contains(&want_handle));
+
+    let promoted = vivi([
+        "want",
+        "promote",
+        "--project",
+        project.path().to_str().unwrap(),
+        &want_handle,
+        "--for",
+        "ceo",
+        "--note",
+        "Prioritize next cycle.",
+    ]);
+    assert_success(&promoted);
+    assert!(stdout(&promoted).contains(&format!("promoted {want_handle}")));
+
+    let need_list = vivi([
+        "need",
+        "list",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "ceo",
+    ]);
+    assert_success(&need_list);
+    assert!(stdout(&need_list).contains(&want_handle));
+
+    let done = vivi([
+        "need",
+        "done",
+        "--project",
+        project.path().to_str().unwrap(),
+        &want_handle,
+        "--for",
+        "ceo",
+        "--note",
+        "Delegated and completed.",
+    ]);
+    assert_success(&done);
+    assert!(stdout(&done).contains(&format!("done {want_handle}")));
+
+    let done_tasks = vivi([
+        "task",
+        "list",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "ceo",
+        "--status",
+        "done",
+    ]);
+    assert_success(&done_tasks);
+    assert!(!stdout(&done_tasks).contains(&want_handle));
+
+    let done_needs = vivi([
+        "need",
+        "dump",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "ceo",
+        "--status",
+        "done",
+        "--json",
+    ]);
+    assert_success(&done_needs);
+    let done_needs_stdout = stdout(&done_needs);
+    assert!(
+        done_needs_stdout.contains(&want_handle),
+        "{done_needs_stdout}"
+    );
+    assert!(
+        done_needs_stdout.contains("\"command\": \"want promote\""),
+        "{done_needs_stdout}"
+    );
+    assert!(
+        done_needs_stdout.contains("\"command\": \"need done\""),
+        "{done_needs_stdout}"
+    );
+    assert!(
+        done_needs_stdout.contains("\"kind\": \"need\""),
+        "{done_needs_stdout}"
+    );
+}
+
 fn init_roster(project: &std::path::Path) {
     assert_success(&vivi([
         "mailspace",

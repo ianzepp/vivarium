@@ -1,6 +1,11 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
+
+mod work_command;
+pub use work_command::{
+    MailDumpCommand, NeedCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus, WantCommand,
+};
 
 #[derive(Debug, Subcommand)]
 pub enum MailspaceCommand {
@@ -201,119 +206,4 @@ pub enum TaskCommand {
         #[arg(long)]
         project: Option<PathBuf>,
     },
-}
-
-#[derive(Debug, Clone, ValueEnum)]
-pub enum TaskStatus {
-    Open,
-    Done,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct MailDumpCommand {
-    /// Identity whose local mailbox should be dumped
-    #[arg(long = "for")]
-    pub for_identity: Option<String>,
-
-    /// Sender identity or address filter
-    #[arg(long)]
-    pub from: Option<String>,
-
-    /// Recipient identity or address filter
-    #[arg(long)]
-    pub to: Option<String>,
-
-    /// Identity or address involved as sender, recipient, or mailbox owner
-    #[arg(long)]
-    pub participant: Option<String>,
-
-    /// Folder role to dump, or all mail folders
-    #[arg(long, default_value = "all")]
-    pub folder: String,
-
-    /// Case-insensitive subject substring filter
-    #[arg(long)]
-    pub subject: Option<String>,
-
-    /// Case-insensitive text body substring filter
-    #[arg(long)]
-    pub body: Option<String>,
-
-    /// Include messages on or after this time (RFC3339, YYYY-MM-DD, Nh, Nd, or Nw)
-    #[arg(long)]
-    pub since: Option<String>,
-
-    /// Include messages before this time (RFC3339, YYYY-MM-DD, Nh, Nd, or Nw)
-    #[arg(long)]
-    pub before: Option<String>,
-
-    /// Output as JSON
-    #[arg(long)]
-    pub json: bool,
-
-    /// Write dump output to a file instead of stdout
-    #[arg(long)]
-    pub output: Option<PathBuf>,
-
-    /// Project root to use
-    #[arg(long)]
-    pub project: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct TaskDumpCommand {
-    /// Identity whose local task mailbox should be dumped
-    #[arg(long = "for")]
-    pub for_identity: Option<String>,
-
-    /// Task creator identity or address filter
-    #[arg(long)]
-    pub from: Option<String>,
-
-    /// Task owner identity or address filter
-    #[arg(long)]
-    pub to: Option<String>,
-
-    /// Identity or address involved as creator, owner, or mailbox account
-    #[arg(long)]
-    pub participant: Option<String>,
-
-    /// Task status to dump
-    #[arg(long, default_value = "all")]
-    pub status: TaskDumpStatusArg,
-
-    /// Case-insensitive subject substring filter
-    #[arg(long)]
-    pub subject: Option<String>,
-
-    /// Case-insensitive task body substring filter
-    #[arg(long)]
-    pub body: Option<String>,
-
-    /// Include tasks on or after this time (RFC3339, YYYY-MM-DD, Nh, Nd, or Nw)
-    #[arg(long)]
-    pub since: Option<String>,
-
-    /// Include tasks before this time (RFC3339, YYYY-MM-DD, Nh, Nd, or Nw)
-    #[arg(long)]
-    pub before: Option<String>,
-
-    /// Output as JSON
-    #[arg(long)]
-    pub json: bool,
-
-    /// Write dump output to a file instead of stdout
-    #[arg(long)]
-    pub output: Option<PathBuf>,
-
-    /// Project root to use
-    #[arg(long)]
-    pub project: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, ValueEnum)]
-pub enum TaskDumpStatusArg {
-    Open,
-    Done,
-    All,
 }

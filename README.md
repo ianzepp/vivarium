@@ -236,6 +236,22 @@ vivi task done <handle> --for cto
 vivi task list --for cto --status done
 ```
 
+Needs and wants are also local messages with stable handles. Wants are parked in
+`Wants` for later prioritization. Promoting a want moves it to `Needs`, where it
+becomes first-cycle review material for the owner. Completing a need moves it
+to `Done` without mixing it into completed task listings.
+
+```sh
+vivi want send --from ceo --to ceo \
+  --subject "Improve board visibility" \
+  --body "Consider a future governance dashboard."
+
+vivi want promote <handle> --for ceo --note "Prioritize next cycle"
+vivi need list --for ceo
+vivi need done <handle> --for ceo --note "Delegated and completed"
+vivi need dump --for ceo --status all --json
+```
+
 For board reviews and agent audits, dump local mail or tasks into one
 chronological dossier. Dumps can filter by mailbox owner, sender, recipient,
 participant, subject, body text, and review window:
@@ -243,6 +259,8 @@ participant, subject, body text, and review window:
 ```sh
 vivi mail dump --participant cto --since 48h --output board-mail-cto.md
 vivi task dump --participant cto --status all --body blocker --json
+vivi need dump --participant ceo --status all --json
+vivi want dump --participant ceo --json
 ```
 
 Mailspace actions performed through Vivi are recorded in a local event ledger.

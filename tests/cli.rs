@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use clap::Parser;
 use vivarium::cli::{
     AgentCommand, Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, MailCommand,
-    MailspaceCommand, MailspaceIdentityCommand, ProtonCommand, QueueCommand, TaskCommand,
-    TaskDumpStatusArg, TaskStatus,
+    MailspaceCommand, MailspaceIdentityCommand, NeedCommand, ProtonCommand, QueueCommand,
+    TaskCommand, TaskDumpStatusArg, TaskStatus, WantCommand,
 };
 
 #[test]
@@ -264,6 +264,62 @@ fn parses_task_dump_status_all() {
             assert_eq!(command.for_identity.as_deref(), Some("cto"));
             assert!(matches!(command.status, TaskDumpStatusArg::All));
             assert_eq!(command.output, Some(PathBuf::from("tasks.md")));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_need_done_with_note() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "need",
+        "done",
+        "abc123",
+        "--for",
+        "ceo",
+        "--note",
+        "tasks completed",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Need {
+            command:
+                NeedCommand::Done {
+                    handle,
+                    for_identity,
+                    note,
+                    project,
+                },
+        } => {
+            assert_eq!(handle, "abc123");
+            assert_eq!(for_identity, "ceo");
+            assert_eq!(note.as_deref(), Some("tasks completed"));
+            assert_eq!(project, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_want_promote() {
+    let cli = Cli::try_parse_from(["vivi", "want", "promote", "abc123", "--for", "ceo"]).unwrap();
+
+    match cli.command {
+        Command::Want {
+            command:
+                WantCommand::Promote {
+                    handle,
+                    for_identity,
+                    note,
+                    project,
+                },
+        } => {
+            assert_eq!(handle, "abc123");
+            assert_eq!(for_identity, "ceo");
+            assert_eq!(note, None);
+            assert_eq!(project, None);
         }
         other => panic!("unexpected command: {other:?}"),
     }

@@ -50,6 +50,9 @@ fn push_record(out: &mut String, record: &DumpRecord) {
         record.date, record.handle, status
     ));
     out.push_str(&format!("Role: {}\n", record.role));
+    if let Some(kind) = &record.kind {
+        out.push_str(&format!("Kind: {kind}\n"));
+    }
     out.push_str(&format!("Account: {}\n", record.account));
     out.push_str(&format!("From: {}\n", empty_marker(&record.from)));
     out.push_str(&format!("To: {}\n", empty_marker(&record.to)));

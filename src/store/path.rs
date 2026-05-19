@@ -14,6 +14,8 @@ pub(super) fn canonical_folder(folder: &str) -> Option<&'static str> {
         "sent" => "Sent",
         "draft" | "drafts" => "Drafts",
         "task" | "tasks" => "Tasks",
+        "need" | "needs" => "Needs",
+        "want" | "wants" => "Wants",
         "done" => "Done",
         "outbox" => "outbox",
         _ => return None,

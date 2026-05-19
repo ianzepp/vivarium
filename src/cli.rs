@@ -13,7 +13,7 @@ pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
 pub use mailspace_command::{
     LocalSendCommand, MailCommand, MailDumpCommand, MailspaceCommand, MailspaceIdentityCommand,
-    TaskCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus,
+    NeedCommand, TaskCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus, WantCommand,
 };
 pub use proton_command::ProtonCommand;
 pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
@@ -220,6 +220,18 @@ pub enum Command {
     Task {
         #[command(subcommand)]
         command: TaskCommand,
+    },
+
+    /// Send and complete project-local needs as prioritized mail
+    Need {
+        #[command(subcommand)]
+        command: NeedCommand,
+    },
+
+    /// Send and promote project-local wants for later prioritization
+    Want {
+        #[command(subcommand)]
+        command: WantCommand,
     },
 
     /// Show one or more messages by ID
