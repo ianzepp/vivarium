@@ -199,6 +199,14 @@ pub enum Command {
         #[arg(long)]
         read: bool,
 
+        /// List only starred/flagged messages
+        #[arg(long, visible_alias = "flagged", conflicts_with = "unstarred")]
+        starred: bool,
+
+        /// List only unstarred/unflagged messages
+        #[arg(long, visible_alias = "unflagged")]
+        unstarred: bool,
+
         /// Output as JSON
         #[arg(long)]
         json: bool,

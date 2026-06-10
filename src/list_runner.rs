@@ -10,6 +10,8 @@ struct ListRequest<'a> {
     before: Option<String>,
     unread: bool,
     read: bool,
+    starred: bool,
+    unstarred: bool,
     json: bool,
 }
 
@@ -30,6 +32,8 @@ impl Runtime {
             before,
             unread,
             read,
+            starred,
+            unstarred,
             json,
         } = command
         else {
@@ -43,6 +47,8 @@ impl Runtime {
             before,
             unread,
             read,
+            starred,
+            unstarred,
             json,
         })
     }
@@ -53,6 +59,11 @@ impl Runtime {
         let read_state = match (request.unread, request.read) {
             (true, false) => Some(false),
             (false, true) => Some(true),
+            _ => None,
+        };
+        let starred = match (request.starred, request.unstarred) {
+            (true, false) => Some(true),
+            (false, true) => Some(false),
             _ => None,
         };
         let accounts = match &self.account {
@@ -70,6 +81,7 @@ impl Runtime {
                 request.limit,
                 request.filter,
                 read_state,
+                starred,
             );
             if request.json {
                 json_output.push(ListAccountOutput {

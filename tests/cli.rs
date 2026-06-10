@@ -89,6 +89,8 @@ fn parses_list_filter() {
             filter,
             unread,
             read,
+            starred,
+            unstarred,
             json,
             ..
         } => {
@@ -96,10 +98,48 @@ fn parses_list_filter() {
             assert_eq!(filter.as_deref(), Some("DoorDash"));
             assert!(unread);
             assert!(!read);
+            assert!(!starred);
+            assert!(!unstarred);
             assert!(json);
         }
         other => panic!("unexpected command: {other:?}"),
     }
+}
+
+#[test]
+fn parses_list_starred_filter() {
+    let cli = Cli::try_parse_from(["vivi", "list", "--starred"]).unwrap();
+
+    match cli.command {
+        Command::List {
+            folder,
+            starred,
+            unstarred,
+            ..
+        } => {
+            assert_eq!(folder, "inbox");
+            assert!(starred);
+            assert!(!unstarred);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_list_flagged_alias() {
+    let cli = Cli::try_parse_from(["vivi", "list", "--flagged"]).unwrap();
+
+    match cli.command {
+        Command::List { starred, .. } => assert!(starred),
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_multiple_list_star_modes() {
+    let err = Cli::try_parse_from(["vivi", "list", "--starred", "--unstarred"]).unwrap_err();
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
 }
 
 #[test]

@@ -313,6 +313,7 @@ vivi list                                      # list inbox (default)
 vivi list sent                                 # list sent folder
 vivi list -n 25                                # list the 25 newest inbox messages
 vivi list inbox --filter DoorDash              # list inbox messages matching handle, sender, or subject
+vivi list --flagged                            # list inbox messages with the starred/flagged IMAP flag
 vivi list --since 3mo                          # list inbox messages from the last 3 months
 vivi list --since 2025-05-02 --before 2026-05-02
 vivi show 4f8c2d1                              # read a message by short handle
