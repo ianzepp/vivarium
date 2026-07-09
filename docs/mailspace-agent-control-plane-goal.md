@@ -58,7 +58,9 @@ Workbench Stage 3/4):
    existing `@path` behavior, plus `--body-file <path>` and/or `--body -`
    (stdin) on local `mail`/`task`/`need`/`want` send commands where missing.
 6. **Want lifecycle:** `want` supports closing obsolete items (done/drop/archive
-   or equivalent folder move) in addition to `promote`. Board caps or
+   or equivalent folder move) in addition to `promote`, and `want list` gains
+   an explicit status selector (`--status open|done|all` or equivalent) so
+   closed wants stay inspectable without promoting them to needs. Board caps or
    `--wants N` prevent want scrapbooks from dominating output.
 7. **Status honesty:** `mailspace status` (text + `--json`) reports
    `actionable_open` (tasks+needs) distinctly from unread mail and wants, so
@@ -93,6 +95,9 @@ Workbench Stage 3/4):
 - CLI surface today: `vivi task|need|want list|dump|send|show|…`,
   `vivi mailspace status`, dump filters include `--since` / `--json` /
   `--status` (dump default **all** for tasks—agent hazard).
+- `vivi want list` currently lacks `--status`, unlike task/need list. Want
+  lifecycle work must add an inspectable closed-want path instead of silently
+  moving obsolete wants out of normal list visibility.
 - `src/mailspace.rs` `read_body_arg`: `@path` reads file bodies for send paths
   that use it; not the same UX as `--body-file` / stdin and easy for agents to
   miss.
@@ -198,7 +203,8 @@ Rough factory phases (delivery may merge/split at boundaries):
 ### Phase 4 — Body intake + want lifecycle
 
 - `--body-file` / stdin `-` aligned across local send commands; document `@path`.
-- Want close/drop/archive (or done-equivalent) + list status if needed.
+- Want close/drop/archive (or done-equivalent) + `want list --status
+  open|done|all` or an equivalent explicit status selector.
 - Optional send-time subject dedupe **warn** (non-fatal) for open items.
 
 ### Phase 5 — Docs, examples, release notes
@@ -246,7 +252,8 @@ Decision: **included**
   mail and wants.
 - Long residual evidence can be sent via file or stdin without shell-escaping a
   multi-KB string (and `@path` remains documented).
-- Obsolete wants can be closed without promoting them to needs.
+- Obsolete wants can be closed without promoting them to needs, and closed wants
+  remain listable/auditable through an explicit status filter.
 - README shows list/board-first intake; no new docs teach dump as the default
   loop.
 - **No** `gate` subcommand or binding stage license API ships under this goal.
