@@ -124,25 +124,7 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
 }
 
 fn send_local_mail(command: &LocalSendCommand) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(command.project.as_deref())?;
-    let result = mailspace.send(SendRequest {
-        from: command.from.clone(),
-        to: command.to.clone(),
-        cc: command.cc.clone(),
-        bcc: command.bcc.clone(),
-        subject: command.subject.clone(),
-        body: vivarium::mailspace::read_body_input(
-            command.body.as_deref(),
-            command.body_file.as_deref(),
-        )?,
-        role: "inbox".into(),
-        kind: Some("mail".into()),
-    })?;
-    for delivered in result.delivered {
-        println!("delivered {} {}", delivered.identity, delivered.handle);
-    }
-    println!("sent {}", result.sent);
-    Ok(())
+    send_mail(command, "inbox", "mail", "delivered")
 }
 
 fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
@@ -198,6 +180,15 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
 }
 
 fn send_task(command: &LocalSendCommand) -> Result<(), VivariumError> {
+    send_mail(command, "tasks", "task", "created")
+}
+
+fn send_mail(
+    command: &LocalSendCommand,
+    role: &str,
+    kind: &str,
+    delivered_label: &str,
+) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
     let result = mailspace.send(SendRequest {
         from: command.from.clone(),
@@ -209,11 +200,14 @@ fn send_task(command: &LocalSendCommand) -> Result<(), VivariumError> {
             command.body.as_deref(),
             command.body_file.as_deref(),
         )?,
-        role: "tasks".into(),
-        kind: Some("task".into()),
+        role: role.into(),
+        kind: Some(kind.into()),
     })?;
     for delivered in result.delivered {
-        println!("created {} {}", delivered.identity, delivered.handle);
+        println!(
+            "{delivered_label} {} {}",
+            delivered.identity, delivered.handle
+        );
     }
     println!("sent {}", result.sent);
     Ok(())
