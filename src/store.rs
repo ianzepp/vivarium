@@ -96,24 +96,10 @@ impl MailStore {
             entries.sort_by_key(|entry| Reverse(entry.date));
             return Ok(entries);
         }
-        let path = self.folder_path(folder);
-        if !path.exists() {
-            return Ok(vec![]);
-        }
 
         let mut entries = Vec::new();
-        for subdir in ["new", "cur"] {
-            let dir = path.join(subdir);
-            if !dir.exists() {
-                continue;
-            }
-            for entry in fs::read_dir(&dir)? {
-                let entry = entry?;
-                let file_path = entry.path();
-                if is_message_file(&file_path) {
-                    entries.push(MessageEntry::from_path(&file_path)?);
-                }
-            }
+        for file_path in self.outbox_message_paths()? {
+            entries.push(MessageEntry::from_path(&file_path)?);
         }
         entries.sort_by_key(|entry| Reverse(entry.date));
         Ok(entries)
@@ -203,26 +189,11 @@ impl MailStore {
             let storage = Storage::open(&self.root)?;
             return storage.local_sizes_by_role(&storage_role(folder));
         }
-        let path = self.folder_path(folder);
         let mut map = HashMap::new();
-        if !path.exists() {
-            return Ok(map);
-        }
-
-        for subdir in ["new", "cur"] {
-            let dir = path.join(subdir);
-            if !dir.exists() {
-                continue;
-            }
-            for entry in fs::read_dir(&dir)? {
-                let entry = entry?;
-                let file_path = entry.path();
-                if is_message_file(&file_path)
-                    && let Some(id) = message_id_from_path(&file_path)
-                {
-                    let size = fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
-                    map.insert(id, size);
-                }
+        for file_path in self.outbox_message_paths()? {
+            if let Some(id) = message_id_from_path(&file_path) {
+                let size = fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
+                map.insert(id, size);
             }
         }
         Ok(map)
@@ -239,27 +210,15 @@ impl MailStore {
             let storage = Storage::open(&self.root)?;
             return storage.rfc_index_by_role(&storage_role(folder));
         }
-        let path = self.folder_path(folder);
         let mut map = HashMap::new();
-        for subdir in ["new", "cur"] {
-            let dir = path.join(subdir);
-            if !dir.exists() {
-                continue;
-            }
-            for entry in fs::read_dir(&dir)? {
-                let entry = entry?;
-                let file_path = entry.path();
-                if !is_message_file(&file_path) {
-                    continue;
-                }
-                let data = fs::read(&file_path)?;
-                if let Some(rfc_id) = message_id_from_bytes(&data) {
-                    let size = fs::metadata(&file_path)?.len();
-                    let uid = message_id_from_path(&file_path)
-                        .and_then(|id| id.rsplit_once('-').and_then(|(_, uid)| uid.parse().ok()))
-                        .unwrap_or(0);
-                    map.insert(rfc_id, (uid, size));
-                }
+        for file_path in self.outbox_message_paths()? {
+            let data = fs::read(&file_path)?;
+            if let Some(rfc_id) = message_id_from_bytes(&data) {
+                let size = fs::metadata(&file_path)?.len();
+                let uid = message_id_from_path(&file_path)
+                    .and_then(|id| id.rsplit_once('-').and_then(|(_, uid)| uid.parse().ok()))
+                    .unwrap_or(0);
+                map.insert(rfc_id, (uid, size));
             }
         }
         Ok(map)
@@ -345,6 +304,29 @@ impl MailStore {
             .join(".vivarium_index")
             .join(canonical_folder(folder).unwrap_or(folder))
             .join(format!("{:016x}", stable_hash(rfc_message_id)))
+    }
+
+    fn outbox_message_paths(&self) -> Result<Vec<PathBuf>, VivariumError> {
+        let path = self.folder_path("outbox");
+        if !path.exists() {
+            return Ok(vec![]);
+        }
+
+        let mut paths = Vec::new();
+        for subdir in ["new", "cur"] {
+            let dir = path.join(subdir);
+            if !dir.exists() {
+                continue;
+            }
+            for entry in fs::read_dir(&dir)? {
+                let entry = entry?;
+                let file_path = entry.path();
+                if is_message_file(&file_path) {
+                    paths.push(file_path);
+                }
+            }
+        }
+        Ok(paths)
     }
 }
 
