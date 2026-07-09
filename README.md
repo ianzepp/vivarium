@@ -202,6 +202,7 @@ vivi mailspace init
 vivi mailspace identity add ceo
 vivi mailspace identity add cto
 vivi mailspace status
+vivi board
 ```
 
 The default local domain is derived from the project directory name. In a
@@ -253,14 +254,22 @@ vivi need done <handle> --for ceo --note "Delegated and completed"
 vivi need list --for ceo --status done --json
 ```
 
-For routine agent intake, start with list output and show one selected handle.
+For routine agent intake, start with status or board output, then show one
+selected handle. `vivi board` summarizes actionable open tasks and needs first,
+with wants capped as secondary backlog context:
+
+```sh
+vivi mailspace status --json
+vivi board --for cto --json
+vivi task list --for cto --json
+vivi need list --for ceo --json
+vivi task show <handle>
+```
+
 Use dumps for audits or export. Work dumps default to open tasks or needs;
 include `--status all` only when you intentionally want done history:
 
 ```sh
-vivi task list --for cto --json
-vivi need list --for ceo --json
-vivi task show <handle>
 
 vivi mail dump --participant cto --since 48h --output audit-mail-cto.md
 vivi task dump --participant cto --body blocker --json

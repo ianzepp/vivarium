@@ -425,6 +425,94 @@ fn human_stdout_dump_refuses_large_work_exports() {
 }
 
 #[test]
+fn board_and_status_report_actionable_work() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+
+    let task = send_work(project.path(), "task", "cto", "Fix parser", "Patch parser.");
+    let need = send_work(
+        project.path(),
+        "need",
+        "cto",
+        "Review patch",
+        "Review parser.",
+    );
+    let want_a = send_work(project.path(), "want", "cto", "Track idea A", "Idea A.");
+    let want_b = send_work(project.path(), "want", "cto", "Track idea B", "Idea B.");
+
+    let board = vivi([
+        "board",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--wants",
+        "1",
+    ]);
+    assert_success(&board);
+    let board_stdout = stdout(&board);
+    assert!(
+        board_stdout.contains("actionable open: 2"),
+        "{board_stdout}"
+    );
+    assert!(board_stdout.contains(&task), "{board_stdout}");
+    assert!(board_stdout.contains(&need), "{board_stdout}");
+    let visible_wants =
+        usize::from(board_stdout.contains(&want_a)) + usize::from(board_stdout.contains(&want_b));
+    assert_eq!(visible_wants, 1, "{board_stdout}");
+    assert!(
+        board_stdout.contains("wants hidden by cap: 1"),
+        "{board_stdout}"
+    );
+
+    let board_json = vivi([
+        "board",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--wants",
+        "1",
+        "--json",
+    ]);
+    assert_success(&board_json);
+    let board_value: Value = serde_json::from_str(&stdout(&board_json)).unwrap();
+    assert_eq!(board_value["totals"]["actionable_open"], 2);
+    assert_eq!(board_value["totals"]["wants_open"], 2);
+    let identity = &board_value["identities"].as_array().unwrap()[0];
+    assert_eq!(identity["actionable_open"], 2);
+    assert_eq!(identity["tasks"].as_array().unwrap().len(), 1);
+    assert_eq!(identity["needs"].as_array().unwrap().len(), 1);
+    assert_eq!(identity["wants"].as_array().unwrap().len(), 1);
+    assert_eq!(identity["wants_hidden"], 1);
+
+    let status = vivi([
+        "mailspace",
+        "status",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert_success(&status);
+    assert!(
+        stdout(&status).contains("total actionable open: 2"),
+        "{}",
+        stdout(&status)
+    );
+
+    let status_json = vivi([
+        "mailspace",
+        "status",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--json",
+    ]);
+    assert_success(&status_json);
+    let status_value: Value = serde_json::from_str(&stdout(&status_json)).unwrap();
+    assert_eq!(status_value["totals"]["actionable_open"], 2);
+    assert_eq!(status_value["totals"]["wants_open"], 2);
+}
+
+#[test]
 fn want_promotes_to_need_and_done_without_polluting_task_done() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());
@@ -589,6 +677,25 @@ fn init_roster(project: &std::path::Path) {
             project.to_str().unwrap(),
         ]));
     }
+}
+
+fn send_work(project: &std::path::Path, kind: &str, to: &str, subject: &str, body: &str) -> String {
+    let output = vivi([
+        kind,
+        "send",
+        "--project",
+        project.to_str().unwrap(),
+        "--from",
+        "ceo",
+        "--to",
+        to,
+        "--subject",
+        subject,
+        "--body",
+        body,
+    ]);
+    assert_success(&output);
+    handle_after(&stdout(&output), &format!("created {to}"))
 }
 
 fn vivi<I, S>(args: I) -> Output

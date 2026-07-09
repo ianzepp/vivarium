@@ -52,6 +52,7 @@ pub struct MailspaceStatus {
 pub struct IdentityStatus {
     pub identity: String,
     pub address: String,
+    pub actionable_open: usize,
     pub inbox_unread: usize,
     pub tasks_open: usize,
     pub needs_open: usize,
@@ -61,6 +62,7 @@ pub struct IdentityStatus {
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct StatusTotals {
+    pub actionable_open: usize,
     pub inbox_unread: usize,
     pub tasks_open: usize,
     pub needs_open: usize,
@@ -218,6 +220,8 @@ impl Mailspace {
             let wants_open =
                 storage.count_messages_for_account_role(&identity.name, "wants", None)?;
             let done = storage.count_messages_for_account_role(&identity.name, "done", None)?;
+            let actionable_open = tasks_open + needs_open;
+            totals.actionable_open += actionable_open;
             totals.inbox_unread += inbox_unread;
             totals.tasks_open += tasks_open;
             totals.needs_open += needs_open;
@@ -225,6 +229,7 @@ impl Mailspace {
             identities.push(IdentityStatus {
                 identity: identity.name.clone(),
                 address: self.address_for(&identity.name),
+                actionable_open,
                 inbox_unread,
                 tasks_open,
                 needs_open,
@@ -248,19 +253,21 @@ pub fn print_status(status: &MailspaceStatus) {
     println!("root      {}", status.root.display());
     println!("store     {}", status.store.display());
     println!();
-    println!("identity  inbox unread  tasks open  needs open  wants open  done");
+    println!("identity  actionable  tasks open  needs open  wants open  inbox unread  done");
     for identity in &status.identities {
         println!(
-            "{:<9} {:<13} {:<11} {:<11} {:<11} {}",
+            "{:<9} {:<11} {:<11} {:<11} {:<11} {:<13} {}",
             identity.identity,
-            identity.inbox_unread,
+            identity.actionable_open,
             identity.tasks_open,
             identity.needs_open,
             identity.wants_open,
+            identity.inbox_unread,
             identity.done
         );
     }
     println!();
+    println!("total actionable open: {}", status.totals.actionable_open);
     println!("total unread mail: {}", status.totals.inbox_unread);
     println!("total open tasks: {}", status.totals.tasks_open);
     println!("total open needs: {}", status.totals.needs_open);

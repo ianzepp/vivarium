@@ -161,6 +161,32 @@ fn parses_mailspace_identity_add() {
 }
 
 #[test]
+fn parses_board_command() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "board",
+        "--for",
+        "cto",
+        "--wants",
+        "3",
+        "--json",
+        "--project",
+        "/tmp/project",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Board(command) => {
+            assert_eq!(command.for_identity.as_deref(), Some("cto"));
+            assert_eq!(command.wants, 3);
+            assert!(command.json);
+            assert_eq!(command.project, Some(PathBuf::from("/tmp/project")));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_local_mail_send() {
     let cli = Cli::try_parse_from([
         "vivi",

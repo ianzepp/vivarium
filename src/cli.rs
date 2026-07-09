@@ -3,12 +3,14 @@ use std::path::PathBuf;
 use clap::{ArgGroup, Parser, Subcommand};
 
 mod agent_command;
+mod board_command;
 mod draft_command;
 mod index_command;
 mod mailspace_command;
 mod proton_command;
 mod write_command;
 pub use agent_command::AgentCommand;
+pub use board_command::BoardCommand;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
 pub use mailspace_command::{
@@ -211,6 +213,9 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+
+    /// Show project-local actionable work across tasks, needs, and wants
+    Board(BoardCommand),
 
     /// Manage a project-local Vivi mailspace
     Mailspace {

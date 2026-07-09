@@ -12,6 +12,15 @@ pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumE
             handle_mailspace_command(command)?;
             Ok(true)
         }
+        Command::Board(command) => {
+            crate::local_board_command::handle_board_command(
+                &command.for_identity,
+                command.project.as_deref(),
+                command.wants,
+                command.json,
+            )?;
+            Ok(true)
+        }
         Command::Mail { command } => {
             handle_mail_command(command)?;
             Ok(true)
