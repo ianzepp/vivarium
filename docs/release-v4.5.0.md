@@ -5,6 +5,9 @@ Vivarium 4.5.0 is the project-local mailspace control-plane checkpoint.
 ## Highlights
 
 - Adds `vivi board` for compact project-local task, need, and want review.
+- Adds `vivi board --since <time>` for incremental board reviews.
+- Adds `vivi board --watermark-file <path> --write-watermark` so agent loops
+  can resume from the last successful board review without replaying old work.
 - Adds `--json` to `task list`, `need list`, and `want list`.
 - Adds `actionable_open` to `mailspace status` text and JSON, counting open
   tasks plus open needs separately from unread mail and wants.
@@ -12,6 +15,7 @@ Vivarium 4.5.0 is the project-local mailspace control-plane checkpoint.
 - Adds `--body-file` and `--body -` for project-local mail/task/need/want
   sends.
 - Adds `want done`, `want drop`, and `want list --status open|done|all`.
+- Adds closeout notes for completed or dropped wants via `--note`.
 - Adds a human stdout safety guard for large dumps; use `--json` or
   `--output <path>` for full exports.
 
