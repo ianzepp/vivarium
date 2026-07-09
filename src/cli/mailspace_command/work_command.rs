@@ -19,6 +19,10 @@ pub enum NeedCommand {
         #[arg(long, default_value = "open")]
         status: TaskStatus,
 
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
         /// Project root to use
         #[arg(long)]
         project: Option<PathBuf>,
@@ -84,6 +88,10 @@ pub enum WantCommand {
         /// Identity whose wants should be listed
         #[arg(long = "for")]
         for_identity: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
 
         /// Project root to use
         #[arg(long)]
@@ -198,7 +206,7 @@ pub struct TaskDumpCommand {
     pub participant: Option<String>,
 
     /// Task status to dump
-    #[arg(long, default_value = "all")]
+    #[arg(long, default_value = "open")]
     pub status: TaskDumpStatusArg,
 
     /// Case-insensitive subject substring filter

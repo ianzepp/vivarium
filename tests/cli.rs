@@ -279,13 +279,39 @@ fn parses_task_list_done_status() {
                 TaskCommand::List {
                     for_identity,
                     status,
+                    json,
                     project,
                 },
         } => {
             assert_eq!(for_identity, "cto");
             assert!(matches!(status, TaskStatus::Done));
+            assert!(!json);
             assert_eq!(project, None);
         }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_task_list_json() {
+    let cli = Cli::try_parse_from(["vivi", "task", "list", "--for", "cto", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Task {
+            command: TaskCommand::List { json, .. },
+        } => assert!(json),
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn task_dump_defaults_to_open_status() {
+    let cli = Cli::try_parse_from(["vivi", "task", "dump", "--for", "cto"]).unwrap();
+
+    match cli.command {
+        Command::Task {
+            command: TaskCommand::Dump(command),
+        } => assert!(matches!(command.status, TaskDumpStatusArg::Open)),
         other => panic!("unexpected command: {other:?}"),
     }
 }

@@ -3,6 +3,9 @@ use std::path::Path;
 use vivarium::VivariumError;
 use vivarium::mailspace::DumpRecord;
 
+const MAX_STDOUT_DUMP_RECORDS: usize = 25;
+const MAX_STDOUT_DUMP_BYTES: usize = 64 * 1024;
+
 pub(crate) fn write_dump(
     title: &str,
     records: &[DumpRecord],
@@ -15,12 +18,32 @@ pub(crate) fn write_dump(
     } else {
         render_markdown(title, records)
     };
+    if !json && output.is_none() {
+        enforce_stdout_limit(title, records, rendered.len())?;
+    }
     if let Some(path) = output {
         std::fs::write(path, rendered)?;
     } else {
         println!("{rendered}");
     }
     Ok(())
+}
+
+fn enforce_stdout_limit(
+    title: &str,
+    records: &[DumpRecord],
+    rendered_len: usize,
+) -> Result<(), VivariumError> {
+    if records.len() <= MAX_STDOUT_DUMP_RECORDS && rendered_len <= MAX_STDOUT_DUMP_BYTES {
+        return Ok(());
+    }
+    Err(VivariumError::Message(format!(
+        "{title} matched {} records and {} bytes; refusing large human stdout dump. \
+         Narrow it with --status open, --since, --before, --subject, or --body, \
+         or export the full result with --json or --output <path>.",
+        records.len(),
+        rendered_len
+    )))
 }
 
 fn render_markdown(title: &str, records: &[DumpRecord]) -> String {

@@ -143,10 +143,11 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
         TaskCommand::List {
             for_identity,
             status,
+            json,
             project,
         } => {
             let mailspace = Mailspace::discover(project.as_deref())?;
-            crate::local_work_command::print_local_kind_list(
+            crate::local_work_list::print_work_list(
                 &mailspace,
                 for_identity,
                 match status {
@@ -154,6 +155,7 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
                     vivarium::cli::TaskStatus::Done => "done",
                 },
                 "task",
+                *json,
             )?;
         }
         TaskCommand::Show { handle, project } => {

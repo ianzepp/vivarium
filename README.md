@@ -232,6 +232,7 @@ vivi task send --from ceo --to cto \
   --body @task.md
 
 vivi task list --for cto
+vivi task list --for cto --json
 vivi task done <handle> --for cto
 vivi task list --for cto --status done
 ```
@@ -249,18 +250,22 @@ vivi want send --from ceo --to ceo \
 vivi want promote <handle> --for ceo --note "Prioritize next cycle"
 vivi need list --for ceo
 vivi need done <handle> --for ceo --note "Delegated and completed"
-vivi need dump --for ceo --status all --json
+vivi need list --for ceo --status done --json
 ```
 
-For board reviews and agent audits, dump local mail or tasks into one
-chronological dossier. Dumps can filter by mailbox owner, sender, recipient,
-participant, subject, body text, and review window:
+For routine agent intake, start with list output and show one selected handle.
+Use dumps for audits or export. Work dumps default to open tasks or needs;
+include `--status all` only when you intentionally want done history:
 
 ```sh
-vivi mail dump --participant cto --since 48h --output board-mail-cto.md
-vivi task dump --participant cto --status all --body blocker --json
-vivi need dump --participant ceo --status all --json
-vivi want dump --participant ceo --json
+vivi task list --for cto --json
+vivi need list --for ceo --json
+vivi task show <handle>
+
+vivi mail dump --participant cto --since 48h --output audit-mail-cto.md
+vivi task dump --participant cto --body blocker --json
+vivi need dump --participant ceo --status all --json --output audit-needs.json
+vivi want list --for ceo --json
 ```
 
 Mailspace actions performed through Vivi are recorded in a local event ledger.

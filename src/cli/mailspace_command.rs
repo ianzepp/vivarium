@@ -153,6 +153,10 @@ pub enum TaskCommand {
         #[arg(long, default_value = "open")]
         status: TaskStatus,
 
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
         /// Project root to use
         #[arg(long)]
         project: Option<PathBuf>,

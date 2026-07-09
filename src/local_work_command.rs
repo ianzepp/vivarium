@@ -12,14 +12,16 @@ pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumE
         NeedCommand::List {
             for_identity,
             status,
+            json,
             project,
         } => {
             let mailspace = Mailspace::discover(project.as_deref())?;
-            print_local_kind_list(
+            crate::local_work_list::print_work_list(
                 &mailspace,
                 for_identity,
                 status_role(status, "needs"),
                 "need",
+                *json,
             )?;
         }
         NeedCommand::Show { handle, project } => show_local_message(handle, project.as_deref())?,
@@ -61,10 +63,17 @@ pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumE
         WantCommand::Send(command) => send_local_item(command, "wants", "want", "created")?,
         WantCommand::List {
             for_identity,
+            json,
             project,
         } => {
             let mailspace = Mailspace::discover(project.as_deref())?;
-            print_local_kind_list(&mailspace, for_identity, "wants", "want")?;
+            crate::local_work_list::print_work_list(
+                &mailspace,
+                for_identity,
+                "wants",
+                "want",
+                *json,
+            )?;
         }
         WantCommand::Show { handle, project } => show_local_message(handle, project.as_deref())?,
         WantCommand::Dump(command) => dump_wants(command)?,
@@ -167,26 +176,6 @@ fn show_local_message(
     let storage = mailspace.storage()?;
     let data = storage.read_message(handle)?;
     println!("{}", message::render_message(&data)?);
-    Ok(())
-}
-
-pub(crate) fn print_local_kind_list(
-    mailspace: &Mailspace,
-    identity: &str,
-    role: &str,
-    kind: &str,
-) -> Result<(), VivariumError> {
-    let messages = mailspace.list_kind(identity, role, kind)?;
-    if messages.is_empty() {
-        println!("  no {kind}s in {role}");
-    } else {
-        for message in messages {
-            println!(
-                "  {}  {}  {}",
-                message.handle, message.from_addr, message.subject
-            );
-        }
-    }
     Ok(())
 }
 

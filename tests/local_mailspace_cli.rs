@@ -1,5 +1,6 @@
 use std::process::{Command, Output};
 
+use serde_json::Value;
 use vivarium::storage::Storage;
 
 #[test]
@@ -146,6 +147,23 @@ fn task_send_show_done_and_reopen_reads_expected_task() {
         "{open_stdout}"
     );
 
+    let open_json = vivi([
+        "task",
+        "list",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--json",
+    ]);
+    assert_success(&open_json);
+    let open_items: Value = serde_json::from_str(&stdout(&open_json)).unwrap();
+    let open_item = &open_items.as_array().unwrap()[0];
+    assert_eq!(open_item["handle"], handle);
+    assert_eq!(open_item["kind"], "task");
+    assert_eq!(open_item["status"], "open");
+    assert_eq!(open_item["last_event"]["command"], "task send");
+
     let show = vivi([
         "task",
         "show",
@@ -193,6 +211,24 @@ fn task_send_show_done_and_reopen_reads_expected_task() {
         done_stdout.contains("Implement local delivery"),
         "{done_stdout}"
     );
+
+    let done_json = vivi([
+        "task",
+        "list",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--status",
+        "done",
+        "--json",
+    ]);
+    assert_success(&done_json);
+    let done_items: Value = serde_json::from_str(&stdout(&done_json)).unwrap();
+    let done_item = &done_items.as_array().unwrap()[0];
+    assert_eq!(done_item["handle"], handle);
+    assert_eq!(done_item["status"], "done");
+    assert_eq!(done_item["last_event"]["command"], "task done");
 
     let reopened = vivi([
         "task",
@@ -278,6 +314,22 @@ fn dump_commands_filter_mail_and_tasks_for_board_review() {
     assert!(mail_stdout.contains("Events:"), "{mail_stdout}");
     assert!(mail_stdout.contains("mail send delivered"), "{mail_stdout}");
 
+    let default_task_dump = vivi([
+        "task",
+        "dump",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--participant",
+        "cto",
+        "--json",
+    ]);
+    assert_success(&default_task_dump);
+    let default_task_stdout = stdout(&default_task_dump);
+    assert!(
+        !default_task_stdout.contains(&task_handle),
+        "{default_task_stdout}"
+    );
+
     let task_dump = vivi([
         "task",
         "dump",
@@ -320,6 +372,59 @@ fn dump_commands_filter_mail_and_tasks_for_board_review() {
 }
 
 #[test]
+fn human_stdout_dump_refuses_large_work_exports() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+
+    for index in 0..26 {
+        assert_success(&vivi([
+            "task",
+            "send",
+            "--project",
+            project.path().to_str().unwrap(),
+            "--from",
+            "ceo",
+            "--to",
+            "cto",
+            "--subject",
+            &format!("Bulk task {index}"),
+            "--body",
+            "Short body.",
+        ]));
+    }
+
+    let dump = vivi([
+        "task",
+        "dump",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+    ]);
+    assert!(!dump.status.success(), "{}", stdout(&dump));
+    assert!(
+        stderr(&dump).contains("refusing large human stdout dump"),
+        "{}",
+        stderr(&dump)
+    );
+
+    let output_path = project.path().join("tasks.md");
+    let output_dump = vivi([
+        "task",
+        "dump",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--output",
+        output_path.to_str().unwrap(),
+    ]);
+    assert_success(&output_dump);
+    let rendered = std::fs::read_to_string(output_path).unwrap();
+    assert!(rendered.contains("count: 26"), "{rendered}");
+}
+
+#[test]
 fn want_promotes_to_need_and_done_without_polluting_task_done() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());
@@ -351,6 +456,22 @@ fn want_promotes_to_need_and_done_without_polluting_task_done() {
     ]);
     assert_success(&want_list);
     assert!(stdout(&want_list).contains(&want_handle));
+
+    let want_list_json = vivi([
+        "want",
+        "list",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "ceo",
+        "--json",
+    ]);
+    assert_success(&want_list_json);
+    let want_items: Value = serde_json::from_str(&stdout(&want_list_json)).unwrap();
+    let want_item = &want_items.as_array().unwrap()[0];
+    assert_eq!(want_item["handle"], want_handle);
+    assert_eq!(want_item["kind"], "want");
+    assert_eq!(want_item["status"], "open");
 
     let promoted = vivi([
         "want",
@@ -403,6 +524,22 @@ fn want_promotes_to_need_and_done_without_polluting_task_done() {
     ]);
     assert_success(&done_tasks);
     assert!(!stdout(&done_tasks).contains(&want_handle));
+
+    let default_need_dump = vivi([
+        "need",
+        "dump",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "ceo",
+        "--json",
+    ]);
+    assert_success(&default_need_dump);
+    let default_need_stdout = stdout(&default_need_dump);
+    assert!(
+        !default_need_stdout.contains(&want_handle),
+        "{default_need_stdout}"
+    );
 
     let done_needs = vivi([
         "need",
