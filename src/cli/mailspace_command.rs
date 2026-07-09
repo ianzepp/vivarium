@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand};
 
 mod work_command;
 pub use work_command::{
     MailDumpCommand, NeedCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus, WantCommand,
+    WantStatus,
 };
 
 #[derive(Debug, Subcommand)]
@@ -108,6 +109,11 @@ pub enum MailCommand {
 }
 
 #[derive(Debug, Parser)]
+#[command(group(
+    ArgGroup::new("body_input")
+        .required(true)
+        .args(["body", "body_file"])
+))]
 pub struct LocalSendCommand {
     /// Local sender identity or address
     #[arg(long)]
@@ -131,7 +137,11 @@ pub struct LocalSendCommand {
 
     /// Message body, or @path to read body from a file
     #[arg(long)]
-    pub body: String,
+    pub body: Option<String>,
+
+    /// Read message body from a file
+    #[arg(long)]
+    pub body_file: Option<PathBuf>,
 
     /// Project root to use
     #[arg(long)]

@@ -7,6 +7,7 @@ use crate::error::VivariumError;
 use crate::storage::Storage;
 use crate::store::secure_create_dir_all;
 
+mod body;
 mod delivery;
 mod dump;
 mod event_log;
@@ -14,6 +15,7 @@ mod kind;
 #[cfg(test)]
 mod tests;
 
+pub use body::{read_body_arg, read_body_input};
 pub use dump::{
     DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
 };
@@ -290,15 +292,6 @@ pub fn canonical_local_role(role: &str) -> Result<String, VivariumError> {
         _ => Err(VivariumError::Message(format!(
             "unsupported local folder '{role}'; expected inbox, archive, trash, sent, drafts, tasks, needs, wants, or done"
         ))),
-    }
-}
-
-pub fn read_body_arg(value: &str) -> Result<String, VivariumError> {
-    if let Some(path) = value.strip_prefix('@') {
-        fs::read_to_string(path)
-            .map_err(|e| VivariumError::Message(format!("failed to read body file {path}: {e}")))
-    } else {
-        Ok(value.to_string())
     }
 }
 

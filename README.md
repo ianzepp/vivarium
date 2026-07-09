@@ -252,6 +252,8 @@ vivi want promote <handle> --for ceo --note "Prioritize next cycle"
 vivi need list --for ceo
 vivi need done <handle> --for ceo --note "Delegated and completed"
 vivi need list --for ceo --status done --json
+vivi want done <handle> --for ceo --note "No longer relevant"
+vivi want list --for ceo --status done --json
 ```
 
 For routine agent intake, start with status or board output, then show one
@@ -266,6 +268,14 @@ vivi board --for cto --watermark-file .vivi/agent-board.watermark --write-waterm
 vivi task list --for cto --json
 vivi need list --for ceo --json
 vivi task show <handle>
+```
+
+For long local bodies, keep using `--body @path` or pass an explicit body file.
+`--body -` reads stdin:
+
+```sh
+vivi task send --from ceo --to cto --subject "Review evidence" --body-file evidence.md
+printf "Long residual evidence\n" | vivi need send --from cto --to ceo --subject "Residual" --body -
 ```
 
 Use dumps for audits or export. Work dumps default to open tasks or needs;

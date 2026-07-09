@@ -89,6 +89,10 @@ pub enum WantCommand {
         #[arg(long = "for")]
         for_identity: String,
 
+        /// Want folder status
+        #[arg(long, default_value = "open")]
+        status: WantStatus,
+
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -128,12 +132,55 @@ pub enum WantCommand {
         #[arg(long)]
         project: Option<PathBuf>,
     },
+
+    /// Move a want from Wants to Done
+    Done {
+        /// Want handle or unambiguous prefix
+        handle: String,
+
+        /// Identity closing the want
+        #[arg(long = "for")]
+        for_identity: String,
+
+        /// Optional close note recorded in the mailspace event ledger
+        #[arg(long)]
+        note: Option<String>,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+
+    /// Alias for closing an obsolete want
+    Drop {
+        /// Want handle or unambiguous prefix
+        handle: String,
+
+        /// Identity closing the want
+        #[arg(long = "for")]
+        for_identity: String,
+
+        /// Optional close note recorded in the mailspace event ledger
+        #[arg(long)]
+        note: Option<String>,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum TaskStatus {
     Open,
     Done,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum WantStatus {
+    Open,
+    Done,
+    All,
 }
 
 #[derive(Debug, Clone, Args)]

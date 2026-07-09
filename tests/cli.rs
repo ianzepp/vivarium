@@ -221,6 +221,36 @@ fn parses_local_mail_send() {
             assert_eq!(command.from, "ceo");
             assert_eq!(command.to, vec!["cto"]);
             assert_eq!(command.subject, "review");
+            assert_eq!(command.body.as_deref(), Some("please review"));
+            assert_eq!(command.body_file, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_local_mail_send_body_file() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "mail",
+        "send",
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "review",
+        "--body-file",
+        "body.md",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Mail {
+            command: MailCommand::Send(command),
+        } => {
+            assert_eq!(command.body, None);
+            assert_eq!(command.body_file, Some(PathBuf::from("body.md")));
         }
         other => panic!("unexpected command: {other:?}"),
     }
@@ -645,6 +675,54 @@ fn parses_compose_from() {
     match cli.command {
         Command::Compose(vivarium::cli::ComposeCommand { from, .. }) => {
             assert_eq!(from.as_deref(), Some("Alias <alias@example.com>"));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_want_list_status_all() {
+    let cli =
+        Cli::try_parse_from(["vivi", "want", "list", "--for", "ceo", "--status", "all"]).unwrap();
+
+    match cli.command {
+        Command::Want {
+            command: WantCommand::List { status, .. },
+        } => assert!(matches!(status, vivarium::cli::WantStatus::All)),
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_want_done_and_drop() {
+    let done = Cli::try_parse_from(["vivi", "want", "done", "abc123", "--for", "ceo"]).unwrap();
+    match done.command {
+        Command::Want {
+            command:
+                WantCommand::Done {
+                    handle,
+                    for_identity,
+                    ..
+                },
+        } => {
+            assert_eq!(handle, "abc123");
+            assert_eq!(for_identity, "ceo");
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let drop = Cli::try_parse_from(["vivi", "want", "drop", "abc123", "--for", "ceo"]).unwrap();
+    match drop.command {
+        Command::Want {
+            command:
+                WantCommand::Drop {
+                    handle,
+                    for_identity,
+                    ..
+                },
+        } => {
+            assert_eq!(handle, "abc123");
+            assert_eq!(for_identity, "ceo");
         }
         other => panic!("unexpected command: {other:?}"),
     }

@@ -81,23 +81,7 @@ fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumEr
 
 fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
     match command {
-        MailCommand::Send(command) => {
-            let mailspace = Mailspace::discover(command.project.as_deref())?;
-            let result = mailspace.send(SendRequest {
-                from: command.from.clone(),
-                to: command.to.clone(),
-                cc: command.cc.clone(),
-                bcc: command.bcc.clone(),
-                subject: command.subject.clone(),
-                body: vivarium::mailspace::read_body_arg(&command.body)?,
-                role: "inbox".into(),
-                kind: Some("mail".into()),
-            })?;
-            for delivered in result.delivered {
-                println!("delivered {} {}", delivered.identity, delivered.handle);
-            }
-            println!("sent {}", result.sent);
-        }
+        MailCommand::Send(command) => send_local_mail(command)?,
         MailCommand::Deliver {
             path,
             folder,
@@ -136,6 +120,28 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
             )?;
         }
     }
+    Ok(())
+}
+
+fn send_local_mail(command: &LocalSendCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    let result = mailspace.send(SendRequest {
+        from: command.from.clone(),
+        to: command.to.clone(),
+        cc: command.cc.clone(),
+        bcc: command.bcc.clone(),
+        subject: command.subject.clone(),
+        body: vivarium::mailspace::read_body_input(
+            command.body.as_deref(),
+            command.body_file.as_deref(),
+        )?,
+        role: "inbox".into(),
+        kind: Some("mail".into()),
+    })?;
+    for delivered in result.delivered {
+        println!("delivered {} {}", delivered.identity, delivered.handle);
+    }
+    println!("sent {}", result.sent);
     Ok(())
 }
 
@@ -199,7 +205,10 @@ fn send_task(command: &LocalSendCommand) -> Result<(), VivariumError> {
         cc: command.cc.clone(),
         bcc: command.bcc.clone(),
         subject: command.subject.clone(),
-        body: vivarium::mailspace::read_body_arg(&command.body)?,
+        body: vivarium::mailspace::read_body_input(
+            command.body.as_deref(),
+            command.body_file.as_deref(),
+        )?,
         role: "tasks".into(),
         kind: Some("task".into()),
     })?;

@@ -9,6 +9,9 @@ Vivarium 4.5.0 is the project-local mailspace control-plane checkpoint.
 - Adds `actionable_open` to `mailspace status` text and JSON, counting open
   tasks plus open needs separately from unread mail and wants.
 - Adds richer work-list rows with status, date, and last-event context.
+- Adds `--body-file` and `--body -` for project-local mail/task/need/want
+  sends.
+- Adds `want done`, `want drop`, and `want list --status open|done|all`.
 - Adds a human stdout safety guard for large dumps; use `--json` or
   `--output <path>` for full exports.
 

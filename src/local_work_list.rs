@@ -32,17 +32,28 @@ pub(crate) fn print_work_list(
     kind: &str,
     json: bool,
 ) -> Result<(), VivariumError> {
-    let messages = mailspace.list_kind(identity, role, kind)?;
+    print_work_lists(mailspace, identity, &[role], kind, json)
+}
+
+pub(crate) fn print_work_lists(
+    mailspace: &Mailspace,
+    identity: &str,
+    roles: &[&str],
+    kind: &str,
+    json: bool,
+) -> Result<(), VivariumError> {
     let storage = mailspace.storage()?;
     let mut items = Vec::new();
-    for message in messages {
-        let events = storage.list_mailspace_events(&message.message_id)?;
-        items.push(work_list_item(message, kind, &events));
+    for role in roles {
+        for message in mailspace.list_kind(identity, role, kind)? {
+            let events = storage.list_mailspace_events(&message.message_id)?;
+            items.push(work_list_item(message, kind, &events));
+        }
     }
     if json {
         print_json(&items)
     } else {
-        print_human(kind, role, &items);
+        print_human(kind, roles, &items);
         Ok(())
     }
 }
@@ -92,12 +103,13 @@ fn print_json(items: &[WorkListItem]) -> Result<(), VivariumError> {
     Ok(())
 }
 
-fn print_human(kind: &str, role: &str, items: &[WorkListItem]) {
+fn print_human(kind: &str, roles: &[&str], items: &[WorkListItem]) {
     if items.is_empty() {
+        let role = roles.join("/");
         println!("  no {kind}s in {role}");
         return;
     }
-    println!("  handle  status  date  from  subject  last_event");
+    println!("  handle  status  role  date  from  subject  last_event");
     for item in items {
         let last_event = item
             .last_event
@@ -105,8 +117,8 @@ fn print_human(kind: &str, role: &str, items: &[WorkListItem]) {
             .map(|event| event.command.as_str())
             .unwrap_or("-");
         println!(
-            "  {}  {}  {}  {}  {}  {}",
-            item.handle, item.status, item.date, item.from, item.subject, last_event
+            "  {}  {}  {}  {}  {}  {}  {}",
+            item.handle, item.status, item.role, item.date, item.from, item.subject, last_event
         );
     }
 }

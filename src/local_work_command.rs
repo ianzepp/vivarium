@@ -1,7 +1,7 @@
 use vivarium::VivariumError;
 use vivarium::cli::{
     LocalSendCommand, MailDumpCommand, NeedCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus,
-    WantCommand,
+    WantCommand, WantStatus,
 };
 use vivarium::mailspace::{DumpFilters, MailDumpRequest, Mailspace, SendRequest, TaskDumpRequest};
 use vivarium::message;
@@ -63,18 +63,10 @@ pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumE
         WantCommand::Send(command) => send_local_item(command, "wants", "want", "created")?,
         WantCommand::List {
             for_identity,
+            status,
             json,
             project,
-        } => {
-            let mailspace = Mailspace::discover(project.as_deref())?;
-            crate::local_work_list::print_work_list(
-                &mailspace,
-                for_identity,
-                "wants",
-                "want",
-                *json,
-            )?;
-        }
+        } => list_wants(for_identity, status, *json, project.as_deref())?,
         WantCommand::Show { handle, project } => show_local_message(handle, project.as_deref())?,
         WantCommand::Dump(command) => dump_wants(command)?,
         WantCommand::Promote {
@@ -91,8 +83,61 @@ pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumE
             "want promote",
             "promoted",
         )?,
+        WantCommand::Done {
+            handle,
+            for_identity,
+            note,
+            project,
+        } => close_want(
+            handle,
+            for_identity,
+            note,
+            project.as_deref(),
+            "want done",
+            "done",
+        )?,
+        WantCommand::Drop {
+            handle,
+            for_identity,
+            note,
+            project,
+        } => close_want(
+            handle,
+            for_identity,
+            note,
+            project.as_deref(),
+            "want drop",
+            "dropped",
+        )?,
     }
     Ok(())
+}
+
+fn list_wants(
+    for_identity: &str,
+    status: &WantStatus,
+    json: bool,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(project)?;
+    crate::local_work_list::print_work_lists(
+        &mailspace,
+        for_identity,
+        want_status_roles(status),
+        "want",
+        json,
+    )
+}
+
+fn close_want(
+    handle: &str,
+    for_identity: &str,
+    note: &Option<String>,
+    project: Option<&std::path::Path>,
+    command: &str,
+    verb: &str,
+) -> Result<(), VivariumError> {
+    move_item(handle, for_identity, note, project, "done", command, verb)
 }
 
 pub(crate) fn dump_tasks(command: &TaskDumpCommand) -> Result<(), VivariumError> {
@@ -142,7 +187,10 @@ fn send_local_item(
         cc: command.cc.clone(),
         bcc: command.bcc.clone(),
         subject: command.subject.clone(),
-        body: vivarium::mailspace::read_body_arg(&command.body)?,
+        body: vivarium::mailspace::read_body_input(
+            command.body.as_deref(),
+            command.body_file.as_deref(),
+        )?,
         role: role.into(),
         kind: Some(kind.into()),
     })?;
@@ -183,6 +231,14 @@ fn status_role(status: &TaskStatus, open_role: &'static str) -> &'static str {
     match status {
         TaskStatus::Open => open_role,
         TaskStatus::Done => "done",
+    }
+}
+
+fn want_status_roles(status: &WantStatus) -> &'static [&'static str] {
+    match status {
+        WantStatus::Open => &["wants"],
+        WantStatus::Done => &["done"],
+        WantStatus::All => &["wants", "done"],
     }
 }
 

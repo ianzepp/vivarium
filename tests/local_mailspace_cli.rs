@@ -1,4 +1,5 @@
-use std::process::{Command, Output};
+use std::io::Write;
+use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
 use vivarium::storage::Storage;
@@ -425,6 +426,71 @@ fn human_stdout_dump_refuses_large_work_exports() {
 }
 
 #[test]
+fn local_send_reads_body_file_and_stdin() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let body_file = project.path().join("body.md");
+    std::fs::write(&body_file, "Body from file.").unwrap();
+
+    let need = vivi([
+        "need",
+        "send",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "Read file body",
+        "--body-file",
+        body_file.to_str().unwrap(),
+    ]);
+    assert_success(&need);
+    let need_handle = handle_after(&stdout(&need), "created cto");
+
+    let shown_need = vivi([
+        "need",
+        "show",
+        "--project",
+        project.path().to_str().unwrap(),
+        &need_handle,
+    ]);
+    assert_success(&shown_need);
+    assert!(stdout(&shown_need).contains("Body from file."));
+
+    let task = vivi_with_stdin(
+        [
+            "task",
+            "send",
+            "--project",
+            project.path().to_str().unwrap(),
+            "--from",
+            "ceo",
+            "--to",
+            "cto",
+            "--subject",
+            "Read stdin body",
+            "--body",
+            "-",
+        ],
+        "Body from stdin.",
+    );
+    assert_success(&task);
+    let task_handle = handle_after(&stdout(&task), "created cto");
+
+    let shown_task = vivi([
+        "task",
+        "show",
+        "--project",
+        project.path().to_str().unwrap(),
+        &task_handle,
+    ]);
+    assert_success(&shown_task);
+    assert!(stdout(&shown_task).contains("Body from stdin."));
+}
+
+#[test]
 fn board_and_status_report_actionable_work() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());
@@ -558,6 +624,87 @@ fn board_and_status_report_actionable_work() {
     assert_success(&write_watermark);
     let written = std::fs::read_to_string(&watermark).unwrap();
     assert!(written.contains('T'), "{written}");
+}
+
+#[test]
+fn want_done_drop_and_status_lists_closed_wants() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+
+    let done_want = send_work(project.path(), "want", "ceo", "Close me", "Obsolete.");
+    let dropped_want = send_work(project.path(), "want", "ceo", "Drop me", "Also obsolete.");
+
+    let done = vivi([
+        "want",
+        "done",
+        "--project",
+        project.path().to_str().unwrap(),
+        &done_want,
+        "--for",
+        "ceo",
+        "--note",
+        "No longer needed.",
+    ]);
+    assert_success(&done);
+    assert!(stdout(&done).contains(&format!("done {done_want}")));
+
+    let dropped = vivi([
+        "want",
+        "drop",
+        "--project",
+        project.path().to_str().unwrap(),
+        &dropped_want,
+        "--for",
+        "ceo",
+    ]);
+    assert_success(&dropped);
+    assert!(stdout(&dropped).contains(&format!("dropped {dropped_want}")));
+
+    let open = vivi([
+        "want",
+        "list",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "ceo",
+    ]);
+    assert_success(&open);
+    assert!(!stdout(&open).contains(&done_want));
+    assert!(!stdout(&open).contains(&dropped_want));
+
+    let done_list = vivi([
+        "want",
+        "list",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "ceo",
+        "--status",
+        "done",
+        "--json",
+    ]);
+    assert_success(&done_list);
+    let done_items: Value = serde_json::from_str(&stdout(&done_list)).unwrap();
+    assert_eq!(done_items.as_array().unwrap().len(), 2);
+    assert!(stdout(&done_list).contains(&done_want));
+    assert!(stdout(&done_list).contains(&dropped_want));
+    assert!(stdout(&done_list).contains("\"kind\": \"want\""));
+    assert!(stdout(&done_list).contains("\"status\": \"done\""));
+
+    let all_list = vivi([
+        "want",
+        "list",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "ceo",
+        "--status",
+        "all",
+        "--json",
+    ]);
+    assert_success(&all_list);
+    assert!(stdout(&all_list).contains(&done_want));
+    assert!(stdout(&all_list).contains(&dropped_want));
 }
 
 #[test]
@@ -755,6 +902,27 @@ where
         .args(args)
         .output()
         .unwrap()
+}
+
+fn vivi_with_stdin<I, S>(args: I, stdin: &str) -> Output
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut child = Command::new(env!("CARGO_BIN_EXE_vivi"))
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
 }
 
 fn assert_success(output: &Output) {
