@@ -1,7 +1,11 @@
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::io::ErrorKind;
+use std::path::PathBuf;
 
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use vivarium::VivariumError;
+use vivarium::cli::BoardCommand;
 use vivarium::mailspace::Mailspace;
 use vivarium::storage::{MailspaceEvent, Storage, StoredMessageView};
 
@@ -51,33 +55,36 @@ struct BoardEvent {
     note: Option<String>,
 }
 
-pub(crate) fn handle_board_command(
-    for_identity: &Option<String>,
-    project: Option<&Path>,
-    wants_cap: usize,
-    json: bool,
-) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(project)?;
-    let board = build_board(&mailspace, for_identity.as_deref(), wants_cap)?;
-    if json {
-        print_json(&board)
+pub(crate) fn handle_board_command(command: &BoardCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    let since = resolve_since(command)?;
+    let board = build_board(
+        &mailspace,
+        command.for_identity.as_deref(),
+        command.wants,
+        since,
+    )?;
+    if command.json {
+        print_json(&board)?;
     } else {
         print_board(&board);
-        Ok(())
     }
+    write_watermark(command)?;
+    Ok(())
 }
 
 fn build_board(
     mailspace: &Mailspace,
     for_identity: Option<&str>,
     wants_cap: usize,
+    since: Option<DateTime<Utc>>,
 ) -> Result<Board, VivariumError> {
     let identities = board_identities(mailspace, for_identity)?;
     let storage = mailspace.storage()?;
     let mut boards = Vec::new();
     for identity in identities {
         boards.push(build_identity_board(
-            mailspace, &storage, &identity, wants_cap,
+            mailspace, &storage, &identity, wants_cap, since,
         )?);
     }
     Ok(Board {
@@ -108,20 +115,22 @@ fn build_identity_board(
     storage: &Storage,
     identity: &str,
     wants_cap: usize,
+    since: Option<DateTime<Utc>>,
 ) -> Result<IdentityBoard, VivariumError> {
     let tasks = board_items(
         storage,
         mailspace.list_kind(identity, "tasks", "task")?,
         None,
+        since,
     )?;
     let needs = board_items(
         storage,
         mailspace.list_kind(identity, "needs", "need")?,
         None,
+        since,
     )?;
     let wants_open = mailspace.list_kind(identity, "wants", "want")?;
-    let wants_count = wants_open.len();
-    let wants = board_items(storage, wants_open, Some(wants_cap))?;
+    let (wants, wants_count) = board_items_with_count(storage, wants_open, Some(wants_cap), since)?;
     Ok(IdentityBoard {
         identity: identity.into(),
         address: mailspace.address_for(identity),
@@ -137,14 +146,81 @@ fn board_items(
     storage: &Storage,
     messages: Vec<StoredMessageView>,
     cap: Option<usize>,
+    since: Option<DateTime<Utc>>,
 ) -> Result<Vec<BoardItem>, VivariumError> {
+    board_items_with_count(storage, messages, cap, since).map(|(items, _)| items)
+}
+
+fn board_items_with_count(
+    storage: &Storage,
+    messages: Vec<StoredMessageView>,
+    cap: Option<usize>,
+    since: Option<DateTime<Utc>>,
+) -> Result<(Vec<BoardItem>, usize), VivariumError> {
     let limit = cap.unwrap_or(usize::MAX);
     let mut items = Vec::new();
-    for message in messages.into_iter().take(limit) {
+    let mut matching = 0;
+    for message in messages {
         let events = storage.list_mailspace_events(&message.message_id)?;
-        items.push(board_item(message, &events));
+        if !changed_since(&message, &events, since) {
+            continue;
+        }
+        matching += 1;
+        if items.len() < limit {
+            items.push(board_item(message, &events));
+        }
     }
-    Ok(items)
+    Ok((items, matching))
+}
+
+fn resolve_since(command: &BoardCommand) -> Result<Option<DateTime<Utc>>, VivariumError> {
+    if let Some(since) = &command.since {
+        return vivarium::mailspace::parse_time_bound(since).map(Some);
+    }
+    let Some(path) = &command.watermark_file else {
+        return Ok(None);
+    };
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let value = raw.trim();
+    if value.is_empty() {
+        Ok(None)
+    } else {
+        vivarium::mailspace::parse_time_bound(value).map(Some)
+    }
+}
+
+fn changed_since(
+    message: &StoredMessageView,
+    events: &[MailspaceEvent],
+    since: Option<DateTime<Utc>>,
+) -> bool {
+    let Some(since) = since else {
+        return true;
+    };
+    timestamp_at_or_after(&message.date, since)
+        || events
+            .iter()
+            .any(|event| timestamp_at_or_after(&event.occurred_at, since))
+}
+
+fn timestamp_at_or_after(raw: &str, since: DateTime<Utc>) -> bool {
+    DateTime::parse_from_rfc3339(raw)
+        .map(|date| date.with_timezone(&Utc) >= since)
+        .unwrap_or(false)
+}
+
+fn write_watermark(command: &BoardCommand) -> Result<(), VivariumError> {
+    if !command.write_watermark {
+        return Ok(());
+    }
+    let Some(path) = &command.watermark_file else {
+        return Ok(());
+    };
+    fs::write(path, Utc::now().to_rfc3339()).map_err(Into::into)
 }
 
 fn board_item(message: StoredMessageView, events: &[MailspaceEvent]) -> BoardItem {

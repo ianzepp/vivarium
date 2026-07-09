@@ -14,7 +14,9 @@ mod kind;
 #[cfg(test)]
 mod tests;
 
-pub use dump::{DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus};
+pub use dump::{
+    DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
+};
 
 const MAILSPACE_DIR: &str = ".vivi";
 const MAILSPACE_CONFIG: &str = "mailspace.toml";

@@ -279,7 +279,7 @@ impl DumpWindow {
     }
 }
 
-fn parse_time_bound(value: &str) -> Result<DateTime<Utc>, VivariumError> {
+pub fn parse_time_bound(value: &str) -> Result<DateTime<Utc>, VivariumError> {
     if let Some(date) = relative_time_bound(value)? {
         return Ok(date);
     }

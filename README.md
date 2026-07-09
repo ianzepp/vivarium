@@ -261,6 +261,8 @@ with wants capped as secondary backlog context:
 ```sh
 vivi mailspace status --json
 vivi board --for cto --json
+vivi board --for cto --since 4h
+vivi board --for cto --watermark-file .vivi/agent-board.watermark --write-watermark
 vivi task list --for cto --json
 vivi need list --for ceo --json
 vivi task show <handle>

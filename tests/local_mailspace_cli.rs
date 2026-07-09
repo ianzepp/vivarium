@@ -510,6 +510,54 @@ fn board_and_status_report_actionable_work() {
     let status_value: Value = serde_json::from_str(&stdout(&status_json)).unwrap();
     assert_eq!(status_value["totals"]["actionable_open"], 2);
     assert_eq!(status_value["totals"]["wants_open"], 2);
+
+    let future_board = vivi([
+        "board",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--since",
+        "2999-01-01T00:00:00Z",
+        "--json",
+    ]);
+    assert_success(&future_board);
+    let future_value: Value = serde_json::from_str(&stdout(&future_board)).unwrap();
+    assert_eq!(future_value["totals"]["actionable_open"], 0);
+    assert_eq!(future_value["identities"][0]["wants_hidden"], 0);
+
+    let watermark = project.path().join("board.watermark");
+    std::fs::write(&watermark, "2999-01-01T00:00:00Z").unwrap();
+    let watermark_board = vivi([
+        "board",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--watermark-file",
+        watermark.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_success(&watermark_board);
+    let watermark_value: Value = serde_json::from_str(&stdout(&watermark_board)).unwrap();
+    assert_eq!(watermark_value["totals"]["actionable_open"], 0);
+
+    let write_watermark = vivi([
+        "board",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--since",
+        "1h",
+        "--watermark-file",
+        watermark.to_str().unwrap(),
+        "--write-watermark",
+        "--json",
+    ]);
+    assert_success(&write_watermark);
+    let written = std::fs::read_to_string(&watermark).unwrap();
+    assert!(written.contains('T'), "{written}");
 }
 
 #[test]

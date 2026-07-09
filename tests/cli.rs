@@ -169,6 +169,11 @@ fn parses_board_command() {
         "cto",
         "--wants",
         "3",
+        "--since",
+        "1h",
+        "--watermark-file",
+        "/tmp/board.watermark",
+        "--write-watermark",
         "--json",
         "--project",
         "/tmp/project",
@@ -179,6 +184,12 @@ fn parses_board_command() {
         Command::Board(command) => {
             assert_eq!(command.for_identity.as_deref(), Some("cto"));
             assert_eq!(command.wants, 3);
+            assert_eq!(command.since.as_deref(), Some("1h"));
+            assert_eq!(
+                command.watermark_file,
+                Some(PathBuf::from("/tmp/board.watermark"))
+            );
+            assert!(command.write_watermark);
             assert!(command.json);
             assert_eq!(command.project, Some(PathBuf::from("/tmp/project")));
         }
