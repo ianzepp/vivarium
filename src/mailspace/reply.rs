@@ -126,28 +126,11 @@ fn reply_recipients(
     parsed: &mail_parser::Message<'_>,
     from: &str,
 ) -> Result<Vec<String>, VivariumError> {
-    let mut recipients = Vec::new();
-    if let Some(addresses) = parsed.from() {
-        for address in addresses.iter() {
-            if let Some(value) = address.address.as_deref()
-                && let Ok(identity) = mailspace.resolve_identity(value)
-                && identity != from
-            {
-                recipients.push(identity);
-            }
-        }
-    }
+    let mut recipients = local_recipients(mailspace, parsed.from(), from);
     if recipients.is_empty()
         && let Some(addresses) = parsed.to()
     {
-        for address in addresses.iter() {
-            if let Some(value) = address.address.as_deref()
-                && let Ok(identity) = mailspace.resolve_identity(value)
-                && identity != from
-            {
-                recipients.push(identity);
-            }
-        }
+        recipients = local_recipients(mailspace, Some(addresses), from);
     }
     if recipients.is_empty() {
         return Err(VivariumError::Message(
@@ -155,6 +138,29 @@ fn reply_recipients(
         ));
     }
     Ok(recipients)
+}
+
+fn local_recipients(
+    mailspace: &Mailspace,
+    addresses: Option<&mail_parser::Address<'_>>,
+    from: &str,
+) -> Vec<String> {
+    let mut recipients = Vec::new();
+    let Some(addresses) = addresses else {
+        return recipients;
+    };
+    for address in addresses.iter() {
+        let Some(value) = address.address.as_deref() else {
+            continue;
+        };
+        let Ok(identity) = mailspace.resolve_identity(value) else {
+            continue;
+        };
+        if identity != from && !recipients.contains(&identity) {
+            recipients.push(identity);
+        }
+    }
+    recipients
 }
 
 fn reply_subject(subject: &str) -> String {
