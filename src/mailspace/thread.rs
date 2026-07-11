@@ -106,23 +106,19 @@ impl Mailspace {
 }
 
 fn thread_candidates(storage: &Storage) -> Result<Vec<ThreadCandidate>, VivariumError> {
-    storage
-        .list_messages()?
-        .into_iter()
-        .try_fold(Vec::new(), |mut candidates, view| {
-            if candidates
-                .iter()
-                .any(|candidate: &ThreadCandidate| candidate.view.content_id == view.content_id)
-            {
-                return Ok(candidates);
-            }
-            let data = storage.read_message(&view.message_id)?;
-            let events = storage.list_mailspace_events(&view.message_id)?;
-            let body = text_body(&data);
-            let kind = effective_kind(&view.local_role, &data, &events);
-            candidates.push(ThreadCandidate { view, body, kind });
-            Ok(candidates)
-        })
+    let mut seen = BTreeSet::new();
+    let mut candidates = Vec::new();
+    for view in storage.list_messages()? {
+        if !seen.insert(view.content_id.clone()) {
+            continue;
+        }
+        let data = storage.read_message(&view.message_id)?;
+        let events = storage.list_mailspace_events(&view.message_id)?;
+        let body = text_body(&data);
+        let kind = effective_kind(&view.local_role, &data, &events);
+        candidates.push(ThreadCandidate { view, body, kind });
+    }
+    Ok(candidates)
 }
 
 fn connected_content_ids(
@@ -208,13 +204,14 @@ fn infer_parent<'a>(
 }
 
 fn same_participants(left: &StoredMessageView, right: &StoredMessageView) -> bool {
-    let mut left_participants = BTreeSet::from([left.from_addr.to_ascii_lowercase()]);
-    left_participants.extend(left.to_addr.split(", ").map(str::to_ascii_lowercase));
-    left_participants.extend(left.cc_addr.split(", ").map(str::to_ascii_lowercase));
-    let mut right_participants = BTreeSet::from([right.from_addr.to_ascii_lowercase()]);
-    right_participants.extend(right.to_addr.split(", ").map(str::to_ascii_lowercase));
-    right_participants.extend(right.cc_addr.split(", ").map(str::to_ascii_lowercase));
-    left_participants == right_participants
+    participants(left) == participants(right)
+}
+
+fn participants(view: &StoredMessageView) -> BTreeSet<String> {
+    let mut participants = BTreeSet::from([view.from_addr.to_ascii_lowercase()]);
+    participants.extend(view.to_addr.split(", ").map(str::to_ascii_lowercase));
+    participants.extend(view.cc_addr.split(", ").map(str::to_ascii_lowercase));
+    participants
 }
 
 fn thread_message(
