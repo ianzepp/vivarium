@@ -198,6 +198,64 @@ fn parses_board_command() {
 }
 
 #[test]
+fn parses_board_with_global_project_before_subcommand() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "--project",
+        "/tmp/project",
+        "board",
+        "--for",
+        "mind",
+        "--json",
+    ])
+    .unwrap();
+
+    assert_eq!(cli.project, Some(PathBuf::from("/tmp/project")));
+    match cli.command {
+        Command::Board(command) => {
+            assert_eq!(command.for_identity.as_deref(), Some("mind"));
+            assert!(command.json);
+            // clap global --project also fills the board-local project field
+            assert_eq!(command.project, Some(PathBuf::from("/tmp/project")));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_task_list_with_global_project_before_subcommand() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "--project",
+        "/tmp/project",
+        "task",
+        "list",
+        "--for",
+        "hand-1",
+        "--status",
+        "open",
+    ])
+    .unwrap();
+
+    assert_eq!(cli.project, Some(PathBuf::from("/tmp/project")));
+    match cli.command {
+        Command::Task {
+            command: TaskCommand::List {
+                for_identity,
+                status,
+                project,
+                ..
+            },
+        } => {
+            assert_eq!(for_identity, "hand-1");
+            assert!(matches!(status, TaskStatus::Open));
+            assert_eq!(project, Some(PathBuf::from("/tmp/project")));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_local_mail_send() {
     let cli = Cli::try_parse_from([
         "vivi",

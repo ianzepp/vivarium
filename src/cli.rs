@@ -44,6 +44,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub ignore_permissions: bool,
 
+    /// Project root for mailspace commands (board, task, need, want, mail, mailspace)
+    #[arg(long, global = true)]
+    pub project: Option<PathBuf>,
+
     #[command(subcommand)]
     pub command: Command,
 }

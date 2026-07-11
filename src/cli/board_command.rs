@@ -28,7 +28,7 @@ pub struct BoardCommand {
     #[arg(long)]
     pub json: bool,
 
-    /// Project root to use
+    /// Project root that owns .vivi/ (also accepted globally: vivi --project <ROOT> board)
     #[arg(long)]
     pub project: Option<PathBuf>,
 }

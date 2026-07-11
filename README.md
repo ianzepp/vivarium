@@ -278,16 +278,18 @@ vivi want list --for ceo --status done --json
 
 For routine agent intake, start with status or board output, then show one
 selected handle. `vivi board` summarizes actionable open tasks and needs first,
-with wants capped as secondary backlog context:
+with wants capped as secondary backlog context. Prefer `--project <root>` when
+the process cwd is not the mailspace root (both placements work):
 
 ```sh
-vivi mailspace status --json
-vivi board --for cto --json
-vivi board --for cto --since 4h
-vivi board --for cto --watermark-file .vivi/agent-board.watermark --write-watermark
-vivi task list --for cto --json
-vivi need list --for ceo --json
-vivi task show <handle>
+vivi mailspace status --project /path/to/project --json
+vivi board --project /path/to/project --for cto --json
+vivi --project /path/to/project board --for cto --since 4h
+vivi board --project /path/to/project --for cto \
+  --watermark-file .vivi/agent-board.watermark --write-watermark
+vivi task list --project /path/to/project --for cto --json
+vivi need list --project /path/to/project --for ceo --json
+vivi task show --project /path/to/project <handle>
 ```
 
 ### Blocking on local mailspace changes
