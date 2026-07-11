@@ -27,27 +27,21 @@ pub struct Cli {
     /// Path to config file
     #[arg(long, global = true)]
     pub config: Option<PathBuf>,
-
     /// Account name to operate on
     #[arg(long, global = true)]
     pub account: Option<String>,
-
     /// Enable verbose logging
     #[arg(short, long, global = true)]
     pub verbose: bool,
-
     /// Accept invalid TLS certificates for this run
     #[arg(long, global = true)]
     pub insecure: bool,
-
     /// Allow accounts.toml to be group/world readable
     #[arg(long, global = true)]
     pub ignore_permissions: bool,
-
     /// Project root for mailspace commands (board, task, need, want, mail, mailspace)
     #[arg(long, global = true)]
     pub project: Option<PathBuf>,
-
     #[command(subcommand)]
     pub command: Command,
 }

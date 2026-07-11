@@ -99,15 +99,12 @@ pub enum MailCommand {
         /// Identity whose mailbox should be listed
         #[arg(long = "for")]
         for_identity: String,
-
         /// Folder role to list
         #[arg(long, default_value = "inbox")]
         folder: String,
-
         /// Output as JSON
         #[arg(long)]
         json: bool,
-
         /// Project root to use
         #[arg(long)]
         project: Option<PathBuf>,
@@ -118,11 +115,9 @@ pub enum MailCommand {
         /// Local mail handle or unambiguous prefix
         #[arg(required = true)]
         handles: Vec<String>,
-
         /// Output as JSON
         #[arg(long)]
         json: bool,
-
         /// Project root to use
         #[arg(long)]
         project: Option<PathBuf>,
