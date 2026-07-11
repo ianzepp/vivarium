@@ -104,6 +104,10 @@ pub enum MailCommand {
         #[arg(long, default_value = "inbox")]
         folder: String,
 
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
         /// Project root to use
         #[arg(long)]
         project: Option<PathBuf>,

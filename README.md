@@ -221,6 +221,8 @@ vivi mail send --from ceo --to cto \
   --body "Please review the API shape."
 
 vivi mail list --for cto
+# handle  date  from  subject  (add --json for structured output)
+vivi mail list --for cto --json
 ```
 
 Tasks are ordinary local messages delivered to the recipient's `Tasks` folder.

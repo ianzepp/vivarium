@@ -110,10 +110,11 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
         MailCommand::List {
             for_identity,
             folder,
+            json,
             project,
         } => {
             let mailspace = Mailspace::discover(project.as_deref())?;
-            print_local_list(&mailspace, for_identity, folder)?;
+            crate::local_mail_list::print_mail_list(&mailspace, for_identity, folder, *json)?;
         }
         MailCommand::Show {
             handles,
@@ -303,25 +304,6 @@ fn move_task(
     let handle = mailspace.move_task(for_identity, handle, role, note.as_deref())?;
     let verb = if role == "done" { "done" } else { "reopened" };
     println!("{verb} {handle}");
-    Ok(())
-}
-
-fn print_local_list(
-    mailspace: &Mailspace,
-    identity: &str,
-    role: &str,
-) -> Result<(), VivariumError> {
-    let messages = mailspace.list(identity, role)?;
-    if messages.is_empty() {
-        println!("  no messages in {role}");
-    } else {
-        for message in messages {
-            println!(
-                "  {}  {}  {}",
-                message.handle, message.from_addr, message.subject
-            );
-        }
-    }
     Ok(())
 }
 

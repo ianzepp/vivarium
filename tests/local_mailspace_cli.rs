@@ -44,6 +44,33 @@ fn local_mail_send_creates_readable_inbox_and_sent_copy() {
         list_stdout.contains("review: local delivery"),
         "{list_stdout}"
     );
+    // human list includes message date between handle and from
+    assert!(
+        list_stdout.contains('T') && list_stdout.contains('+') || list_stdout.contains('Z'),
+        "expected timestamp in mail list: {list_stdout}"
+    );
+
+    let list_json = vivi([
+        "mail",
+        "list",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--json",
+    ]);
+    assert_success(&list_json);
+    let list_value: Value = serde_json::from_str(&stdout(&list_json)).unwrap();
+    let items = list_value.as_array().expect("mail list json array");
+    assert_eq!(items.len(), 1, "{list_value}");
+    assert_eq!(items[0]["handle"], delivered);
+    assert_eq!(items[0]["subject"], "review: local delivery");
+    assert!(items[0]["from"].as_str().unwrap().contains("ceo@"));
+    assert!(
+        !items[0]["date"].as_str().unwrap_or("").is_empty(),
+        "{list_value}"
+    );
+    assert_eq!(items[0]["role"], "inbox");
 
     let show = vivi([
         "mail",

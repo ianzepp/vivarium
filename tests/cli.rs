@@ -240,12 +240,13 @@ fn parses_task_list_with_global_project_before_subcommand() {
     assert_eq!(cli.project, Some(PathBuf::from("/tmp/project")));
     match cli.command {
         Command::Task {
-            command: TaskCommand::List {
-                for_identity,
-                status,
-                project,
-                ..
-            },
+            command:
+                TaskCommand::List {
+                    for_identity,
+                    status,
+                    project,
+                    ..
+                },
         } => {
             assert_eq!(for_identity, "hand-1");
             assert!(matches!(status, TaskStatus::Open));
@@ -309,6 +310,41 @@ fn parses_local_mail_send_body_file() {
         } => {
             assert_eq!(command.body, None);
             assert_eq!(command.body_file, Some(PathBuf::from("body.md")));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_local_mail_list_with_json_and_project() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "mail",
+        "list",
+        "--for",
+        "mind",
+        "--folder",
+        "inbox",
+        "--json",
+        "--project",
+        "/tmp/project",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Mail {
+            command:
+                MailCommand::List {
+                    for_identity,
+                    folder,
+                    json,
+                    project,
+                },
+        } => {
+            assert_eq!(for_identity, "mind");
+            assert_eq!(folder, "inbox");
+            assert!(json);
+            assert_eq!(project, Some(PathBuf::from("/tmp/project")));
         }
         other => panic!("unexpected command: {other:?}"),
     }
