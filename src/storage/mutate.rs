@@ -175,17 +175,17 @@ fn ingest_reply_rows(
     reply: &PreparedReply,
     requests: &[MessageIngestRequest],
 ) -> Result<Vec<StoredMessage>, VivariumError> {
+    upsert_blob_row(
+        tx,
+        &reply.content_id,
+        &reply.blob_relpath,
+        reply.byte_size,
+        &reply.metadata,
+        &reply.now,
+    )?;
+    upsert_metadata_row(tx, &reply.content_id, &reply.metadata)?;
     let mut replies = Vec::new();
     for request in requests {
-        upsert_blob_row(
-            tx,
-            &reply.content_id,
-            &reply.blob_relpath,
-            reply.byte_size,
-            &reply.metadata,
-            &reply.now,
-        )?;
-        upsert_metadata_row(tx, &reply.content_id, &reply.metadata)?;
         let message_id = ingest_message_id(request, &reply.content_id);
         upsert_message_row(tx, request, &message_id, &reply.content_id, &reply.now)?;
         replies.push(StoredMessage {
