@@ -352,12 +352,15 @@ Decision: **included**
 | Sibling goal | `docs/mailspace-agent-control-plane-goal.md` (board/brief/delta) |
 | Motivating evidence | faberlang mailspace 2026-07-10 multi-agent exchange; manual reconstruction of ~54 rows |
 | Suggested start | Phase 1 (storage + capture) |
-| Ready for | **factory** (vision → production → delivery → loop) |
+| Ready for | **complete** (implemented on `main`) |
+| Landing | `48482f6 feat(mailspace): add watch and reply threading` |
+| Delivery | [`factory/mailspace-reply-threading-delivery.md`](factory/mailspace-reply-threading-delivery.md) |
 
 ## Handoff Readiness
 
-**Ready for factory** — the problem, prior art, kind-agnostic direction,
-non-goals (no gate/coordination-DB), first milestone, validation, and stop
-conditions are grounded in the live CLI surface, the storage/delivery code, and
-the original deferred design spec. Open questions are bounded and carry
-recommendations.
+**Complete** — factory implemented cross-kind reply capture (`mail reply`,
+`--reply-to`), kind-agnostic `mail thread` with `--max-depth` and opt-in
+`--infer`, lifecycle note-as-reply, and dump `parent_content_id` /
+`link_source` metadata over additive `mailspace_links`. Validated with
+`cargo fmt --check`, `cargo test --test hygiene`, and `cargo test`
+(including cross-kind reply and inference CLI tests).

@@ -218,8 +218,10 @@ Rough factory phases (delivery may merge/split at boundaries):
 - `vivi review request` template helper (task-only; no gate).
 - `task next` selection policy.
 - Bulk want archive with dry-run.
-- Watch/stream mode — **lifted to dedicated goal:**
-  [`mailspace-watch-goal.md`](mailspace-watch-goal.md).
+- Watch/stream mode — **implemented** via dedicated goal
+  [`mailspace-watch-goal.md`](mailspace-watch-goal.md)
+  (`48482f6`, delivery
+  [`factory/mailspace-watch-delivery.md`](factory/mailspace-watch-delivery.md)).
 
 ## Release Posture
 

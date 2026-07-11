@@ -30,3 +30,10 @@ and passes `cargo fmt --check`, `cargo test --test hygiene`, and `cargo test`.
 Inspect the diff for accidental changes to remote watch. Stop and report if
 correct observation requires another database or if the existing event
 history cannot provide the required fields without redesigning storage.
+
+## Result
+
+**Complete** on `main` as part of `48482f6 feat(mailspace): add watch and
+reply threading` (with follow-on polish commits). Validation re-run after
+polish closeout: `cargo fmt --check`, `cargo test --test hygiene`, and
+`cargo test` all green. Remote IMAP watch paths were not changed.

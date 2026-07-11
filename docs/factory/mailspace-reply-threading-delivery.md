@@ -38,3 +38,11 @@ Inspect the diff for network/account-store changes and for any second
 coordination table. Stop and report if stable handle resolution across folder
 moves cannot be preserved or if tests would need a weakened hygiene/policy
 rule.
+
+## Result
+
+**Complete** on `main` as part of `48482f6 feat(mailspace): add watch and
+reply threading` (with follow-on polish commits on storage/reply/thread).
+Validation re-run after polish closeout: `cargo fmt --check`,
+`cargo test --test hygiene`, and `cargo test` all green. No second
+coordination store; links live in additive `mailspace_links`.

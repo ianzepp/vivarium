@@ -247,11 +247,14 @@ mailspace store (events + messages)
 | Feedback sources | Faberlang fleet Mind latency (turn-end mail vs 5m gatherer); operator design for Mind-as-bus + expecting-reply; control-plane deferred “Watch/stream mode” |
 | Depends on | Board delta / event timestamps (control-plane Phase 04 lineage) |
 | Suggested start | Phase 0 → Phase 1 MVP `mailspace watch` |
-| Ready for | **factory** (vision → production → delivery → loop) |
+| Ready for | **complete** (implemented on `main`) |
+| Landing | `48482f6 feat(mailspace): add watch and reply threading` |
+| Delivery | [`factory/mailspace-watch-delivery.md`](factory/mailspace-watch-delivery.md) |
 
 ## Handoff Readiness
 
-**Ready for factory** — problem, architecture, non-goals (especially no IMAP
-confusion and no gate subsystem), phased shape, acceptance, validation, and
-stop conditions are grounded enough for factory admission. Open questions are
-bounded and have recommendations.
+**Complete** — factory implemented project-local `vivi mailspace watch` and
+`mail|task|need|want watch` aliases with event-id cursors, filters, polling,
+timeouts, and JSON/text output. Validated with `cargo fmt --check`,
+`cargo test --test hygiene`, and `cargo test` (including
+`mailspace_watch_filters_events_and_advances_cursor`).
