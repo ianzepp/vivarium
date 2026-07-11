@@ -4,11 +4,13 @@ use vivarium::cli::{
     WantCommand, WantStatus,
 };
 use vivarium::mailspace::{DumpFilters, MailDumpRequest, Mailspace, SendRequest, TaskDumpRequest};
-use vivarium::message;
 
 pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumError> {
     match command {
         NeedCommand::Send(command) => send_local_item(command, "needs", "need", "created")?,
+        NeedCommand::Watch(command) => {
+            crate::local_mailspace_command::run_watch(command, Some("need"))?
+        }
         NeedCommand::List {
             for_identity,
             status,
@@ -24,7 +26,11 @@ pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumE
                 *json,
             )?;
         }
-        NeedCommand::Show { handle, project } => show_local_message(handle, project.as_deref())?,
+        NeedCommand::Show {
+            handle,
+            json,
+            project,
+        } => show_local_message(handle, *json, project.as_deref())?,
         NeedCommand::Dump(command) => dump_work_items(command, "needs", "need", "Vivi Need Dump")?,
         NeedCommand::Done {
             handle,
@@ -61,13 +67,20 @@ pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumE
 pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumError> {
     match command {
         WantCommand::Send(command) => send_local_item(command, "wants", "want", "created")?,
+        WantCommand::Watch(command) => {
+            crate::local_mailspace_command::run_watch(command, Some("want"))?
+        }
         WantCommand::List {
             for_identity,
             status,
             json,
             project,
         } => list_wants(for_identity, status, *json, project.as_deref())?,
-        WantCommand::Show { handle, project } => show_local_message(handle, project.as_deref())?,
+        WantCommand::Show {
+            handle,
+            json,
+            project,
+        } => show_local_message(handle, *json, project.as_deref())?,
         WantCommand::Dump(command) => dump_wants(command)?,
         WantCommand::Promote {
             handle,
@@ -193,6 +206,7 @@ fn send_local_item(
         )?,
         role: role.into(),
         kind: Some(kind.into()),
+        reply_to: command.reply_to.clone(),
     })?;
     for delivered in result.delivered {
         println!("{verb} {} {}", delivered.identity, delivered.handle);
@@ -218,13 +232,11 @@ fn move_item(
 
 fn show_local_message(
     handle: &str,
+    json: bool,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    let storage = mailspace.storage()?;
-    let data = storage.read_message(handle)?;
-    println!("{}", message::render_message(&data)?);
-    Ok(())
+    vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, json)
 }
 
 fn status_role(status: &TaskStatus, open_role: &'static str) -> &'static str {

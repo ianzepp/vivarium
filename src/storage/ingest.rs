@@ -43,7 +43,7 @@ impl Storage {
     }
 }
 
-fn ingest_message_id(request: &MessageIngestRequest, content_id: &str) -> String {
+pub(super) fn ingest_message_id(request: &MessageIngestRequest, content_id: &str) -> String {
     request.message_id_hint.clone().unwrap_or_else(|| {
         request
             .remote
@@ -55,7 +55,7 @@ fn ingest_message_id(request: &MessageIngestRequest, content_id: &str) -> String
     })
 }
 
-fn upsert_blob_row(
+pub(super) fn upsert_blob_row(
     tx: &Transaction<'_>,
     content_id: &str,
     blob_relpath: &str,
@@ -82,7 +82,7 @@ fn upsert_blob_row(
     .map_err(|e| VivariumError::Other(format!("failed to upsert blob row: {e}")))
 }
 
-fn upsert_metadata_row(
+pub(super) fn upsert_metadata_row(
     tx: &Transaction<'_>,
     content_id: &str,
     metadata: &ParsedMetadata,
@@ -114,7 +114,7 @@ fn upsert_metadata_row(
     .map_err(|e| VivariumError::Other(format!("failed to upsert message metadata: {e}")))
 }
 
-fn upsert_message_row(
+pub(super) fn upsert_message_row(
     tx: &Transaction<'_>,
     request: &MessageIngestRequest,
     message_id: &str,

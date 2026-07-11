@@ -16,6 +16,7 @@ use crate::store::secure_create_dir_all;
 mod events;
 mod handles;
 mod ingest;
+mod links;
 mod metadata;
 mod mutate;
 mod query;
@@ -23,7 +24,9 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
+pub use links::MailspaceLink;
 use metadata::parse_metadata;
+pub use mutate::MailspaceMoveWithReply;
 use schema::{ensure_schema, message_query};
 
 const INTERNAL_DIR: &str = ".vivarium";

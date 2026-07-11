@@ -54,6 +54,8 @@ pub struct DumpRecord {
     pub cc: String,
     pub subject: String,
     pub body: String,
+    pub parent_content_id: Option<String>,
+    pub link_source: Option<String>,
     pub events: Vec<MailspaceEvent>,
 }
 
@@ -133,6 +135,7 @@ impl Mailspace {
         if !matches_filters(&view, &body, filters) {
             return Ok(None);
         }
+        let link = storage.mailspace_link_for_child(&view.content_id)?;
         Ok(Some(DumpRecord {
             events,
             handle: view.handle,
@@ -147,6 +150,8 @@ impl Mailspace {
             cc: view.cc_addr,
             subject: view.subject,
             body,
+            parent_content_id: link.as_ref().map(|link| link.parent_content_id.clone()),
+            link_source: link.as_ref().map(|link| link.source.clone()),
         }))
     }
 

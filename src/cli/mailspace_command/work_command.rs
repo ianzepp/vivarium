@@ -2,12 +2,15 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::LocalSendCommand;
+use super::{LocalSendCommand, MailspaceWatchCommand};
 
 #[derive(Debug, Subcommand)]
 pub enum NeedCommand {
     /// Send a need message into the recipient's Needs folder
     Send(LocalSendCommand),
+
+    /// Wait for need events in the project-local mailspace
+    Watch(Box<MailspaceWatchCommand>),
 
     /// List needs for an identity
     List {
@@ -32,6 +35,10 @@ pub enum NeedCommand {
     Show {
         /// Need handle or unambiguous prefix
         handle: String,
+
+        /// Include thread context as JSON
+        #[arg(long)]
+        json: bool,
 
         /// Project root to use
         #[arg(long)]
@@ -83,6 +90,9 @@ pub enum WantCommand {
     /// Send a want message into the recipient's Wants folder
     Send(LocalSendCommand),
 
+    /// Wait for want events in the project-local mailspace
+    Watch(Box<MailspaceWatchCommand>),
+
     /// List wants for an identity
     List {
         /// Identity whose wants should be listed
@@ -106,6 +116,10 @@ pub enum WantCommand {
     Show {
         /// Want handle or unambiguous prefix
         handle: String,
+
+        /// Include thread context as JSON
+        #[arg(long)]
+        json: bool,
 
         /// Project root to use
         #[arg(long)]

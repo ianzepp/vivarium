@@ -31,6 +31,7 @@ fn local_delivery_rejects_unknown_identity() {
             body: "body".into(),
             role: "inbox".into(),
             kind: None,
+            reply_to: None,
         })
         .unwrap_err();
 
@@ -53,6 +54,7 @@ fn task_move_keeps_handle_stable() {
             body: "do it".into(),
             role: "tasks".into(),
             kind: Some("task".into()),
+            reply_to: None,
         })
         .unwrap();
     let handle = sent.delivered[0].handle.clone();

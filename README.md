@@ -238,6 +238,26 @@ vivi task done <handle> --for cto
 vivi task list --for cto --status done
 ```
 
+Replies are first-class local mailspace messages. Reply targets are
+kind-agnostic, so a mail can answer a need and a task can continue that same
+conversation. The parent link is captured by stable content identity and
+survives a task or want moving to `done`:
+
+```sh
+vivi mail reply <handle> --from cto --body "Reviewed and approved."
+vivi mail send --from cto --to ceo --subject "Follow-up" \
+  --body "Implement the next step." --reply-to <handle>
+vivi mail thread <handle> --json
+# Bound a large conversation walk when needed
+vivi mail thread <handle> --json --limit 100 --max-depth 20
+vivi task show <handle> --json
+```
+
+Lifecycle `--note` values remain in the event ledger and also become normal
+captured replies. `mail thread --infer` enables a read-only best-effort view of
+older messages using handle citations and reply subjects; inferred links are
+marked separately and never replace captured links.
+
 Needs and wants are also local messages with stable handles. Wants are parked in
 `Wants` for later prioritization. Promoting a want moves it to `Needs`, where it
 becomes first-cycle review material for the owner. Completing a need moves it
@@ -269,6 +289,29 @@ vivi task list --for cto --json
 vivi need list --for ceo --json
 vivi task show <handle>
 ```
+
+### Blocking on local mailspace changes
+
+Use project-local watch when an agent has handed off work and should wait for a
+turn-end message or a board lifecycle change before running one more cycle:
+
+```sh
+# Mind: file work, then block for one matching reply
+vivi mailspace watch --for mind --kinds mail --match-subject-prefix "turn end:" \
+  --timeout 2m --json
+
+# Or wait for one task completion, then invoke the next cycle
+vivi task watch --for mind --events moved --statuses done \
+  --match-from hunter-2 --timeout 2m --json
+```
+
+`mailspace watch` polls the project-local `.vivi/mail.sqlite` event ledger and
+supports caller-owned event-id cursor files with `--cursor-file
+<path> --write-cursor`. `--once` performs one non-blocking scan. The aliases
+`mail watch`, `task watch`, `need watch`, and `want watch` narrow the kind
+filter. This is deliberately different from `vivi sync-events --watch` or the
+account-scoped `vivi watch`, which observe remote Proton/IMAP activity and do
+not wake a project Mind when local mailspace delivery arrives.
 
 For long local bodies, keep using `--body @path` or pass an explicit body file.
 `--body -` reads stdin:

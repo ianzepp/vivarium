@@ -1,6 +1,48 @@
+use super::ingest::{ingest_message_id, upsert_blob_row, upsert_message_row, upsert_metadata_row};
 use super::*;
 
+pub struct MailspaceMoveWithReply<'a> {
+    pub account: &'a str,
+    pub message_id: &'a str,
+    pub local_role: &'a str,
+    pub event: &'a MailspaceEventInput,
+    pub reply_requests: &'a [MessageIngestRequest],
+    pub reply_data: &'a [u8],
+    pub parent_content_id: &'a str,
+}
+
 impl Storage {
+    pub fn move_message_with_reply(
+        &mut self,
+        request: MailspaceMoveWithReply<'_>,
+    ) -> Result<Vec<StoredMessage>, VivariumError> {
+        let reply = prepare_reply_blob(&self.mail_root, request.reply_data)?;
+        let resolved = self.resolve_message_token(request.message_id)?;
+        let tx = self.conn.transaction().map_err(|e| {
+            VivariumError::Other(format!("failed to open lifecycle transaction: {e}"))
+        })?;
+        update_moved_message(
+            &tx,
+            request.account,
+            &resolved,
+            request.local_role,
+            &reply.now,
+            request.message_id,
+        )?;
+        let replies = ingest_reply_rows(&tx, &reply, request.reply_requests)?;
+        store_reply_link(
+            &tx,
+            &reply.content_id,
+            request.parent_content_id,
+            !replies.is_empty(),
+        )?;
+        append_lifecycle_event(&tx, request.event, &reply.now)?;
+        tx.commit().map_err(|e| {
+            VivariumError::Other(format!("failed to commit lifecycle transaction: {e}"))
+        })?;
+        Ok(replies)
+    }
+
     pub fn move_message_to_role(
         &mut self,
         account: &str,
@@ -80,4 +122,129 @@ impl Storage {
             .map_err(|e| VivariumError::Other(format!("failed to mark message deleted: {e}")))?;
         Ok(changed > 0)
     }
+}
+
+struct PreparedReply {
+    content_id: String,
+    blob_relpath: String,
+    created_blob: bool,
+    metadata: metadata::ParsedMetadata,
+    now: String,
+    byte_size: usize,
+}
+
+fn prepare_reply_blob(mail_root: &Path, data: &[u8]) -> Result<PreparedReply, VivariumError> {
+    let content_id = sha256_hex(data);
+    let blob_relpath = blob_relpath(&content_id);
+    let created_blob = write_blob_if_absent(&mail_root.join(&blob_relpath), data)?;
+    Ok(PreparedReply {
+        content_id,
+        blob_relpath,
+        created_blob,
+        metadata: parse_metadata(data),
+        now: Utc::now().to_rfc3339(),
+        byte_size: data.len(),
+    })
+}
+
+fn update_moved_message(
+    tx: &rusqlite::Transaction<'_>,
+    account: &str,
+    message_id: &str,
+    local_role: &str,
+    now: &str,
+    original_token: &str,
+) -> Result<(), VivariumError> {
+    let changed = tx
+        .execute(
+            "UPDATE messages SET local_role = ?3, updated_at = ?4
+             WHERE account = ?1 AND message_id = ?2 AND deleted_at IS NULL",
+            params![account, message_id, local_role, now],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to move message: {e}")))?;
+    if changed == 0 {
+        return Err(VivariumError::Message(format!(
+            "message not found for {account}: {original_token}"
+        )));
+    }
+    Ok(())
+}
+
+fn ingest_reply_rows(
+    tx: &rusqlite::Transaction<'_>,
+    reply: &PreparedReply,
+    requests: &[MessageIngestRequest],
+) -> Result<Vec<StoredMessage>, VivariumError> {
+    let mut replies = Vec::new();
+    for request in requests {
+        upsert_blob_row(
+            tx,
+            &reply.content_id,
+            &reply.blob_relpath,
+            reply.byte_size,
+            &reply.metadata,
+            &reply.now,
+        )?;
+        upsert_metadata_row(tx, &reply.content_id, &reply.metadata)?;
+        let message_id = ingest_message_id(request, &reply.content_id);
+        upsert_message_row(tx, request, &message_id, &reply.content_id, &reply.now)?;
+        replies.push(StoredMessage {
+            message_id,
+            content_id: reply.content_id.clone(),
+            blob_relpath: reply.blob_relpath.clone(),
+            created_blob: reply.created_blob,
+        });
+    }
+    Ok(replies)
+}
+
+fn store_reply_link(
+    tx: &rusqlite::Transaction<'_>,
+    child_content_id: &str,
+    parent_content_id: &str,
+    enabled: bool,
+) -> Result<(), VivariumError> {
+    if !enabled {
+        return Ok(());
+    }
+    tx.execute(
+        "INSERT INTO mailspace_links (child_content_id, parent_content_id, source)
+         VALUES (?1, ?2, 'captured')
+         ON CONFLICT(child_content_id) DO UPDATE SET
+           parent_content_id = excluded.parent_content_id, source = excluded.source",
+        params![child_content_id, parent_content_id],
+    )
+    .map(|_| ())
+    .map_err(|e| VivariumError::Other(format!("failed to store note link: {e}")))
+}
+
+fn append_lifecycle_event(
+    tx: &rusqlite::Transaction<'_>,
+    event: &MailspaceEventInput,
+    now: &str,
+) -> Result<(), VivariumError> {
+    tx.execute(
+        "INSERT INTO mailspace_events (
+           occurred_at, command, event_type, actor_identity, account,
+           message_id, content_id, from_role, to_role, from_identity,
+           to_identity, subject, note
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            now,
+            event.command,
+            event.event_type,
+            event.actor_identity,
+            event.account,
+            event.message_id,
+            event.content_id,
+            event.from_role,
+            event.to_role,
+            event.from_identity,
+            event.to_identity,
+            event.subject,
+            event.note,
+        ],
+    )
+    .map(|_| ())
+    .map_err(|e| VivariumError::Other(format!("failed to append lifecycle event: {e}")))
 }

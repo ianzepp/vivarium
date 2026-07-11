@@ -83,6 +83,13 @@ fn push_record(out: &mut String, record: &DumpRecord) {
         out.push_str(&format!("Cc: {}\n", record.cc));
     }
     out.push_str(&format!("Subject: {}\n\n", empty_marker(&record.subject)));
+    if let Some(parent) = &record.parent_content_id {
+        out.push_str(&format!("Parent content: {parent}\n"));
+        if let Some(source) = &record.link_source {
+            out.push_str(&format!("Link source: {source}\n"));
+        }
+        out.push('\n');
+    }
     push_events(out, record);
     out.push_str(record.body.trim());
     out.push_str("\n\n---\n\n");

@@ -855,6 +855,271 @@ fn want_promotes_to_need_and_done_without_polluting_task_done() {
     );
 }
 
+#[test]
+fn replies_and_lifecycle_notes_assemble_cross_kind_threads() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+
+    let need = send_work(
+        project.path(),
+        "need",
+        "cto",
+        "Review API",
+        "Please review.",
+    );
+    let reply = vivi([
+        "mail",
+        "reply",
+        &need,
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "cto",
+        "--body",
+        "I reviewed it.",
+    ]);
+    assert_success(&reply);
+    let reply_handle = handle_after(&stdout(&reply), "replied ceo");
+
+    let task = vivi([
+        "task",
+        "send",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "cto",
+        "--to",
+        "ceo",
+        "--subject",
+        "Implement follow-up",
+        "--body",
+        "Follow up on the review.",
+        "--reply-to",
+        &reply_handle,
+    ]);
+    assert_success(&task);
+    let task_handle = handle_after(&stdout(&task), "created ceo");
+
+    let thread = vivi([
+        "mail",
+        "thread",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--json",
+        &task_handle,
+    ]);
+    assert_success(&thread);
+    let messages: Value = serde_json::from_str(&stdout(&thread)).unwrap();
+    assert_eq!(messages.as_array().unwrap().len(), 3);
+    assert!(
+        messages
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["kind"] == "task")
+    );
+    assert!(
+        messages
+            .as_array()
+            .unwrap()
+            .iter()
+            .skip(1)
+            .any(|message| message["link_source"] == "captured")
+    );
+
+    let done = vivi([
+        "task",
+        "done",
+        "--project",
+        project.path().to_str().unwrap(),
+        &task_handle,
+        "--for",
+        "ceo",
+        "--note",
+        "Follow-up is complete.",
+    ]);
+    assert_success(&done);
+
+    let done_thread = vivi([
+        "task",
+        "show",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--json",
+        &task_handle,
+    ]);
+    assert_success(&done_thread);
+    let done_messages: Value = serde_json::from_str(&stdout(&done_thread)).unwrap();
+    assert_eq!(done_messages.as_array().unwrap().len(), 4);
+    assert!(stdout(&done_thread).contains("Follow-up is complete."));
+
+    let dump = vivi([
+        "mail",
+        "dump",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "ceo",
+        "--folder",
+        "inbox",
+        "--json",
+    ]);
+    assert_success(&dump);
+    assert!(stdout(&dump).contains("parent_content_id"));
+    assert!(stdout(&dump).contains("captured"));
+}
+
+#[test]
+fn mailspace_watch_filters_events_and_advances_cursor() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let task = send_work(
+        project.path(),
+        "task",
+        "cto",
+        "Turn end: test",
+        "Work finished.",
+    );
+    let cursor = project.path().join("watch.cursor");
+
+    let first = vivi([
+        "mailspace",
+        "watch",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--kinds",
+        "task",
+        "--events",
+        "delivered",
+        "--match-subject-prefix",
+        "Turn end:",
+        "--cursor-file",
+        cursor.to_str().unwrap(),
+        "--write-cursor",
+        "--once",
+        "--json",
+    ]);
+    assert_success(&first);
+    let event: Value = serde_json::from_str(stdout(&first).trim()).unwrap();
+    assert_eq!(event["event"], "delivered");
+    assert_eq!(event["kind"], "task");
+    assert_eq!(event["for"], "cto");
+    assert_eq!(event["handle"], task);
+    let cursor_value = std::fs::read_to_string(&cursor).unwrap();
+    assert!(!cursor_value.trim().is_empty());
+
+    let done = vivi([
+        "task",
+        "done",
+        "--project",
+        project.path().to_str().unwrap(),
+        &task,
+        "--for",
+        "cto",
+    ]);
+    assert_success(&done);
+
+    let moved = vivi([
+        "task",
+        "watch",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--handle",
+        &task,
+        "--events",
+        "moved",
+        "--statuses",
+        "done",
+        "--timeout",
+        "2s",
+        "--json",
+    ]);
+    assert_success(&moved);
+    let moved_event: Value = serde_json::from_str(stdout(&moved).trim()).unwrap();
+    assert_eq!(moved_event["status"], "done");
+    assert_eq!(moved_event["handle"], task);
+}
+
+#[test]
+fn inferred_thread_links_are_opt_in_and_marked() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let first = vivi([
+        "mail",
+        "send",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "Status report",
+        "--body",
+        "Initial status.",
+    ]);
+    assert_success(&first);
+    let first_handle = handle_after(&stdout(&first), "delivered cto");
+    let second = vivi([
+        "mail",
+        "send",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "cto",
+        "--to",
+        "ceo",
+        "--subject",
+        "Re: Status report",
+        "--body",
+        &format!("Answering {first_handle}: current status."),
+    ]);
+    assert_success(&second);
+    let second_handle = handle_after(&stdout(&second), "delivered ceo");
+
+    let without_inference = vivi([
+        "mail",
+        "thread",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--json",
+        &second_handle,
+    ]);
+    assert_success(&without_inference);
+    assert_eq!(
+        serde_json::from_str::<Value>(&stdout(&without_inference))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let inferred = vivi([
+        "mail",
+        "thread",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--infer",
+        "--json",
+        &second_handle,
+    ]);
+    assert_success(&inferred);
+    let messages: Value = serde_json::from_str(&stdout(&inferred)).unwrap();
+    assert_eq!(messages.as_array().unwrap().len(), 2);
+    assert!(
+        messages
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["inferred"] == true && message["link_source"] == "inferred")
+    );
+}
+
 fn init_roster(project: &std::path::Path) {
     assert_success(&vivi([
         "mailspace",

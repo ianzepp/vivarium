@@ -57,6 +57,41 @@ impl Storage {
         })
         .collect()
     }
+
+    pub fn list_mailspace_events_after(
+        &self,
+        event_id: i64,
+    ) -> Result<Vec<MailspaceEvent>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT event_id, occurred_at, command, event_type, actor_identity,
+                        account, message_id, content_id, from_role, to_role,
+                        from_identity, to_identity, subject, note
+                 FROM mailspace_events
+                 WHERE event_id > ?1
+                 ORDER BY event_id",
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to prepare event scan: {e}")))?;
+        let rows = stmt
+            .query_map(params![event_id], mailspace_event_from_row)
+            .map_err(|e| VivariumError::Other(format!("failed to scan mailspace events: {e}")))?;
+        rows.map(|row| {
+            row.map_err(|e| VivariumError::Other(format!("failed to read event row: {e}")))
+        })
+        .collect()
+    }
+
+    pub fn event_cursor_before(&self, occurred_at: &str) -> Result<i64, VivariumError> {
+        self.conn
+            .query_row(
+                "SELECT COALESCE(MAX(event_id), 0)
+                 FROM mailspace_events WHERE occurred_at < ?1",
+                params![occurred_at],
+                |row| row.get(0),
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to read event cursor: {e}")))
+    }
 }
 
 fn mailspace_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MailspaceEvent> {

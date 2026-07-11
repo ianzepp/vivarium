@@ -4,10 +4,14 @@ use chrono::Utc;
 
 use super::event_log::{log_move_event, log_raw_delivery_event, log_send_events};
 use super::kind::matches_kind;
+use super::reply::{add_reply_headers, resolve_reply_parent};
 use super::{DeliveredMessage, DeliveryResult, Mailspace, SendRequest, canonical_local_role};
 use crate::error::VivariumError;
 use crate::message::{ComposeDraft, build_compose_draft, validate_message_headers};
-use crate::storage::{MessageIngestRequest, Storage, StoredMessage, StoredMessageView};
+use crate::storage::{
+    MailspaceEventInput, MailspaceMoveWithReply, MessageIngestRequest, Storage, StoredMessage,
+    StoredMessageView,
+};
 
 pub(super) struct DeliveredMessageId {
     pub(super) identity: String,
@@ -29,12 +33,24 @@ impl Mailspace {
                 "local delivery needs at least one To or Cc recipient".into(),
             ));
         }
-        let eml = self.compose_message(&from, &request)?;
         let mut storage = self.storage()?;
+        let reply_parent = request
+            .reply_to
+            .as_deref()
+            .map(|handle| resolve_reply_parent(&storage, handle))
+            .transpose()?;
+        let eml = self.compose_message(
+            &from,
+            &request,
+            reply_parent.as_ref().map(|(_, data)| data.as_slice()),
+        )?;
         let seed = Utc::now().timestamp_nanos_opt().unwrap_or_default();
         let delivered_ids =
             ingest_for_recipients(&mut storage, recipients, &request.role, &eml, seed)?;
         let sent = ingest_sent_copy(&mut storage, &from, &eml, seed)?;
+        if let Some((parent, _)) = reply_parent {
+            storage.link_mailspace_content(&sent.content_id, &parent.content_id, "captured")?;
+        }
         log_send_events(&storage, &from, &request, &delivered_ids, &sent)?;
         let delivered = delivered_with_handles(&storage, delivered_ids)?;
         Ok(DeliveryResult {
@@ -43,7 +59,12 @@ impl Mailspace {
         })
     }
 
-    fn compose_message(&self, from: &str, request: &SendRequest) -> Result<String, VivariumError> {
+    fn compose_message(
+        &self,
+        from: &str,
+        request: &SendRequest,
+        parent: Option<&[u8]>,
+    ) -> Result<String, VivariumError> {
         let to = self.addresses_for(&request.to)?;
         let cc = self.addresses_for(&request.cc)?;
         let mut eml = build_compose_draft(&ComposeDraft {
@@ -58,10 +79,13 @@ impl Mailspace {
         if let Some(kind) = &request.kind {
             eml = add_header(&eml, "X-Vivi-Kind", kind)?;
         }
+        if let Some(parent) = parent {
+            eml = add_reply_headers(&eml, parent)?;
+        }
         Ok(eml)
     }
 
-    fn addresses_for(&self, values: &[String]) -> Result<Vec<String>, VivariumError> {
+    pub(super) fn addresses_for(&self, values: &[String]) -> Result<Vec<String>, VivariumError> {
         values
             .iter()
             .map(|value| self.resolve_identity(value).map(|id| self.address_for(&id)))
@@ -179,8 +203,35 @@ impl Mailspace {
                 "message not found: {handle}"
             )));
         };
-        storage.move_message_to_role(&identity, &resolved, &role)?;
-        log_move_event(&storage, &identity, &role, &before, command, note)?;
+        if let Some(note) = note {
+            let reply = self.note_reply(&storage, &identity, &before, note)?;
+            let event = MailspaceEventInput {
+                command: command.into(),
+                event_type: "moved".into(),
+                actor_identity: Some(identity.clone()),
+                account: identity.clone(),
+                message_id: before.message_id.clone(),
+                content_id: before.content_id.clone(),
+                from_role: Some(before.local_role.clone()),
+                to_role: Some(role.clone()),
+                from_identity: Some(identity.clone()),
+                to_identity: Some(identity.clone()),
+                subject: before.subject.clone(),
+                note: Some(note.into()),
+            };
+            storage.move_message_with_reply(MailspaceMoveWithReply {
+                account: &identity,
+                message_id: &resolved,
+                local_role: &role,
+                event: &event,
+                reply_requests: &reply.requests,
+                reply_data: &reply.data,
+                parent_content_id: &before.content_id,
+            })?;
+        } else {
+            storage.move_message_to_role(&identity, &resolved, &role)?;
+            log_move_event(&storage, &identity, &role, &before, command, None)?;
+        }
         storage.display_handle(&resolved)
     }
 
@@ -205,7 +256,7 @@ fn move_command(kind: &str, role: &str) -> &'static str {
     }
 }
 
-fn add_header(eml: &str, name: &str, value: &str) -> Result<String, VivariumError> {
+pub(super) fn add_header(eml: &str, name: &str, value: &str) -> Result<String, VivariumError> {
     let newline = if eml.contains("\r\n") { "\r\n" } else { "\n" };
     let separator = format!("{newline}{newline}");
     let (headers, body) = eml

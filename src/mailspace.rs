@@ -12,13 +12,18 @@ mod delivery;
 mod dump;
 mod event_log;
 mod kind;
+mod reply;
 #[cfg(test)]
 mod tests;
+mod thread;
+mod watch;
 
 pub use body::{read_body_arg, read_body_input};
 pub use dump::{
     DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
 };
+pub use thread::{MailspaceThreadMessage, print_thread};
+pub use watch::{MailspaceWatchRequest, run_watch};
 
 const MAILSPACE_DIR: &str = ".vivi";
 const MAILSPACE_CONFIG: &str = "mailspace.toml";
@@ -83,6 +88,7 @@ pub struct SendRequest {
     pub body: String,
     pub role: String,
     pub kind: Option<String>,
+    pub reply_to: Option<String>,
 }
 
 #[derive(Debug, Clone)]

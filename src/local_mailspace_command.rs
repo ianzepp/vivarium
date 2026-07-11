@@ -1,9 +1,11 @@
 use vivarium::VivariumError;
 use vivarium::cli::{
-    Command, LocalSendCommand, MailCommand, MailDumpCommand, MailspaceCommand,
-    MailspaceIdentityCommand, TaskCommand,
+    Command, LocalSendCommand, MailCommand, MailDumpCommand, MailReplyCommand, MailspaceCommand,
+    MailspaceIdentityCommand, MailspaceWatchCommand, TaskCommand,
 };
-use vivarium::mailspace::{DumpFilters, MailDumpRequest, Mailspace, SendRequest};
+use vivarium::mailspace::{
+    DumpFilters, MailDumpRequest, Mailspace, MailspaceWatchRequest, SendRequest,
+};
 use vivarium::message;
 
 pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumError> {
@@ -58,6 +60,7 @@ fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumEr
                 vivarium::mailspace::print_status(&status);
             }
         }
+        MailspaceCommand::Watch(command) => run_watch(command, None)?,
         MailspaceCommand::Identity { command } => match command {
             MailspaceIdentityCommand::Add { identity, project } => {
                 let mut mailspace = Mailspace::discover(project.as_deref())?;
@@ -82,6 +85,8 @@ fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumEr
 fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
     match command {
         MailCommand::Send(command) => send_local_mail(command)?,
+        MailCommand::Watch(command) => run_watch(command, Some("mail"))?,
+        MailCommand::Reply(command) => reply_local_mail(command)?,
         MailCommand::Deliver {
             path,
             folder,
@@ -109,6 +114,17 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
             let mailspace = Mailspace::discover(project.as_deref())?;
             print_local_messages(&mailspace, handles, *json)?;
         }
+        MailCommand::Thread(command) => {
+            let mailspace = Mailspace::discover(command.project.as_deref())?;
+            vivarium::mailspace::print_thread(
+                &mailspace,
+                &command.handle,
+                command.infer,
+                command.limit,
+                command.max_depth,
+                command.json,
+            )?;
+        }
         MailCommand::Dump(command) => {
             let mailspace = Mailspace::discover(command.project.as_deref())?;
             let records = mailspace.dump_mail(mail_dump_request(command))?;
@@ -132,6 +148,9 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
         TaskCommand::Send(command) => {
             send_task(command)?;
         }
+        TaskCommand::Watch(command) => {
+            run_watch(command, Some("task"))?;
+        }
         TaskCommand::List {
             for_identity,
             status,
@@ -150,11 +169,13 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
                 *json,
             )?;
         }
-        TaskCommand::Show { handle, project } => {
+        TaskCommand::Show {
+            handle,
+            json,
+            project,
+        } => {
             let mailspace = Mailspace::discover(project.as_deref())?;
-            let storage = mailspace.storage()?;
-            let data = storage.read_message(handle)?;
-            println!("{}", message::render_message(&data)?);
+            vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, *json)?;
         }
         TaskCommand::Dump(command) => {
             crate::local_work_command::dump_tasks(command)?;
@@ -202,6 +223,7 @@ fn send_mail(
         )?,
         role: role.into(),
         kind: Some(kind.into()),
+        reply_to: command.reply_to.clone(),
     })?;
     for delivered in result.delivered {
         println!(
@@ -211,6 +233,54 @@ fn send_mail(
     }
     println!("sent {}", result.sent);
     Ok(())
+}
+
+fn reply_local_mail(command: &MailReplyCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    let result = mailspace.reply(
+        &command.handle,
+        &command.from,
+        command.to.clone(),
+        command.cc.clone(),
+        command.subject.clone(),
+        vivarium::mailspace::read_body_input(
+            command.body.as_deref(),
+            command.body_file.as_deref(),
+        )?,
+    )?;
+    for delivered in result.delivered {
+        println!("replied {} {}", delivered.identity, delivered.handle);
+    }
+    println!("sent {}", result.sent);
+    Ok(())
+}
+
+pub(crate) fn run_watch(
+    command: &MailspaceWatchCommand,
+    alias_kind: Option<&str>,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    let request = MailspaceWatchRequest {
+        for_identity: command.for_identity.clone(),
+        kinds: alias_kind.unwrap_or(&command.kinds).to_string(),
+        events: command.events.clone(),
+        statuses: command.statuses.clone(),
+        match_from: command.match_from.clone(),
+        match_subject_prefix: command.match_subject_prefix.clone(),
+        handle: command.handle.clone(),
+        until_count: command.until_count,
+        timeout: command.timeout.clone(),
+        once: command.once,
+        since: command.since.clone(),
+        cursor_file: command
+            .cursor_file
+            .clone()
+            .or_else(|| command.watermark_file.clone()),
+        write_cursor: command.write_cursor || command.write_watermark,
+        poll_interval: command.poll_interval.clone(),
+        json: command.json,
+    };
+    vivarium::mailspace::run_watch(&mailspace, request)
 }
 
 fn move_task(
