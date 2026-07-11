@@ -43,7 +43,7 @@ pub struct MailspaceWatchEvent {
 }
 
 struct WatchFilters {
-    identity: String,
+    identity: BTreeSet<String>,
     kinds: BTreeSet<String>,
     events: BTreeSet<String>,
     statuses: Option<BTreeSet<String>>,
@@ -155,6 +155,7 @@ fn prepare_filters(
 ) -> Result<WatchFilters, VivariumError> {
     let storage = mailspace.storage()?;
     let identity = mailspace.resolve_identity(&request.for_identity)?;
+    let identity = mailspace.identity_names(&identity).into_iter().collect();
     let content_id = request
         .handle
         .as_deref()
@@ -207,7 +208,7 @@ fn matches_event(
         .unwrap_or(event.account.as_str());
     let kind = event_kind(event);
     let status = event_status(event);
-    Ok(event_for == filters.identity
+    Ok(filters.identity.contains(event_for)
         && filters.kinds.contains(&kind)
         && filters.events.contains(&event.event_type)
         && filters

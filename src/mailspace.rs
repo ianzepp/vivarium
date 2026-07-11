@@ -11,6 +11,7 @@ mod body;
 mod delivery;
 mod dump;
 mod event_log;
+mod identity;
 mod kind;
 mod reply;
 #[cfg(test)]
@@ -22,6 +23,7 @@ pub use body::{read_body_arg, read_body_input};
 pub use dump::{
     DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
 };
+pub use identity::LocalIdentity;
 pub use thread::{MailspaceThreadMessage, print_thread};
 pub use watch::{MailspaceWatchRequest, run_watch};
 
@@ -42,11 +44,6 @@ pub struct MailspaceConfig {
     pub identities: Vec<LocalIdentity>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocalIdentity {
-    pub name: String,
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct MailspaceStatus {
     pub found: bool,
@@ -61,6 +58,7 @@ pub struct MailspaceStatus {
 pub struct IdentityStatus {
     pub identity: String,
     pub address: String,
+    pub aliases: Vec<String>,
     pub actionable_open: usize,
     pub inbox_unread: usize,
     pub tasks_open: usize,
@@ -159,77 +157,25 @@ impl Mailspace {
         Storage::open_mailspace(&self.dir)
     }
 
-    pub fn add_identity(&mut self, identity: &str) -> Result<String, VivariumError> {
-        let identity = sanitize_identity(identity)?;
-        if !self
-            .config
-            .identities
-            .iter()
-            .any(|known| known.name == identity)
-        {
-            self.config.identities.push(LocalIdentity {
-                name: identity.clone(),
-            });
-            self.config
-                .identities
-                .sort_by(|left, right| left.name.cmp(&right.name));
-            write_config(&self.dir.join(MAILSPACE_CONFIG), &self.config)?;
-        }
-        Ok(self.address_for(&identity))
-    }
-
-    pub fn address_for(&self, identity: &str) -> String {
-        format!("{identity}@{}.local", self.config.name)
-    }
-
-    pub fn resolve_identity(&self, value: &str) -> Result<String, VivariumError> {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            return Err(VivariumError::Message(
-                "local identity cannot be empty".into(),
-            ));
-        }
-        let identity = if let Some((local, domain)) = trimmed.rsplit_once('@') {
-            let expected = format!("{}.local", self.config.name);
-            if domain == "local" || domain == expected {
-                local
-            } else {
-                return Err(VivariumError::Message(format!(
-                    "external recipient '{trimmed}' is not allowed for local mailspace delivery"
-                )));
-            }
-        } else {
-            trimmed
-        };
-        let identity = sanitize_identity(identity)?;
-        if self
-            .config
-            .identities
-            .iter()
-            .any(|known| known.name == identity)
-        {
-            Ok(identity)
-        } else {
-            Err(VivariumError::Message(format!(
-                "unknown local identity '{identity}'; add it with `vivi mailspace identity add {identity}`"
-            )))
-        }
-    }
-
     pub fn status(&self) -> Result<MailspaceStatus, VivariumError> {
         let storage = self.storage()?;
         let mut identities = Vec::new();
         let mut totals = StatusTotals::default();
         for identity in &self.config.identities {
-            let inbox_unread =
-                storage.count_messages_for_account_role(&identity.name, "inbox", Some(false))?;
-            let tasks_open =
-                storage.count_messages_for_account_role(&identity.name, "tasks", None)?;
-            let needs_open =
-                storage.count_messages_for_account_role(&identity.name, "needs", None)?;
-            let wants_open =
-                storage.count_messages_for_account_role(&identity.name, "wants", None)?;
-            let done = storage.count_messages_for_account_role(&identity.name, "done", None)?;
+            let names = self.identity_names(&identity.name);
+            let mut inbox_unread = 0;
+            let mut tasks_open = 0;
+            let mut needs_open = 0;
+            let mut wants_open = 0;
+            let mut done = 0;
+            for name in &names {
+                inbox_unread +=
+                    storage.count_messages_for_account_role(name, "inbox", Some(false))?;
+                tasks_open += storage.count_messages_for_account_role(name, "tasks", None)?;
+                needs_open += storage.count_messages_for_account_role(name, "needs", None)?;
+                wants_open += storage.count_messages_for_account_role(name, "wants", None)?;
+                done += storage.count_messages_for_account_role(name, "done", None)?;
+            }
             let actionable_open = tasks_open + needs_open;
             totals.actionable_open += actionable_open;
             totals.inbox_unread += inbox_unread;
@@ -239,6 +185,7 @@ impl Mailspace {
             identities.push(IdentityStatus {
                 identity: identity.name.clone(),
                 address: self.address_for(&identity.name),
+                aliases: identity.aliases.clone(),
                 actionable_open,
                 inbox_unread,
                 tasks_open,
@@ -275,6 +222,9 @@ pub fn print_status(status: &MailspaceStatus) {
             identity.inbox_unread,
             identity.done
         );
+        if !identity.aliases.is_empty() {
+            println!("  formerly: {}", identity.aliases.join(", "));
+        }
     }
     println!();
     println!("total actionable open: {}", status.totals.actionable_open);
@@ -361,22 +311,7 @@ fn sanitize_project_name(value: &str) -> String {
     }
 }
 
-fn sanitize_identity(value: &str) -> Result<String, VivariumError> {
-    let value = value.trim().to_ascii_lowercase();
-    let valid = !value.is_empty()
-        && value
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'));
-    if valid {
-        Ok(value)
-    } else {
-        Err(VivariumError::Message(format!(
-            "invalid local identity '{value}'; use letters, numbers, dot, dash, or underscore"
-        )))
-    }
-}
-
-fn write_config(path: &Path, config: &MailspaceConfig) -> Result<(), VivariumError> {
+pub(super) fn write_config(path: &Path, config: &MailspaceConfig) -> Result<(), VivariumError> {
     let raw = toml::to_string_pretty(config)
         .map_err(|e| VivariumError::Other(format!("failed to encode mailspace config: {e}")))?;
     fs::write(path, raw)?;

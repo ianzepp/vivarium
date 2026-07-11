@@ -56,6 +56,20 @@ pub enum MailspaceIdentityCommand {
         #[arg(long)]
         project: Option<PathBuf>,
     },
+
+    /// Rename a local identity, keeping the old name as an alias so
+    /// historical mail still resolves
+    Rename {
+        /// Current identity name
+        old: String,
+
+        /// New identity name
+        new: String,
+
+        /// Project root to update
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Subcommand)]

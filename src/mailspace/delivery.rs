@@ -144,12 +144,13 @@ impl Mailspace {
         role: &str,
     ) -> Result<Vec<StoredMessageView>, VivariumError> {
         let identity = self.resolve_identity(identity)?;
+        let names = self.identity_names(&identity);
         let role = canonical_local_role(role)?;
         let storage = self.storage()?;
         Ok(storage
             .list_messages_by_role(&role)?
             .into_iter()
-            .filter(|message| message.account == identity)
+            .filter(|message| names.contains(&message.account))
             .collect())
     }
 
@@ -160,11 +161,12 @@ impl Mailspace {
         kind: &str,
     ) -> Result<Vec<StoredMessageView>, VivariumError> {
         let identity = self.resolve_identity(identity)?;
+        let names = self.identity_names(&identity);
         let role = canonical_local_role(role)?;
         let storage = self.storage()?;
         let mut messages = Vec::new();
         for message in storage.list_messages_by_role(&role)? {
-            if message.account != identity {
+            if !names.contains(&message.account) {
                 continue;
             }
             let data = storage.read_message(&message.message_id)?;
@@ -195,6 +197,7 @@ impl Mailspace {
         command: &str,
     ) -> Result<String, VivariumError> {
         let identity = self.resolve_identity(identity)?;
+        let names = self.identity_names(&identity);
         let role = canonical_local_role(role)?;
         let mut storage = self.storage()?;
         let resolved = storage.resolve_message_token(handle)?;
@@ -203,13 +206,22 @@ impl Mailspace {
                 "message not found: {handle}"
             )));
         };
+        if !names.contains(&before.account) {
+            return Err(VivariumError::Message(format!(
+                "message not found for {identity}: {handle}"
+            )));
+        }
+        // Stored messages keep the account name they were ingested under
+        // even after a rename, so the storage-layer mutation must target
+        // that historical account rather than the current canonical name.
+        let account = before.account.clone();
         if let Some(note) = note {
             let reply = self.note_reply(&storage, &identity, &before, note)?;
             let event = MailspaceEventInput {
                 command: command.into(),
                 event_type: "moved".into(),
                 actor_identity: Some(identity.clone()),
-                account: identity.clone(),
+                account: account.clone(),
                 message_id: before.message_id.clone(),
                 content_id: before.content_id.clone(),
                 from_role: Some(before.local_role.clone()),
@@ -220,7 +232,7 @@ impl Mailspace {
                 note: Some(note.into()),
             };
             storage.move_message_with_reply(MailspaceMoveWithReply {
-                account: &identity,
+                account: &account,
                 message_id: &resolved,
                 local_role: &role,
                 event: &event,
@@ -229,7 +241,7 @@ impl Mailspace {
                 parent_content_id: &before.content_id,
             })?;
         } else {
-            storage.move_message_to_role(&identity, &resolved, &role)?;
+            storage.move_message_to_role(&account, &resolved, &role)?;
             log_move_event(&storage, &identity, &role, &before, command, None)?;
         }
         storage.display_handle(&resolved)

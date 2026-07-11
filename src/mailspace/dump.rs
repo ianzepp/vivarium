@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
 use serde::Serialize;
 
@@ -60,7 +62,7 @@ pub struct DumpRecord {
 }
 
 struct PreparedFilters {
-    account: Option<String>,
+    account: Option<HashSet<String>>,
     from: Option<String>,
     to: Option<String>,
     participant: Option<ParticipantFilter>,
@@ -70,7 +72,7 @@ struct PreparedFilters {
 }
 
 struct ParticipantFilter {
-    identity: Option<String>,
+    identity: Option<HashSet<String>>,
     text: String,
 }
 
@@ -161,7 +163,8 @@ impl Mailspace {
                 .for_identity
                 .as_deref()
                 .map(|identity| self.resolve_identity(identity))
-                .transpose()?,
+                .transpose()?
+                .map(|identity| self.identity_names(&identity)),
             from: filters.from.map(normalize_filter),
             to: filters.to.map(normalize_filter),
             participant: self.participant_filter(filters.participant.as_deref())?,
@@ -178,11 +181,12 @@ impl Mailspace {
         let Some(value) = participant else {
             return Ok(None);
         };
-        let identity = self.resolve_identity(value).ok();
-        let text = identity
+        let resolved = self.resolve_identity(value).ok();
+        let text = resolved
             .as_deref()
             .map(|identity| self.address_for(identity))
             .unwrap_or_else(|| value.to_string());
+        let identity = resolved.map(|identity| self.identity_names(&identity));
         Ok(Some(ParticipantFilter {
             identity,
             text: normalize_filter(text),
@@ -194,7 +198,7 @@ fn matches_filters(view: &StoredMessageView, body: &str, filters: &PreparedFilte
     filters
         .account
         .as_ref()
-        .is_none_or(|account| &view.account == account)
+        .is_none_or(|names| names.contains(&view.account))
         && filters.window.contains(&view.date)
         && matches_text(&view.from_addr, filters.from.as_deref())
         && matches_recipients(view, filters.to.as_deref())
@@ -217,7 +221,7 @@ fn matches_participant(view: &StoredMessageView, filter: Option<&ParticipantFilt
     filter
         .identity
         .as_ref()
-        .is_some_and(|id| &view.account == id)
+        .is_some_and(|names| names.contains(&view.account))
         || matches_text(&view.from_addr, Some(&filter.text))
         || matches_text(&view.to_addr, Some(&filter.text))
         || matches_text(&view.cc_addr, Some(&filter.text))
