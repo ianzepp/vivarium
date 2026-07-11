@@ -62,19 +62,22 @@ Without watch, the Mind remains a pure poller. With watch, the Mind can run
    - `vivi want watch …`
    each mapping to `mailspace watch --kinds <kind>`.
 3. **Event model:** Emit structured events with at least:
-   - `event` (e.g. `delivered`, `done`, `reopened`, `promoted`)
+   - `event` (`delivered`, `moved`, or `sent_copy_created`)
+   - `status` (derived destination state such as `tasks`, `needs`, or `done`)
    - `kind` (`mail|task|need|want`)
    - `handle`, `for` (identity), `from`, `subject`, `at` (timestamp)
    Text and `--json` lines both required for agent use.
 4. **Filters (agent-critical):**
    - `--for <identity>` (required or strongly defaulted)
    - `--kinds mail,task,need,want`
-   - `--events delivered,done,…` (default sensible set for Mind alarms)
+   - `--events delivered,moved` (raw ledger event types)
+   - `--statuses tasks,needs,wants,done,inbox` (derived destination states)
    - `--match-from <identity>`
    - `--match-subject-prefix <str>` (e.g. `strategist report:`, `turn end:`)
    - `--handle <handle>` — wait until **that** item changes (done/reopen/etc.)
 5. **Stop / run modes:**
-   - `--until-count N` (default `1`) — exit after N matching events
+   - `--until-count N` (default `1`) — exit after N matching events; `0`
+     means follow until interrupted
    - `--timeout <duration>` — exit non-zero if nothing matched
    - `--once` — single poll of “anything new since cursor,” no long block
    - long-running stream mode (optional flag or default when `--until-count` omitted
@@ -84,7 +87,10 @@ Without watch, the Mind remains a pure poller. With watch, the Mind can run
    - `--cursor-file` / `--watermark-file` read
    - `--write-cursor` / `--write-watermark` after successful match (opt-in)
    Cursor is **caller-owned**; Vivi does not require a global Mind registry.
-7. **Implementation honesty:** Prefer **poll + fingerprint** of mailspace events
+   The persisted cursor is the last scanned monotonic `mailspace_events.event_id`,
+   not a timestamp. `--since` establishes the initial lower bound only when no
+   cursor file exists.
+7. **Implementation honesty:** Prefer **poll + event-id cursor** over mailspace events
    (simple, testable). Optional later optimization: FS notify on `mail.sqlite`
    with debounce—must not change CLI contract.
 8. **Docs:** README + agent examples for “file work → watch → one cycle.” Explicit
@@ -133,25 +139,41 @@ mailspace store (events + messages)
 ```
 
 - **Single source of truth:** existing mailspace messages + event history.
-- **Cursor:** opaque or RFC3339 watermark owned by caller (same spirit as board
-  watermark files).
-- **Exit codes:** `0` matched; non-zero timeout / error (document exact codes).
+- **Canonical source:** query `mailspace_events` in ascending `event_id` order;
+  add one storage query that reads events after an event id with account/kind
+  filtering performed without rescanning every message.
+- **Cursor:** decimal `event_id` plus a trailing newline, owned by the caller.
+  Advance it to the last event scanned after successful output, including
+  non-matching events, so filters do not repeatedly rescan history. Write via a
+  temporary sibling followed by rename. Missing/empty files mean no cursor;
+  malformed files fail closed.
+- **Event vocabulary:** preserve ledger `event_type` values (`delivered`,
+  `moved`, `sent_copy_created`) in the raw `event` field. Also emit derived
+  `kind` from `X-Vivi-Kind`/role and `status` from the destination role. Do not
+  invent `done`, `reopened`, or `promoted` event names in this goal.
+- **Exit codes:** `0` matched (or `--once` completed), `1` timed out without a
+  match, and ordinary Vivi nonzero error handling for invalid input/storage
+  failures.
 - **Concurrency:** multiple watchers OK; no exclusive lease of the whole
   mailspace required for v1 (read-only observation).
+- **Polling:** 250 ms default interval, overridable with `--poll-interval` for
+  tests/operators. Open the mailspace per poll so a long-lived read transaction
+  never hides newly committed events.
 
 ## Implementation Shape (phased)
 
-### Phase 0 — Spec lock
+### Phase 0 — Storage event scan
 
-- Finalize CLI names, event enum, default filters, exit codes.
-- Confirm reuse of board/dump time parsing and event scan paths.
+- Add a paged `mailspace_events` query ordered by `(event_id)` with an exclusive
+  lower bound and deterministic tests.
+- Reuse `parse_time_bound` only to translate `--since` into the initial event-id
+  boundary; do not use timestamps as the durable cursor.
 
 ### Phase 1 — Core `mailspace watch` (MVP)
 
 - `vivi mailspace watch --for <id> [--kinds …] [--until-count 1] [--timeout …]
   [--since …] [--json]`
-- Poll implementation; default kinds suitable for Mind (mail + task + need at
-  minimum; want optional/default-off or on—record choice in phase delivery).
+- Poll implementation; default kinds are `mail,task,need`; `want` is opt-in.
 - Integration tests with temp mailspace: send task → watch sees delivered;
   task done → watch with `--handle` sees done.
 
@@ -196,23 +218,16 @@ mailspace store (events + messages)
   4. Repeat with `task send` + `task done --handle …` and `--handle` filter.
 - Review: no confusion with `sync-events --watch` in help strings.
 
-## Open Questions
+## Locked Decisions
 
-1. **Default kinds:** mail+task+need only, or include want?
-   Recommendation: default `mail,task,need`; want opt-in via `--kinds`.
-2. **Command home:** only `mailspace watch` vs also top-level `vivi watch`?
-   Recommendation: `mailspace watch` primary; kind subcommands as aliases; avoid
-   bare `vivi watch` until it can disambiguate IMAP vs mailspace.
-3. **Stream vs one-shot default:** long-running until Ctrl-C vs default
-   `--until-count 1`?
-   Recommendation: default `--until-count 1` (alarm-shaped); document
-   `--until-count 0` or `--follow` for stream.
-4. **FS notify in v1?** Recommendation: poll-only in Phase 1; notify as Phase 4.
-5. **Exit code for timeout:** `1` vs `124` (timeout convention)?
-   Recommendation: `1` with stderr reason; optional later `124` flag if scripts demand it.
-
-Factory may pick recommendations when unanswered and record choices in the first
-phase delivery spec.
+- `vivi mailspace watch` is the canonical command. Kind aliases are Phase 3;
+  there is no bare `vivi watch` in this goal.
+- Default kinds are `mail,task,need`; `want` is opt-in.
+- Default mode is alarm-shaped (`--until-count 1`); `--until-count 0` follows.
+- Phase 1 is polling only. Filesystem notification is an optional later
+  optimization that cannot alter output or cursor semantics.
+- Timeout exits `1`; invalid arguments and storage errors use normal Vivi error
+  handling.
 
 ## Stop Conditions
 

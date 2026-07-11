@@ -67,8 +67,9 @@ deferred" section:
   roots.
 - `vivi task show` renders the root message, but does not yet render full
   thread context.
-- `task done --note` / `task reopen --note` are not yet implemented as
-  reply-thread notes (the commands reject `--note` today).
+- `task`/`need`/`want` lifecycle commands accept `--note`, but the note is only
+  recorded on the `mailspace_events` move row. It does not create a message or
+  appear in a conversation thread.
 
 This goal exists to close those deferred items.
 
@@ -82,9 +83,10 @@ This goal exists to close those deferred items.
    ancestors and descendants — with `--json` and a depth/age cap.
 3. **Kind-agnostic lineage:** a parent link may target any mailspace kind, so a
    mail answering a need and a task referencing a mail both thread correctly.
-4. **Note-as-reply:** `--note` on `task done` / `task reopen` (and `want`/
-   `need` equivalents) records a reply message in the thread instead of being
-   rejected or rewriting the body.
+4. **Note-as-reply:** preserve the existing lifecycle event note and, when
+   `--note` is supplied, also create a normal reply message in the same
+   operation. The event ledger remains the authoritative lifecycle audit; the
+   reply is the conversational rendering of that note.
 5. **Historical best-effort:** for messages sent before capture existed, infer
    links from body handle-citations, `Re:`/`Re[]:`-style subject prefixes, and
    timestamp ordering — and **clearly mark those links as inferred**, never
@@ -141,7 +143,7 @@ Before implementing, inspect:
 | --- | --- |
 | `src/mailspace.rs` | `DeliveredMessage` and status types to extend with parent |
 | `src/mailspace/delivery.rs` | `SendRequest` / `send` — where a reply target is resolved and stored |
-| `src/mailspace/dump.rs` | `DumpRecord` to surface parent + inferred flag |
+| `src/mailspace/dump.rs` | `DumpRecord` to surface parent content id + link source |
 | `src/mailspace/event_log.rs` | event ledger for reply/done-note events |
 | `src/mailspace/kind.rs` | kind taxonomy for cross-kind link validation |
 | `src/local_mailspace_command.rs` | `send_local_mail`/`send_mail`; add `reply` + `--reply-to` |
@@ -181,9 +183,9 @@ Model lineage as **one captured relation over existing messages**, plus a
 read-side assembler:
 
 ```text
-mail/task/need/want message (message_id, stable across folder moves)
+mail/task/need/want message (content_id shared across local copies)
         │
-        ├── parent_message_id  (authoritative, when reply target supplied)
+        ├── parent_content_id  (authoritative, when reply target supplied)
         │
         ▼
    thread assembler  ──►  vivi mail thread <handle>  |  show --thread
@@ -192,8 +194,11 @@ mail/task/need/want message (message_id, stable across folder moves)
                  marked inferred; never overwrite an authoritative parent
 ```
 
-- **Canonical relation:** one nullable `parent_message_id` (and an `inferred`
-  flag) per message, resolved through the existing storage/handle layer.
+- **Canonical identity:** `content_id` identifies one logical local message
+  across its sender and recipient copies. A new `mailspace_links` table stores
+  `child_content_id` (primary key), `parent_content_id`, and `source`
+  (`captured` or `inferred`), each referencing `blobs(content_id)`. Do not put
+  the relation on `messages`: that would duplicate or disagree across copies.
 - **Capture:** `mail reply <handle>` and `--reply-to <handle>` on send resolve
   the handle to a `message_id` at send time and store the link. Unknown or
   ambiguous handles fail closed with candidate matches (same behavior as
@@ -203,10 +208,10 @@ mail/task/need/want message (message_id, stable across folder moves)
 - **Notes:** `--note` on done/reopen records a reply message carrying the note
   body, instead of mutating the root body — matching the original plan.
 
-Mechanism choice (authoritative vs inferred representation, and whether to
-reuse RFC5322 `In-Reply-To`/`References` headers versus a mailspace-local
-column) is an Open Question below; both are viable because messages already
-carry stable `message_id`s.
+Captured replies also write RFC5322 `In-Reply-To` and `References` headers for
+portable message shape, but `mailspace_links` is the authoritative query seam.
+Headers are not a substitute for the local relation and historical inference
+never rewrites blobs.
 
 ## Supporting Skills
 
@@ -224,12 +229,12 @@ Rough factory phases (delivery may merge/split at boundaries):
 
 ### Phase 1 — Storage + capture (smallest useful)
 
-- Add nullable `parent_message_id` (+ `inferred` flag) to the mailspace message
-  model and a migration; backfill existing rows null/non-inferred.
+- Add the `mailspace_links` table and indexes through idempotent
+  `ensure_schema`; existing mailspaces require no row rewrite.
 - `vivi mail reply <handle>` and `--reply-to <handle>` on
   `mail`/`task`/`need`/`want send`; resolve handle → `message_id`; store link;
   fail closed on unknown/ambiguous.
-- `dump --json` surfaces `parent_message_id` + `inferred`.
+- `dump --json` surfaces `parent_content_id` and `link_source`.
 
 ### Phase 2 — Thread view
 
@@ -242,9 +247,10 @@ Rough factory phases (delivery may merge/split at boundaries):
 
 ### Phase 3 — Note-as-reply
 
-- `--note` on `task done`/`reopen` (and `want`/`need` equivalents where
-  applicable) records a reply message in the thread instead of being rejected
-  or rewriting the body.
+- `--note` on all existing task/need/want lifecycle verbs keeps the current
+  event note and additionally records a reply message parented to the item.
+  If reply creation fails, the move and its event must roll back as one atomic
+  operation; extracting a storage transaction seam is part of this phase.
 
 ### Phase 4 — Historical inferred linkage (opt-in)
 
@@ -272,7 +278,7 @@ operator approval after local `cargo test` green.
 
 Decision: **included**
 
-- New commands and the parent column are additive; remove or feature-gate only
+- New commands and the link table are additive; remove or feature-gate only
   if broken — prefer fix.
 - Inferred linkage may be disabled via flag/env if it produces noisy or wrong
   reconstructions; authoritative capture is never removed to satisfy inference.
@@ -289,11 +295,11 @@ Decision: **included**
   conversation (ancestors + descendants) from any node, in text and `--json`.
 - A `mail` can reply to a `need`; a `task` can reply to a `mail`; both assemble
   into one thread (kind-agnostic).
-- `task done --note` / `reopen --note` record a reply in the thread and no
-  longer reject `--note` or rewrite the root body.
+- Lifecycle `--note` preserves the existing event-ledger note and atomically
+  creates a reply in the thread without rewriting the root body.
 - Inferred links for pre-capture history are produced only on request, marked
   `inferred`, and never override an authoritative parent.
-- `dump --json` exposes `parent_message_id` and `inferred`.
+- `dump --json` exposes `parent_content_id` and `link_source`.
 - Existing `mail`/`task`/`need`/`want` semantics, handle stability, and
   `--project` discovery are unchanged.
 - `cargo fmt --check`, `cargo test --test hygiene`, and `cargo test` pass.
@@ -309,26 +315,22 @@ Decision: **included**
 - Review: confirm docs and help text do not introduce gate/license semantics.
 - Hygiene ceilings still hold on touched modules.
 
-## Open Questions
+## Locked Decisions
 
-1. **Link representation:** nullable `parent_message_id` column, or reuse
-   RFC5322 `In-Reply-To`/`References` headers on the stored message (the email
-   path's approach)? Recommendation: column for authoritative capture (simple,
-   queryable, kind-agnostic), with header symmetry only if the storage layer
-   already indexes mail headers for project mailspaces.
-2. **Inferred-link aggressiveness:** Phase 4 default-off vs default-on-with-cap?
-   Recommendation: default-off (`--infer` to enable), inferred never trusted as
-   authoritative.
-3. **Thread command surface:** `vivi mail thread <handle>` only, or also a
-   top-level unified `vivi thread <handle>` that auto-detects project-mailspace
-   vs account-email? Recommendation: `vivi mail thread` for this goal; unify
-   later if disambiguation is clean.
-4. **Note verb symmetry:** `--note` across task/need/want done/reopen/promote?
-   Recommendation: ship task first (matches the deferred plan), extend to
-   need/want in the same phase if cheap.
-
-Factory may pick recommendations when unanswered and record the choice in the
-phase delivery spec.
+- Store authoritative and inferred relations in `mailspace_links`, keyed by
+  logical-message `content_id`; also emit standard reply headers for captured
+  replies.
+- Historical inference is default-off behind `mail thread --infer`; it is a
+  read-side result unless the user later authorizes a separate persistence
+  command. `dump` reports only persisted captured links in this goal.
+- The project-local surface is `vivi mail thread`; do not overload the existing
+  account-email `vivi thread` command.
+- Apply note-as-reply consistently to every lifecycle verb that already accepts
+  `--note`: task and need done/reopen, plus want promote/done/drop.
+- `mail reply <handle>` defaults recipients to the parent message's sender and
+  excludes the replying identity; `--to`/`--cc` may explicitly override/add.
+  It requires `--from`, `--body`/`--body-file`, accepts optional `--subject`,
+  and otherwise uses `Re: <parent subject>` without stacking `Re:` prefixes.
 
 ## Stop Conditions
 
