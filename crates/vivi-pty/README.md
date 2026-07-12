@@ -62,14 +62,18 @@ The driver layer now classifies terminal evidence into normalized harness
 states and turns guarded submit, interrupt, and raw-input requests into
 deterministic terminal-action plans. The generic driver is deliberately
 conservative: it recognizes explicit shell prompts and otherwise reports
-visible output as running. Additional harness drivers, leases, attachment, and
-the MCP facade are subsequent vertical slices.
+visible output as running. The built-in Codex, Pi, and OpenCode drivers share
+the same normalized state, evidence, capability, and guarded-action boundary.
 
 The built-in Codex driver adds evidence-backed state classification and an
 acknowledged submission workflow: it writes the composer literally, waits for
 the submitted text to appear on a newer screen revision, and only then plans
 the Codex submit key. Stale, contradictory, or unrecognized evidence becomes
 an explicit uncertain result.
+
+Pi and OpenCode use independent Fleet-grounded marker sets for prompts,
+activity, approvals, completion, and failures; unfamiliar terminal chrome
+remains unknown rather than borrowing Codex or shell assumptions.
 
 `session.attach` provides a read-only ordered event stream. Human interaction
 uses a short-lived exclusive lease acquired with `session.lease.acquire`; the

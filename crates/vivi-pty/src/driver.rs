@@ -231,6 +231,8 @@ impl DriverRegistry {
     pub fn with_builtins() -> Self {
         let mut registry = Self::with_generic();
         registry.register(Arc::new(crate::codex::CodexDriver));
+        registry.register(Arc::new(crate::opencode::OpenCodeDriver));
+        registry.register(Arc::new(crate::pi::PiDriver));
         registry
     }
 

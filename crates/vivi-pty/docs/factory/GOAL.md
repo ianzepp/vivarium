@@ -96,6 +96,8 @@ useful milestone.
   records the allowlisted MCP facade and capability-discovery contract.
 - `crates/vivi-pty/docs/factory/delivery/08-fleet-binding.md`: Phase 8 records
   the canonical role/runtime binding and dual-ownership contract.
+- `crates/vivi-pty/docs/factory/delivery/09-pi-opencode-drivers.md`: Phase 9
+  records cross-harness driver conformance for Pi and OpenCode.
 - Standalone source commit `c72e123`: the last complete implementation point
   before migration into Vivarium.
 - Vivarium commit `eb9da73`: the recovered implementation and project-scoped
@@ -269,12 +271,17 @@ Fleet-shaped role configuration can be resolved into a canonical Vivi PTY
 session plan. Legacy tmux roles remain readable, while Vivi PTY roles reject
 tmux fields and derive session identity from the configured role identity.
 
+### Completed milestone: Pi/OpenCode driver conformance
+
+Pi and OpenCode have independent evidence markers, capabilities, semantic
+action plans, and shared conformance assertions with Generic and Codex. Live
+harness execution remains a separate opt-in validation gate.
+
 ### Following milestones
 
 1. Integrate a canary Fleet role using the validated binding; remove tmux
    control for that role and exercise repeated real Fleet cycles.
-2. Validate the abstraction with Pi and OpenCode drivers.
-3. Operationalize installation, daemon lifecycle, authorization, diagnostics,
+2. Operationalize installation, daemon lifecycle, authorization, diagnostics,
    soak testing, migration guidance, and release packaging.
 
 Each milestone receives its own delivery spec, validation checkpoint, and

@@ -7,6 +7,8 @@ fn builtin_capabilities_describe_drivers_and_control_boundaries() {
     let capabilities = bridge.capabilities();
     assert_eq!(capabilities.protocol_version, PROTOCOL_VERSION);
     assert!(capabilities.drivers.contains(&"codex".into()));
+    assert!(capabilities.drivers.contains(&"pi".into()));
+    assert!(capabilities.drivers.contains(&"opencode".into()));
     assert!(capabilities.features.contains(&"control_leases".into()));
     assert!(capabilities.methods.contains(&"daemon.capabilities".into()));
 }

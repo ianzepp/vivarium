@@ -103,7 +103,12 @@ impl McpBridge {
         DaemonCapabilities {
             protocol_version: PROTOCOL_VERSION,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
-            drivers: vec!["generic".into(), "codex".into()],
+            drivers: vec![
+                "generic".into(),
+                "codex".into(),
+                "pi".into(),
+                "opencode".into(),
+            ],
             methods: self
                 .tools
                 .iter()
