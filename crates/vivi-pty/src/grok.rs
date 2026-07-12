@@ -41,21 +41,24 @@ impl HarnessDriver for GrokDriver {
                 "visible Grok capacity or connection error",
             );
         }
+        if contains_any(
+            visible,
+            &["Working", "Responding", "Thinking", "Waiting for response"],
+        ) {
+            return evidence(
+                HarnessState::Running,
+                Confidence::High,
+                "Grok is actively working",
+            );
+        }
+        if grok_tui_waiting(visible) {
+            return evidence(
+                HarnessState::WaitingForInput,
+                Confidence::High,
+                "Grok TUI prompt is visible",
+            );
+        }
         if visible.contains("Grok Build") || visible.contains("Grok") {
-            if contains_any(visible, &["Working", "Responding", "Thinking"]) {
-                return evidence(
-                    HarnessState::Running,
-                    Confidence::High,
-                    "Grok is actively working",
-                );
-            }
-            if grok_tui_waiting(visible) {
-                return evidence(
-                    HarnessState::WaitingForInput,
-                    Confidence::High,
-                    "Grok TUI prompt is visible",
-                );
-            }
             return evidence(
                 HarnessState::Running,
                 Confidence::Medium,
@@ -126,8 +129,9 @@ fn grok_tui_waiting(visible: &str) -> bool {
     visible
         .lines()
         .rev()
-        .find(|line| !line.trim().is_empty())
-        .is_some_and(|line| line.contains('❯'))
+        .filter(|line| !line.trim().is_empty())
+        .take(8)
+        .any(|line| line.contains('❯'))
 }
 
 fn last_line_is_prompt(visible: &str) -> bool {

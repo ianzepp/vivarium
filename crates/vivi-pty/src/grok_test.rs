@@ -69,6 +69,22 @@ fn grok_tui_prompt_classifies_as_waiting_for_input() {
 }
 
 #[test]
+fn grok_tui_prompt_above_footer_classifies_as_waiting_for_input() {
+    let classification = GrokDriver.classify(&snapshot(
+        "Grok Build\n  │ ❯                                      │\n  ╰──── GPT-5.6 Terra · always-approve ────╯\n\n[stable]",
+    ));
+    assert_eq!(classification.state, HarnessState::WaitingForInput);
+}
+
+#[test]
+fn completed_turn_prompt_without_grok_branding_is_waiting() {
+    let classification = GrokDriver.classify(&snapshot(
+        "Turn completed in 30s.\n\n  │ ❯                         │\n  ╰──── GPT-5.6 Sol ──────────╯\nShift+Tab:mode │ Ctrl+.:shortcuts",
+    ));
+    assert_eq!(classification.state, HarnessState::WaitingForInput);
+}
+
+#[test]
 fn grok_tui_working_classifies_as_running() {
     let classification = GrokDriver.classify(&snapshot("Grok Build Beta\nWorking on it…"));
     assert_eq!(classification.state, HarnessState::Running);
