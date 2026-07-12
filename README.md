@@ -11,6 +11,11 @@ IMAP providers continue to work through the same local storage model.
 Raw RFC 5322 bytes stay on disk as `.eml` blobs, while mutable mailbox state
 and derived indexes live in SQLite.
 
+The repository also ships `vivi-pty`, a separate companion binary that owns
+Fleet-managed agent processes and pseudo-terminals. `vivi` remains the durable
+mail and work interface; `vivi-pty` exposes ephemeral terminal runtime state
+over a local Unix socket. See [`crates/vivi-pty`](crates/vivi-pty/README.md).
+
 ## Why
 
 Local agents need access to email. Existing tools (offlineimap, mbsync, mutt) are built for humans and carry decades of assumptions. Vivarium keeps the important part simple: the raw message bytes stay local, stable, and directly readable as `.eml` files, while Vivi owns mailbox placement, flags, bindings, and indexes.
@@ -42,6 +47,7 @@ From source, requires Rust 1.93+:
 git clone https://github.com/ianzepp/vivarium.git
 cd vivarium
 cargo install --path .
+cargo install --path crates/vivi-pty
 ```
 
 ## Quick Start

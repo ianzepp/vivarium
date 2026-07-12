@@ -4,6 +4,10 @@ version = "4.8.0"
 edition = "2024"
 autobins = false
 
+[workspace]
+members = ["crates/vivi-pty"]
+resolver = "2"
+
 [[bin]]
 name = "vivi"
 path = "src/main.rs"
