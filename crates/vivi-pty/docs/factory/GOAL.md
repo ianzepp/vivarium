@@ -1,360 +1,337 @@
-# Vivi PTY product factory goal
+# Goal: Vivi PTY project runtime
 
-## Run status
+## Summary
 
-- Status: active factory execution
-- Current phase: Phase 2 — Complete raw terminal control
-- Completed phases: MVP baseline, Phase 1
-- Repository migration: complete; implementation now lives in the Vivarium
-  workspace as the separate `vivi-pty` crate and binary
-- Pending phases: 2-10
-- Delivery specs: create under `docs/factory/delivery/` before each phase
-- Checkpoint policy: verify, review, polish, and commit every phase independently
-- Release policy: evaluate a version checkpoint after every user-visible protocol
-  or CLI phase; target the first product release after Phase 8
+Make `vivi-pty` the project-scoped live-runtime companion to `vivi`.
+Vivarium provides the canonical project, mailspace, and role identities;
+`vivi-pty` separately owns the processes and pseudo-terminals bound to those
+identities. Fleet is the first consumer and must be able to replace tmux pane
+control with a reliable local RPC surface without merging durable work truth
+and ephemeral terminal truth into one process.
 
-## Goal boundary
+The standalone prototype and runtime-lifecycle phase are complete. Active work
+resumes in this Vivarium workspace with raw terminal control as the next useful
+milestone.
 
-Build `vivi-pty` into the process-control layer for Fleet-managed terminal agent
-harnesses. The product must own agent processes and PTYs, translate normalized
-operations into harness-specific terminal interactions, expose reliable local
-automation and operator surfaces, and replace tmux for selected Fleet Hands
-without requiring a native API from the underlying harness.
+## Problem
 
-The first product-completion target is a Codex Hand operating through Vivi PTY
-for repeated real Fleet cycles. Pi and OpenCode then validate that the common
-contract is genuinely harness-neutral.
+- Fleet currently uses two correlated but independently addressed surfaces:
+  Vivi identities for durable work and tmux panes for live agent interaction.
+  The duplicated addressing and pane scraping make wake, observation,
+  submission, and recovery fragile.
+- A machine controller needs explicit process lifecycle, terminal state,
+  keystroke, resize, wait, and diagnostic operations while preserving terminal
+  compatibility across Codex, Pi, OpenCode, and future harnesses.
+- A global PTY daemon would expose unrelated Fleets to one shared control
+  plane. Runtime ownership must instead follow Vivi's project boundary.
+- Combining mail storage and PTY supervision in one process would couple
+  durable coordination availability to a more failure-prone and privileged
+  runtime subsystem.
 
-## Ground truth
+## Goals
 
-- `docs/BRIEF.md` defines the product thesis, runtime layers, submission
-  contract, and adoption signal.
-- `README.md` describes the working MVP surface.
-- Commits `57e27db` and `fb3daa6` establish the Unix-socket daemon, PTY process
-  ownership, terminal writes, and rendered VT100 snapshots.
-- Source commit `c72e123` in the former `fleet-pty` repository completed Phase 1
-  before the implementation moved into this workspace.
-- The current protocol supports daemon discovery, session lifecycle, literal
-  terminal writes, and terminal snapshots.
-
-## Architectural invariants
-
-1. Vivi PTY exclusively owns every managed agent process and PTY.
-2. tmux-backed and Vivi PTY-backed Hands may coexist during migration, but
-   they never own the same process.
-3. Vivi remains work truth; Vivi PTY reports process and interaction truth.
-4. The terminal is the universal harness contract. Native harness APIs are
-   optional optimizations, never requirements.
-5. Semantic operations are guarded, serialized, correlated, and evidence-backed.
-6. Ambiguous terminal state is reported as unknown rather than converted into
-   false certainty.
-7. Automated input and human input cannot race; interactive human control
-   requires an exclusive expiring lease.
-8. MCP is a facade over the daemon protocol, not the process owner or internal
-   protocol.
-9. Process termination and recovery affect only the daemon-owned process group.
-10. Compatibility shims are not a goal. Fleet configuration moves cleanly to a
-    canonical runtime binding when the adoption gate is met.
-11. One Vivi mailspace owns one Vivi PTY daemon endpoint; runtime sessions use
-    the same canonical role identities as project-local mail.
-12. `vivi` and `vivi-pty` are separate binaries and processes even though they
-    share this repository and project-discovery code.
+- Ship `vivi` and `vivi-pty` from one Vivarium workspace as separate
+  binaries and processes with a deliberately narrow shared project model.
+- Run one Vivi PTY daemon endpoint per discovered Vivi mailspace.
+- Use Vivi's canonical role identity, such as `hand-1` or `head-cto`, as
+  the default runtime session identity rather than maintaining an independent
+  pane-address namespace.
+- Own each managed harness process, process group, PTY, terminal emulator,
+  ordered input stream, and bounded runtime history.
+- Expose raw recovery operations and normalized, evidence-backed harness
+  operations over a versioned local protocol.
+- Give Fleet and an MCP facade stable client APIs without making either one
+  responsible for daemon or agent-process lifetime.
+- Provide safe human observation and exclusive interactive control without
+  racing automation.
+- Replace tmux completely for explicitly migrated Fleet roles while allowing
+  unmigrated roles to remain tmux-backed during rollout.
+- Validate the common contract against Codex first, then Pi and OpenCode.
 
 ## Non-goals
 
-- Reimplementing all tmux features.
-- Owning Fleet work assignment, task lifecycle, or Vivi state.
-- Browser UI, general-purpose terminal multiplexing, or arbitrary shell hosting.
-- Direct unauthenticated network exposure.
-- Cloud scheduling or distributed orchestration inside the daemon.
-- Preserving `tmux_target` as a second active control path for migrated Hands.
-- Requiring Codex, Pi, or OpenCode native APIs.
-
-## Product acceptance
-
-The factory goal is complete when:
-
-- A Fleet Mind can create, inspect, wake, observe, interrupt, restart, and stop a
-  Codex Hand exclusively through Vivi PTY's normalized surface.
-- Repeated Fleet cycles distinguish waiting, submitting, running, approval,
-  completion, failure, stopped, and unknown states with recorded evidence.
-- Submission retries cannot silently duplicate a turn, and concurrent writers
-  cannot corrupt terminal input.
-- An operator can attach, observe, acquire control, interact, and detach without
-  racing automation.
-- The MCP facade exposes the supported normalized operations without owning
-  session lifetime.
-- Fleet supports a canonical Vivi PTY runtime binding and no tmux interaction
-  for migrated Hands.
-- Codex, Pi, and OpenCode drivers pass the shared conformance suite, with
-  capability differences reported explicitly.
-- Restart, daemon recovery, stale sockets, process-group cleanup, bounded
-  history, and diagnostic snapshots have automated coverage and operator docs.
-
-## Stop conditions
-
-Pause the factory when:
-
-- A phase would require weakening an architectural invariant to pass validation.
-- A harness cannot be operated through its terminal without credentials,
-  destructive actions, or a human-only trust decision not represented by the
-  protocol.
-- Fleet integration requires changing a live external contract that has not
-  been authorized.
-- A dependency cannot preserve process-group ownership, terminal fidelity, or
-  bounded resource behavior.
-- Validation shows lost input, duplicated submissions, cross-session writes, or
-  orphaned process groups.
-
-Record ordinary harness ambiguity, unsupported capabilities, and recoverable
-terminal quirks as driver evidence or deferred findings; they are not automatic
-stop conditions.
-
-## Phase set
-
-Each numbered item is one factory phase and one delivery-sized unit. Factory
-must save a delivery spec before implementing it and close the phase with its own
-verification, review, polish pass, checkpoint decision, and cohesive commit.
-
-### Phase 1 — Runtime lifecycle hardening
-
-**Outcome:** The daemon is a trustworthy owner of many long-running PTY process
-groups rather than a successful prototype.
-
-**Scope:**
-
-- Explicit session lifecycle and transition rules.
-- Process-group termination, wait, and orphan prevention.
-- Daemon shutdown behavior and stale-socket handling.
-- Session identifier validation and duplicate/tombstone policy.
-- Bounded output/history memory and resource limits.
-- Typed protocol errors for conflicts, invalid state, and missing sessions.
-- Concurrency and multi-session lifecycle tests.
-
-**Checkpoint:** Stress tests repeatedly start, exit, stop, and concurrently
-inspect multiple sessions without leaked processes, unbounded memory, or
-cross-session state.
-
-**Depends on:** MVP baseline.
-
-### Phase 2 — Complete raw terminal control
-
-**Outcome:** Vivi PTY provides the full harness-neutral terminal substrate
-needed by higher-level drivers and operator recovery.
-
-**Scope:**
-
-- Raw byte writes distinct from UTF-8 text writes.
-- Named key encoding and key chords.
-- Terminal resize propagated to both PTY and emulator.
-- Visible screen, bounded scrollback, cursor, modes, and formatted snapshot.
-- Monotonic screen revision and output sequence numbers.
-- Atomic diagnostic snapshot containing process, protocol, and terminal evidence.
-- ANSI, alternate-screen, resize, Unicode, and high-output tests.
-
-**Checkpoint:** A fixture TUI can be driven using raw keys, resized, and read
-back deterministically without harness-specific code.
-
-**Depends on:** Phase 1.
-
-### Phase 3 — Events, waits, and operation correlation
-
-**Outcome:** Clients can react to state and screen changes without polling or
-guessing whether an operation took effect.
-
-**Scope:**
-
-- Server notifications over long-lived framed-protocol connections.
-- Per-session ordered event stream and sequence numbers.
-- Subscribe/unsubscribe with bounded subscriber queues and lag recovery.
-- Screen, process, operation, and lifecycle event types.
-- `session.wait` predicates, timeouts, and cancellation.
-- Operation identifiers, outcomes, and bounded replay/idempotency records.
-- Reconnect and missed-event snapshot behavior.
-
-**Checkpoint:** Tests prove ordered events, explicit lag detection, correlated
-operation results, and deterministic wait completion across concurrent clients.
-
-**Depends on:** Phases 1-2.
-
-### Phase 4 — Driver framework and generic semantic runtime
-
-**Outcome:** Harness policy is isolated behind a capability-aware driver
-contract, and the generic driver proves normalized semantics without being
-Codex-shaped.
-
-**Scope:**
-
-- Driver registry, lifecycle, capabilities, and configuration.
-- Evidence and confidence schema for classifications.
-- Normalized semantic states from the project brief.
-- Serialized per-session action queue and expected-state guards.
-- Semantic submit, interrupt, approve/reject, restart, and raw fallback actions.
-- Generic terminal driver with conservative classifications.
-- Reusable fake-harness fixtures and driver conformance suite.
-
-**Checkpoint:** The generic fixture completes guarded submit, interrupt,
-approval, restart, unknown-state, and error flows through normalized operations.
-
-**Depends on:** Phase 3.
-
-### Phase 5 — Codex driver vertical slice
-
-**Outcome:** Codex can be operated reliably through normalized Vivi PTY
-semantics with its terminal quirks contained inside one driver.
-
-**Scope:**
-
-- Codex startup, trust, waiting, submitting, running, completed, error, and
-  unknown recognition with bounded evidence.
-- Acknowledged submission state machine with composer receipt and settle policy.
-- Codex-specific Enter, interrupt, approval, and restart behavior.
-- Duplicate-submission prevention and expected-revision guards.
-- Fixture recordings plus live opt-in Codex integration tests.
-- Comparison against Fleet's current pane classification and doorbell scenarios.
-
-**Checkpoint:** Repeated live Codex turns submit once, transition correctly,
-return to waiting, survive approval/error/restart paths, and require no
-Codex-specific decisions from the caller.
-
-**Depends on:** Phase 4.
-
-### Phase 6 — Operator attachment and exclusive control leases
-
-**Outcome:** A human can observe and recover a managed terminal without tmux and
-without racing automation.
-
-**Scope:**
-
-- Read-only attach client with initial snapshot and incremental updates.
-- Terminal resize propagation from the active attachment.
-- Exclusive expiring control lease with acquire, renew, release, and revocation.
-- Automation guards while a human holds the lease.
-- Detach/reconnect behavior and lag recovery.
-- Operator-visible session, driver, state, and lease status.
-
-**Checkpoint:** Concurrent-client tests prove that read-only observers cannot
-write, one controller can interact, automation is blocked predictably, and
-control recovers after disconnect or lease expiry.
-
-**Depends on:** Phases 3-4. May follow Phase 5 to exercise a real Codex TUI.
-
-### Phase 7 — MCP facade and automation client contract
-
-**Outcome:** Top-level LLMs can operate Vivi PTY through convenience tools
-without coupling daemon lifetime or protocol evolution to MCP.
-
-**Scope:**
-
-- Separate stdio MCP server process backed by the Unix-socket client library.
-- Tools for daemon/session inspection, lifecycle, semantic actions, waits,
-  snapshots, diagnostics, and lease-aware recovery.
-- Compact outputs with optional bounded screen evidence.
-- Protocol version and capability negotiation.
-- MCP disconnect/restart tests proving managed sessions survive.
-- Tool documentation and example Fleet calls.
-
-**Checkpoint:** An MCP client can discover and control an existing Codex
-session, restart its MCP server, reconnect, and continue with no session loss.
-
-**Depends on:** Phases 3-6.
-
-### Phase 8 — Fleet integration and tmux replacement gate
-
-**Outcome:** Fleet can run selected Hands entirely through Vivi PTY while
-tmux-backed Hands coexist only as a migration backend.
-
-**Scope:**
-
-- Canonical Fleet runtime endpoint and session binding.
-- Fleet sensor integration using normalized state and evidence.
-- Doorbell, wake-on-mail, recovery, reinit, and process-liveness operations
-  routed through Vivi PTY.
-- Clean runtime selection between tmux and Vivi PTY at the Hand boundary.
-- Removal of `tmux_target` use for migrated Hands; no shared ownership path.
-- End-to-end Fleet cycle fixtures and live canary instructions.
-- Migration, rollback, diagnostics, and operator documentation.
-
-**Checkpoint:** A canary Codex Hand completes repeated real task/wake/idle,
-approval, interruption, restart, and completion cycles with no tmux commands or
-pane scraping. Evaluate and prepare the first product release.
-
-**Depends on:** Phases 5-7. Cross-repo work with the canonical Fleet repository
-must receive its own delivery spec and explicit repo boundary.
-
-### Phase 9 — Pi and OpenCode drivers
-
-**Outcome:** Two additional harnesses validate that the product contract is
-terminal-native and not accidentally Codex-specific.
-
-**Scope:**
-
-- Pi driver and capabilities.
-- OpenCode driver and capabilities.
-- Harness-specific state evidence and terminal action policies.
-- Shared conformance suite across generic, Codex, Pi, and OpenCode.
-- Explicit unsupported-capability behavior rather than compatibility shims.
-- Live opt-in integration tests and fixture recordings.
-
-**Checkpoint:** All drivers pass shared lifecycle and safety conformance; each
-harness's differences remain inside its driver and capability report.
-
-**Depends on:** Phases 4-7. May run after the Phase 8 Codex adoption checkpoint.
-
-### Phase 10 — Operationalization and product release
-
-**Outcome:** Vivi PTY is installable, observable, recoverable, and maintainable
-as a normal local service.
-
-**Scope:**
-
-- Package the separate `vivi` and `vivi-pty` binaries together; keep MCP as a
-  thin companion process without introducing a second PTY-owning daemon.
-- Service installation and lifecycle for supported local platforms.
-- Structured logs, health checks, diagnostic bundles, and version reporting.
-- Socket permissions, local authorization assumptions, and SSH remote guidance.
-- Compatibility/version policy for daemon protocol and drivers.
-- Performance, soak, crash-recovery, and resource-bound testing.
-- Complete operator, driver-author, protocol, migration, and troubleshooting docs.
-- Release notes and versioned product release.
-
-**Checkpoint:** A clean host can install, start, exercise, diagnose, restart, and
-remove Vivi PTY using documented procedures; the release passes soak and
-recovery gates.
-
-**Depends on:** Phases 8-9.
-
-## Production ledger
-
-| Unit | Status | Delivery spec | Dependency note |
-| --- | --- | --- | --- |
-| Runtime lifecycle hardening | Complete | `delivery/01-runtime-lifecycle.md` | MVP |
-| Complete raw terminal control | Pending | `delivery/02-terminal-control.md` | Phase 1 |
-| Events, waits, and correlation | Pending | `delivery/03-events-and-waits.md` | Phases 1-2 |
-| Driver framework and generic runtime | Pending | `delivery/04-driver-framework.md` | Phase 3 |
-| Codex driver vertical slice | Pending | `delivery/05-codex-driver.md` | Phase 4 |
-| Operator attachment and leases | Pending | `delivery/06-attachment-and-leases.md` | Phases 3-5 |
-| MCP facade | Pending | `delivery/07-mcp-facade.md` | Phases 3-6 |
-| Fleet integration | Pending | `delivery/08-fleet-integration.md` | Phases 5-7 |
-| Pi and OpenCode drivers | Pending | `delivery/09-harness-expansion.md` | Phases 4-7 |
-| Operationalization and release | Pending | `delivery/10-product-release.md` | Phases 8-9 |
-
-## Factory execution policy
-
-For every phase:
-
-1. Confirm dependencies and repo boundaries.
-2. Compile and save the named delivery spec.
-3. Implement only that delivery-sized unit.
-4. Run targeted tests plus repository-wide formatting, lint, and tests.
-5. Run correctness review against the phase checkpoint and global invariants.
-6. Run cleanliness and bounded housekeeping on changed implementation surfaces.
-7. Run the required per-file polish loop over primary modified source files.
-8. Record deferred findings without silently expanding the phase.
-9. Evaluate the checkpoint and release/version significance.
-10. Commit the coherent phase and update this ledger before continuing.
-
-The factory may continue autonomously from one passing phase to the next. It
-must stop on a listed stop condition, a failed checkpoint, an authorization
-boundary, or a required product decision that cannot be inferred from this goal
-and repository evidence.
+- Move mail, task, need, want, or assignment lifecycle into `vivi-pty`.
+- Let terminal observations implicitly complete, reopen, or reroute Vivi work.
+- Run `vivi` mail operations inside the PTY daemon.
+- Reimplement tmux as a general terminal multiplexer.
+- Provide a browser UI, cloud scheduler, or unauthenticated network service.
+- Require harness-native APIs; the terminal remains the universal contract.
+- Preserve `tmux_target` as an alternate control path for a role after that
+  role has migrated.
+- Preserve the standalone `fleet-pty` package or protocol names as
+  compatibility aliases.
+
+## Ground Truth Researched
+
+- `Cargo.toml`: Vivarium is a Rust workspace containing the original
+  `vivarium` package and the new `crates/vivi-pty` member.
+- `src/mailspace.rs`: `Mailspace::discover` owns canonical project-root
+  discovery, `.vivi` location, mailspace name, and configured identities.
+- `crates/vivi-pty/src/main.rs`: the companion already reuses
+  `Mailspace::discover`, accepts `--project`, and defaults to
+  `.vivi/vivi-pty.sock`.
+- `crates/vivi-pty/src/daemon.rs` and `src/session.rs`: the recovered
+  baseline already implements a framed JSON-RPC Unix-socket daemon, bounded
+  sessions and tombstones, process-group ownership, graceful shutdown, literal
+  terminal writes, and rendered VT100 snapshots.
+- `crates/vivi-pty/docs/factory/delivery/01-runtime-lifecycle.md`: Phase 1
+  records the completed lifecycle, limits, cleanup, and typed-error contract.
+- Standalone source commit `c72e123`: the last complete implementation point
+  before migration into Vivarium.
+- Vivarium commit `eb9da73`: the recovered implementation and project-scoped
+  endpoint entered this workspace.
+- User decision in this session: Vivi PTY belongs in the Vivarium project but
+  remains a separate `vivi-pty` binary.
+
+## Reference Packet
+
+Before changing the runtime, inspect:
+
+- `crates/vivi-pty/docs/BRIEF.md`: product thesis, terminal contract,
+  normalized states, and submission model.
+- `crates/vivi-pty/docs/factory/delivery/01-runtime-lifecycle.md`: completed
+  lifecycle policy that later work must preserve.
+- `crates/vivi-pty/src/protocol.rs`: current public wire types, framing,
+  limits, and error codes.
+- `crates/vivi-pty/src/daemon.rs`: request dispatch and session registry.
+- `crates/vivi-pty/src/session.rs`: PTY, process-group, reader, and terminal
+  ownership.
+- `crates/vivi-pty/src/main.rs`: CLI and project/socket discovery.
+- `src/mailspace.rs`: the shared project and identity authority.
+- `../fleet/references/runtime-config.md`,
+  `../fleet/scripts/fleet-sensors.py`, and
+  `../fleet/scripts/fleet-doorbell.sh`: current Fleet bindings, observation,
+  and wake behavior that the eventual integration must replace.
+
+## Constraints And Invariants
+
+1. `vivi` owns durable communication and work truth. `vivi-pty` owns
+   ephemeral process and interaction truth.
+2. The binaries share repository code and project identity, not process
+   lifetime, mutable runtime state, or failure fate.
+3. One canonical Vivi mailspace maps to one daemon endpoint. Every session is
+   scoped to that mailspace.
+4. Project scoping is not authorization. Before Fleet adoption, the control
+   surface must define and test who may inspect, write, lease, start, and stop
+   sessions; a discoverable socket path alone is insufficient.
+5. Every managed session has one daemon-owned process group and PTY. Stop,
+   restart, shutdown, and failure paths must terminate and reap only that owned
+   group.
+6. One session has one ordered input queue. Semantic submissions are
+   correlated and cannot silently duplicate on retry.
+7. Terminal state is bounded and monotonic where ordered: screen revisions,
+   output/event sequences, operation outcomes, tombstones, and replay windows.
+8. Ambiguous harness state is `unknown` with evidence and confidence, never a
+   fabricated definitive state.
+9. Automated input and human input cannot race. Human writes require an
+   exclusive, expiring control lease.
+10. Raw terminal operations remain available as guarded recovery tools, but
+    harness-specific choices belong in drivers.
+11. MCP and Fleet are protocol clients. They never own the managed child
+    process or bypass daemon guards.
+12. A role is controlled by tmux or Vivi PTY, never both. Migration is a clean
+    runtime-binding switch per role.
+13. Existing `vivi` mail and provider behavior must remain usable when
+    `vivi-pty` is absent, stopped, broken, or not installed.
+14. No compatibility shim is added for the former `fleet-pty` names unless a
+    real external contract is identified and explicitly approved.
+
+## Architecture Direction
+
+### Workspace and ownership
+
+- `vivarium` remains the reusable library and `vivi` CLI for durable mail
+  and project work.
+- `crates/vivi-pty` remains an independently testable library and
+  `vivi-pty` binary.
+- Shared APIs should expose only project discovery, canonical mailspace
+  identity, configured role lookup, and runtime binding data. PTY code must not
+  reach through that seam into mail storage or provider internals.
+- If the shared seam grows beyond a narrow module, extract a small workspace
+  crate rather than making the two binaries mutually aware of their internals.
+
+### Project runtime
+
+- `vivi-pty --project <root> daemon` owns the runtime for exactly that
+  mailspace.
+- The default local endpoint is derived from that mailspace. Explicit
+  `--socket` and `VIVI_PTY_SOCKET` overrides remain operational escape
+  hatches, not a second identity model.
+- Runtime metadata may be recorded beneath `.vivi`, but durable mail and work
+  records remain independent of daemon availability.
+- A role identity is the canonical lookup key. Additional opaque session IDs
+  are allowed only for a demonstrated multi-session-per-role requirement.
+
+### Runtime layers
+
+1. PTY supervisor: process groups, PTY I/O, resize, exit, and cleanup.
+2. Terminal model: current screen, cursor, modes, bounded scrollback, revisions,
+   and diagnostic evidence.
+3. Operation/event core: ordered writes, operation IDs, waits, subscriptions,
+   replay bounds, and leases.
+4. Harness drivers: capabilities, classifications, evidence, and guarded
+   semantic actions.
+5. Service clients: CLI, attachment client, MCP facade, and Fleet integration.
+
+The framed local protocol remains transport-independent. Unix sockets are the
+supported local transport; remote operation initially uses SSH forwarding or
+remote command execution rather than a public TCP listener.
+
+## Supporting Skills
+
+- `delivery`: lower each milestone into a repo-aware delivery specification
+  before implementation.
+- `factory`: execute the milestone sequence with independent validation and
+  commits when autonomous continuation is authorized.
+- `correctness`: review process ownership, concurrency, ordering, retries,
+  cleanup, and state-transition invariants.
+- `cleanliness`: preserve the narrow Vivi/Vivi PTY boundary as the runtime
+  gains drivers and client surfaces.
+- `housekeeping`: enforce formatting, test placement, dependency hygiene, and
+  repository validation.
+- `poker-face`: audit each milestone against its promised operator-visible
+  behavior before advancing.
+
+## Implementation Shape
+
+### Completed baseline
+
+- MVP: Unix-socket RPC, session lifecycle, literal writes, and VT100 snapshots.
+- Runtime lifecycle hardening: process-group cleanup, bounded resources,
+  tombstones, graceful daemon shutdown, typed errors, and concurrency tests.
+- Vivarium migration: workspace member, renamed binary/protocol surface,
+  shared mailspace discovery, and per-project default socket.
+
+### Next milestone: complete raw terminal substrate
+
+Add raw bytes, named keys and chords, resize propagation, bounded scrollback,
+screen and output revisions, cursor/mode reporting, and atomic diagnostic
+snapshots. Prove the surface against a deterministic fixture TUI before adding
+harness-specific policy.
+
+### Following milestones
+
+1. Add ordered events, waits, operation correlation, bounded replay, and lag
+   recovery.
+2. Define the driver contract and conservative generic driver with serialized,
+   guarded semantic actions.
+3. Implement the Codex driver and acknowledged submission state machine.
+4. Add read-only attachment plus exclusive expiring control leases.
+5. Add the thin MCP facade and version/capability negotiation.
+6. Integrate a canary Fleet role using a canonical Vivi PTY runtime binding;
+   remove tmux control for that role and exercise repeated real Fleet cycles.
+7. Validate the abstraction with Pi and OpenCode drivers.
+8. Operationalize installation, daemon lifecycle, authorization, diagnostics,
+   soak testing, migration guidance, and release packaging.
+
+Each milestone receives its own delivery spec, validation checkpoint, and
+cohesive commit. Detailed file edits and task graphs belong in those delivery
+specs, not in this goal.
+
+## Release Posture
+
+Decision: release checkpoints are required, but publication remains separately
+authorized.
+
+- `vivi-pty` initially versions independently inside the workspace while it
+  is experimental.
+- Evaluate version and release notes after each user-visible protocol or CLI
+  milestone.
+- The first product release is gated on a real Codex Fleet canary completing
+  repeated wake, work, idle, approval, interruption, restart, and recovery
+  cycles without tmux.
+- Packaging should install `vivi` and `vivi-pty` together while preserving
+  their separate processes.
+- Tagging, registry publication, Homebrew publication, deployment, and changes
+  to active Fleet installations require explicit authorization.
+
+## Exit Strategy
+
+Decision: included as a per-role rollout boundary.
+
+- Unmigrated Fleet roles remain tmux-backed during validation.
+- A role may switch back to tmux only by stopping its Vivi PTY-owned process
+  group and changing the canonical runtime binding; no live dual ownership is
+  permitted.
+- Stopping or uninstalling `vivi-pty` must leave Vivi mailspaces and durable
+  work records intact and usable.
+- The standalone `fleet-pty` repository remains historical evidence, not a
+  supported fallback package.
+
+## Acceptance Criteria
+
+- A clean Vivarium build produces independently runnable `vivi` and
+  `vivi-pty` binaries.
+- Two different Vivi projects resolve to different daemon endpoints and cannot
+  list, inspect, write to, or stop each other's sessions through normal client
+  discovery.
+- Runtime sessions bind canonically to configured Vivi role identities without
+  requiring tmux pane addresses.
+- Session lifecycle, process-group cleanup, terminal state, event ordering,
+  operation correlation, bounded history, and authorization policies have
+  automated coverage.
+- Codex, Pi, and OpenCode pass a shared driver conformance suite, with
+  unsupported capabilities reported explicitly.
+- A Fleet Mind can create, inspect, wake, submit to, observe, interrupt,
+  restart, and stop a migrated Codex role through Vivi PTY alone.
+- Repeated canary cycles demonstrate no pane scraping, tmux keystrokes, lost
+  input, duplicate submission, cross-session writes, or orphaned processes.
+- An operator can attach read-only, acquire exclusive control, interact, and
+  detach without racing Fleet automation.
+- Restarting the CLI, MCP facade, or Fleet client does not terminate daemon-owned
+  sessions; daemon shutdown does terminate and reap them.
+- Vivi mail and project work commands continue to function with the PTY daemon
+  unavailable.
+- Installation, migration, diagnostics, rollback, and removal procedures are
+  documented and exercised on a clean host before release.
+
+## Validation
+
+- `cargo fmt --all --check` must pass.
+- `cargo clippy -p vivi-pty --all-targets -- -D warnings` must pass for every
+  milestone; workspace-wide Clippy must pass before product release.
+- `cargo test --workspace` must pass under an explicit timeout.
+- Protocol tests must cover version negotiation, malformed input, limits,
+  ordering, retries, lag, disconnects, and cross-project isolation.
+- Process tests must prove descendant cleanup and absence of unrelated-process
+  signaling.
+- Driver fixtures must cover normal, ambiguous, approval, interruption, error,
+  restart, alternate-screen, resize, Unicode, and high-output behavior.
+- Live opt-in tests must exercise each supported harness.
+- The release gate requires a documented multi-cycle Fleet canary and a clean
+  install/start/diagnose/restart/remove smoke test.
+
+## Open Questions
+
+- What is the canonical local authorization mechanism: filesystem mode and peer
+  credentials, per-fleet capabilities, or a combination?
+- Should runtime binding live in `.vivi/fleet.json`, a dedicated
+  `.vivi/runtime.json`, or Vivi-owned mailspace configuration?
+- Does any real Fleet role require multiple simultaneous harness sessions, or
+  can role identity remain the sole session key?
+- Should release packaging use one shared Vivarium version or independently
+  version `vivi-pty` until the first stable runtime release?
+- Which service manager targets are required for the first supported release?
+
+These questions do not block the raw-terminal milestone. Authorization and
+runtime-binding location must be decided before Fleet integration.
+
+## Stop Conditions
+
+- Stop if a milestone requires weakening process ownership, input ordering,
+  project isolation, authorization, or evidence requirements to make tests pass.
+- Stop if implementation would make Vivi mail availability depend on the PTY
+  daemon.
+- Stop if a facade or shared module preserves a forbidden dependency behind a
+  new name rather than maintaining the durable/ephemeral boundary.
+- Stop if a harness cannot be controlled through its terminal without
+  credentials, destructive actions, or a human-only trust decision not
+  represented by the protocol.
+- Stop before changing a live Fleet configuration, publishing a package,
+  installing a service, or exposing a network listener without explicit
+  authorization.
+- Stop and resolve the relevant open question before authorization or
+  runtime-binding work begins.
+- Leave failures visible if validation finds lost input, duplicate
+  submissions, cross-project access, cross-session writes, orphaned process
+  groups, or ambiguous state presented as certain.
