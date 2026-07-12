@@ -52,6 +52,12 @@ bytes as hexadecimal, and `terminal.key` encodes named keys and modifiers.
 `terminal.resize` updates both the child PTY and emulator. `session diagnostic`
 returns process, protocol, and terminal evidence in one snapshot.
 
+Long-lived JSON-RPC clients can subscribe to ordered `session.event`
+notifications, wait for a state or screen revision, and recover from a lagged
+subscription using the diagnostic snapshot included in the event batch. Set
+`operation_id` on a request to correlate and safely retry a completed session
+or terminal operation; reusing that ID for different parameters is rejected.
+
 The current session states still describe child-process lifecycle only.
 Semantic harness states, message submission, events, attachment, and the MCP
 facade are subsequent vertical slices.

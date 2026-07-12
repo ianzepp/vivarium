@@ -1,7 +1,15 @@
 use super::*;
 use std::os::unix::net::UnixListener;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
+
+static PTY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_pty_tests() -> MutexGuard<'static, ()> {
+    PTY_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn request(id: &str, command: &[&str]) -> StartSession {
     StartSession {
@@ -37,6 +45,7 @@ fn wait_for_screen(registry: &SessionRegistry, id: &str, marker: &str) {
 
 #[test]
 fn registry_observes_process_exit() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     registry
         .start(request("exit-test", &["/bin/sh", "-c", "exit 7"]))
@@ -50,6 +59,7 @@ fn registry_observes_process_exit() {
 
 #[test]
 fn registry_stops_running_process_group() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     registry
         .start(request("stop-test", &["/bin/sh", "-c", "sleep 30"]))
@@ -74,6 +84,7 @@ fn registry_stops_running_process_group() {
 
 #[test]
 fn stopping_a_session_removes_descendants_in_its_group() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     registry
         .start(request(
@@ -101,6 +112,7 @@ fn stopping_a_session_removes_descendants_in_its_group() {
 
 #[test]
 fn registry_writes_command_and_reads_rendered_screen() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     registry
         .start(request("screen-test", &["/bin/sh"]))
@@ -117,6 +129,7 @@ fn registry_writes_command_and_reads_rendered_screen() {
 
 #[test]
 fn registry_writes_raw_bytes_without_text_decoding() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     registry
         .start(request("raw-write-test", &["/bin/sh", "-c", "sleep 30"]))
@@ -133,6 +146,7 @@ fn registry_writes_raw_bytes_without_text_decoding() {
 
 #[test]
 fn resize_updates_pty_and_terminal_snapshot() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     registry
         .start(request("resize-test", &["/bin/sh", "-c", "sleep 30"]))
@@ -154,6 +168,7 @@ fn resize_updates_pty_and_terminal_snapshot() {
 
 #[test]
 fn snapshot_reports_modes_revisions_and_formatted_contents() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     let ansi = "\x1b[?1049h\x1b[2J\x1b[?25lalt-screen";
     let command = format!("printf '{}'; sleep 30", ansi);
@@ -176,6 +191,7 @@ fn snapshot_reports_modes_revisions_and_formatted_contents() {
 
 #[test]
 fn high_output_keeps_bounded_scrollback_metadata() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     let command =
         "i=0; while [ $i -lt 3000 ]; do printf 'line-%s\\n' $i; i=$((i+1)); done; sleep 30";
@@ -191,6 +207,7 @@ fn high_output_keeps_bounded_scrollback_metadata() {
 
 #[test]
 fn invalid_identifiers_and_duplicate_sessions_are_typed() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     let invalid = registry.start(request("bad/id", &["/bin/sh"])).unwrap_err();
     assert!(matches!(invalid, SessionError::InvalidInput(_)));
@@ -206,6 +223,7 @@ fn invalid_identifiers_and_duplicate_sessions_are_typed() {
 
 #[test]
 fn full_registry_returns_a_resource_limit_without_tombstones() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     for index in 0..MAX_SESSIONS {
         registry
@@ -223,6 +241,7 @@ fn full_registry_returns_a_resource_limit_without_tombstones() {
 
 #[test]
 fn exited_sessions_are_bounded_tombstones() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     for index in 0..(MAX_TOMBSTONES + 3) {
         registry
@@ -239,6 +258,7 @@ fn exited_sessions_are_bounded_tombstones() {
 
 #[test]
 fn multiple_sessions_can_be_started_and_inspected_concurrently() {
+    let _lock = lock_pty_tests();
     let registry = Arc::new(SessionRegistry::default());
     let mut workers = Vec::new();
     for index in 0..8 {
@@ -329,6 +349,7 @@ fn dispatch_exposes_typed_session_errors() {
 
 #[test]
 fn diagnostic_snapshot_contains_protocol_process_and_terminal_evidence() {
+    let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
     registry
         .start(request("diagnostic-test", &["/bin/sh", "-c", "sleep 30"]))
@@ -346,4 +367,145 @@ fn diagnostic_snapshot_contains_protocol_process_and_terminal_evidence() {
     assert_eq!(snapshot.protocol.protocol_version, PROTOCOL_VERSION);
     assert_eq!(snapshot.session.session_id, "diagnostic-test");
     assert_eq!(snapshot.terminal.session_id, "diagnostic-test");
+}
+
+#[test]
+fn operation_ids_replay_without_repeating_and_conflict_on_different_requests() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    let params = serde_json::json!({
+        "session_id": "operation-test",
+        "driver": "generic",
+        "command": ["/bin/sh", "-c", "sleep 30"],
+        "cwd": "/tmp",
+        "columns": 80,
+        "rows": 24
+    });
+    let mut first = Request::new(1, "session.start", params.clone());
+    first.operation_id = Some("operation-1".into());
+    let first_response = dispatch(first, &registry);
+    assert!(first_response.error.is_none());
+
+    let mut retry = Request::new(2, "session.start", params);
+    retry.operation_id = Some("operation-1".into());
+    let retry_response = dispatch(retry, &registry);
+    assert!(retry_response.error.is_none());
+    assert_eq!(retry_response.operation_id.as_deref(), Some("operation-1"));
+    assert_eq!(registry.list().unwrap().len(), 1);
+
+    let mut conflict = Request::new(
+        3,
+        "session.start",
+        serde_json::json!({
+            "session_id": "operation-test",
+            "command": ["/bin/sh"],
+            "cwd": "/tmp",
+            "columns": 80,
+            "rows": 24
+        }),
+    );
+    conflict.operation_id = Some("operation-1".into());
+    let conflict_response = dispatch(conflict, &registry);
+    assert_eq!(
+        conflict_response.error.unwrap().code,
+        error_codes::OPERATION_CONFLICT
+    );
+    let events = registry.events.batch("operation-test", 0);
+    assert!(
+        events
+            .events
+            .iter()
+            .any(|event| { matches!(event.kind, SessionEventKind::Operation { .. }) })
+    );
+}
+
+#[test]
+fn wait_completes_and_times_out_with_typed_results() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    registry
+        .start(request("wait-exit", &["/bin/sh", "-c", "exit 0"]))
+        .unwrap();
+    let completed = registry
+        .wait(SessionWait {
+            session_id: "wait-exit".into(),
+            state: Some(SessionState::Exited),
+            screen_revision: None,
+            event_sequence: None,
+            timeout_ms: 1_000,
+        })
+        .unwrap();
+    assert_eq!(completed.session.state, SessionState::Exited);
+
+    registry
+        .start(request("wait-timeout", &["/bin/sh", "-c", "sleep 30"]))
+        .unwrap();
+    let timeout = registry.wait(SessionWait {
+        session_id: "wait-timeout".into(),
+        state: Some(SessionState::Exited),
+        screen_revision: None,
+        event_sequence: None,
+        timeout_ms: 0,
+    });
+    assert!(matches!(timeout, Err(SessionError::Timeout(_))));
+}
+
+#[test]
+fn persistent_subscription_receives_framed_event_notifications() {
+    let _lock = lock_pty_tests();
+    let registry = Arc::new(SessionRegistry::default());
+    registry
+        .start(request("subscription-test", &["/bin/sh", "-c", "sleep 30"]))
+        .unwrap();
+    let (mut client, server) = std::os::unix::net::UnixStream::pair().unwrap();
+    let worker_registry = Arc::clone(&registry);
+    let worker = std::thread::spawn(move || serve_client(server, worker_registry));
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    write_frame(
+        &mut client,
+        &Request::new(
+            1,
+            "session.subscribe",
+            serde_json::json!({
+                "session_id": "subscription-test",
+                "after_sequence": 0
+            }),
+        ),
+    )
+    .unwrap();
+    let response: Response = read_frame(&mut client).unwrap();
+    assert!(response.error.is_none());
+    let notification: ServerNotification = read_frame(&mut client).unwrap();
+    assert_eq!(notification.method, "session.event");
+    let batch: EventBatch = serde_json::from_value(notification.params).unwrap();
+    assert_eq!(batch.session_id, "subscription-test");
+    assert!(!batch.events.is_empty());
+
+    drop(client);
+    worker.join().unwrap().unwrap();
+}
+
+#[test]
+fn lagged_subscription_includes_current_diagnostic_snapshot() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    registry
+        .start(request("lag-test", &["/bin/sh", "-c", "sleep 30"]))
+        .unwrap();
+    for _ in 0..(MAX_EVENT_HISTORY + 2) {
+        registry.events.publish(
+            "lag-test",
+            SessionEventKind::Screen {
+                screen_revision: 1,
+                output_sequence: 1,
+            },
+        );
+    }
+
+    let batch = registry.event_batch(selector("lag-test"), 0).unwrap();
+    assert!(batch.lagged);
+    assert!(batch.events.is_empty());
+    assert!(batch.snapshot.is_some());
 }

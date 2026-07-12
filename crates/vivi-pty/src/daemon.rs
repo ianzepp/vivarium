@@ -1,5 +1,7 @@
+use crate::operation::Replay;
 use crate::protocol::{
-    DaemonInfo, PROTOCOL_VERSION, Request, Response, error_codes, read_frame, write_frame,
+    DaemonInfo, PROTOCOL_VERSION, Request, Response, ServerNotification, SessionSelector,
+    SessionSubscribe, error_codes, read_frame, write_frame,
 };
 use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
@@ -23,9 +25,11 @@ mod registry;
 mod session;
 
 #[cfg(test)]
+use crate::events::MAX_EVENT_HISTORY;
+#[cfg(test)]
 use crate::protocol::{
-    DiagnosticSnapshot, SessionSelector, SessionState, StartSession, TerminalResize, TerminalWrite,
-    TerminalWriteBytes,
+    DiagnosticSnapshot, EventBatch, SessionEventKind, SessionState, SessionWait, StartSession,
+    TerminalResize, TerminalWrite, TerminalWriteBytes,
 };
 use registry::{SessionError, SessionRegistry};
 #[cfg(test)]
@@ -116,19 +120,110 @@ fn prepare_socket(path: &Path) -> Result<()> {
     Ok(())
 }
 
+struct ActiveSubscription {
+    session_id: String,
+    next_sequence: u64,
+}
+
 fn serve_client(mut stream: UnixStream, sessions: Arc<SessionRegistry>) -> Result<()> {
+    stream
+        .set_read_timeout(Some(Duration::from_millis(50)))
+        .context("configure client read timeout")?;
+    let mut subscription: Option<ActiveSubscription> = None;
     loop {
+        if let Some(active) = subscription.as_mut() {
+            let selector = SessionSelector {
+                session_id: active.session_id.clone(),
+            };
+            let batch = match sessions.event_batch(selector, active.next_sequence) {
+                Ok(batch) => batch,
+                Err(SessionError::NotFound(_)) => {
+                    subscription = None;
+                    continue;
+                }
+                Err(error) => return Err(anyhow::anyhow!(error.to_string())),
+            };
+            if batch.lagged || !batch.events.is_empty() {
+                let latest_sequence = batch.latest_sequence;
+                let notification = ServerNotification::event(batch).map_err(io::Error::other)?;
+                write_frame(&mut stream, &notification)?;
+                active.next_sequence = latest_sequence;
+            }
+        }
         let request: Request = match read_frame(&mut stream) {
             Ok(request) => request,
             Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                continue;
+            }
             Err(error) => return Err(error.into()),
         };
+        let method = request.method.clone();
+        let params = request.params.clone();
         let response = dispatch(request, &sessions);
+        if method == "session.subscribe" && response.error.is_none() {
+            if let Ok(request) = serde_json::from_value::<SessionSubscribe>(params) {
+                subscription = Some(ActiveSubscription {
+                    session_id: request.session_id,
+                    next_sequence: request.after_sequence,
+                });
+            }
+        } else if method == "session.unsubscribe" && response.error.is_none() {
+            subscription = None;
+        }
         write_frame(&mut stream, &response)?;
     }
 }
 
 fn dispatch(request: Request, sessions: &SessionRegistry) -> Response {
+    let method = request.method.clone();
+    let params = request.params.clone();
+    let operation_id = request.operation_id.clone();
+    let fingerprint = json!({ "method": method, "params": params });
+    if let Some(operation_id) = operation_id.as_deref() {
+        match sessions.replay_operation(operation_id, &fingerprint) {
+            Ok(Replay::Hit(mut response)) => {
+                response.id = request.id;
+                return response;
+            }
+            Ok(Replay::Conflict) => {
+                let mut response = Response::error(
+                    request.id,
+                    error_codes::OPERATION_CONFLICT,
+                    "operation_id was already used for a different request",
+                );
+                response.operation_id = Some(operation_id.into());
+                return response;
+            }
+            Ok(Replay::Miss) => {}
+            Err(error) => {
+                let mut response =
+                    Response::error(request.id, error_codes::INVALID_PARAMS, error.to_string());
+                response.operation_id = Some(operation_id.into());
+                return response;
+            }
+        }
+    }
+    let session_id = request
+        .params
+        .get("session_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let mut response = dispatch_request(request, sessions);
+    if let Some(operation_id) = operation_id {
+        response.operation_id = Some(operation_id.clone());
+        sessions.record_operation(operation_id.clone(), fingerprint, response.clone());
+        sessions.publish_operation(session_id.as_deref(), &operation_id, &method, &response);
+    }
+    response
+}
+
+fn dispatch_request(request: Request, sessions: &SessionRegistry) -> Response {
     if request.jsonrpc != "2.0" {
         return Response::error(
             request.id,
@@ -165,6 +260,13 @@ fn dispatch(request: Request, sessions: &SessionRegistry) -> Response {
             .map(|session| json!(session)),
         "session.diagnostic" => parse(request.params)
             .and_then(|params| sessions.diagnostic(params).map_err(Into::into))
+            .map(|snapshot| json!(snapshot)),
+        "session.subscribe" => parse(request.params)
+            .and_then(|params| sessions.subscribe(params).map_err(Into::into))
+            .map(|ack| json!(ack)),
+        "session.unsubscribe" => Ok(json!({ "unsubscribed": true })),
+        "session.wait" => parse(request.params)
+            .and_then(|params| sessions.wait(params).map_err(Into::into))
             .map(|snapshot| json!(snapshot)),
         "terminal.write" => parse(request.params)
             .and_then(|params| sessions.write(params).map_err(Into::into))
@@ -219,6 +321,7 @@ impl From<SessionError> for DispatchError {
             SessionError::InvalidState(_) => error_codes::INVALID_STATE,
             SessionError::ResourceLimit(_) => error_codes::RESOURCE_LIMIT,
             SessionError::InvalidInput(_) => error_codes::INVALID_PARAMS,
+            SessionError::Timeout(_) => error_codes::TIMEOUT,
             SessionError::Internal(_) => error_codes::INTERNAL,
         };
         Self {

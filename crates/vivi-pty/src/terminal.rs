@@ -17,13 +17,14 @@ impl TerminalState {
         }
     }
 
-    pub(crate) fn process_output(&mut self, bytes: &[u8]) {
+    pub(crate) fn process_output(&mut self, bytes: &[u8]) -> Option<(u64, u64)> {
         if bytes.is_empty() {
-            return;
+            return None;
         }
         self.output_sequence = self.output_sequence.saturating_add(1);
         self.parser.process(bytes);
         self.screen_revision = self.screen_revision.saturating_add(1);
+        Some((self.screen_revision, self.output_sequence))
     }
 
     pub(crate) fn resize(&mut self, rows: u16, columns: u16) {

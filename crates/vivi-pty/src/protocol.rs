@@ -14,6 +14,9 @@ pub mod error_codes {
     pub const SESSION_CONFLICT: i32 = -32009;
     pub const INVALID_STATE: i32 = -32010;
     pub const RESOURCE_LIMIT: i32 = -32011;
+    pub const TIMEOUT: i32 = -32012;
+    pub const EVENT_LAGGED: i32 = -32013;
+    pub const OPERATION_CONFLICT: i32 = -32014;
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -23,6 +26,8 @@ pub struct Request {
     pub method: String,
     #[serde(default)]
     pub params: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
 }
 
 impl Request {
@@ -32,6 +37,7 @@ impl Request {
             id: id.into(),
             method: method.into(),
             params,
+            operation_id: None,
         }
     }
 }
@@ -44,6 +50,8 @@ pub struct Response {
     pub result: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<RpcError>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
 }
 
 impl Response {
@@ -53,6 +61,7 @@ impl Response {
             id,
             result: Some(serde_json::to_value(result).expect("serializable RPC result")),
             error: None,
+            operation_id: None,
         }
     }
 
@@ -66,7 +75,25 @@ impl Response {
                 message: message.into(),
                 data: None,
             }),
+            operation_id: None,
         }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ServerNotification {
+    pub jsonrpc: String,
+    pub method: String,
+    pub params: Value,
+}
+
+impl ServerNotification {
+    pub fn event(batch: EventBatch) -> serde_json::Result<Self> {
+        Ok(Self {
+            jsonrpc: "2.0".into(),
+            method: "session.event".into(),
+            params: serde_json::to_value(batch)?,
+        })
     }
 }
 
@@ -196,6 +223,68 @@ pub struct SessionInfo {
     pub pid: Option<u32>,
     pub state: SessionState,
     pub exit_code: Option<u32>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionEventKind {
+    Lifecycle {
+        state: SessionState,
+        exit_code: Option<u32>,
+    },
+    Screen {
+        screen_revision: u64,
+        output_sequence: u64,
+    },
+    Operation {
+        operation_id: String,
+        method: String,
+        success: bool,
+        error_code: Option<i32>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SessionEvent {
+    pub session_id: String,
+    pub sequence: u64,
+    pub kind: SessionEventKind,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct EventBatch {
+    pub session_id: String,
+    pub events: Vec<SessionEvent>,
+    pub latest_sequence: u64,
+    pub lagged: bool,
+    pub snapshot: Option<DiagnosticSnapshot>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SessionSubscribe {
+    pub session_id: String,
+    #[serde(default)]
+    pub after_sequence: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SubscriptionAck {
+    pub session_id: String,
+    pub next_sequence: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SessionWait {
+    pub session_id: String,
+    pub state: Option<SessionState>,
+    pub screen_revision: Option<u64>,
+    pub event_sequence: Option<u64>,
+    #[serde(default = "default_wait_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+fn default_wait_timeout_ms() -> u64 {
+    30_000
 }
 
 pub use crate::keys::encode_key;

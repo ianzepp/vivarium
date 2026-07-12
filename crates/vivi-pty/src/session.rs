@@ -1,4 +1,7 @@
-use crate::protocol::{SessionInfo, SessionState, StartSession, TerminalResize, TerminalSnapshot};
+use crate::events::EventHub;
+use crate::protocol::{
+    SessionEventKind, SessionInfo, SessionState, StartSession, TerminalResize, TerminalSnapshot,
+};
 use crate::terminal::TerminalState;
 use anyhow::{Context, Result, anyhow};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
@@ -22,7 +25,8 @@ pub(super) struct ManagedSession {
     writer: Box<dyn Write + Send>,
     terminal: Arc<Mutex<TerminalState>>,
     pub(crate) process_group: libc::pid_t,
-    _drain: OutputDrain,
+    reader: Option<Box<dyn Read + Send>>,
+    _drain: Option<OutputDrain>,
 }
 
 impl ManagedSession {
@@ -69,8 +73,6 @@ impl ManagedSession {
             request.columns,
             MAX_SCROLLBACK_ROWS,
         )));
-        let drain = drain_output(reader, Arc::clone(&terminal));
-
         Ok(Self {
             info: SessionInfo {
                 session_id: request.session_id,
@@ -86,8 +88,23 @@ impl ManagedSession {
             writer,
             terminal,
             process_group,
-            _drain: drain,
+            reader: Some(reader),
+            _drain: None,
         })
+    }
+
+    pub(super) fn start_output_drain(&mut self, events: Arc<EventHub>) -> Result<()> {
+        let reader = self
+            .reader
+            .take()
+            .ok_or_else(|| anyhow!("session output drain already started"))?;
+        self._drain = Some(drain_output(
+            reader,
+            Arc::clone(&self.terminal),
+            events,
+            self.info.session_id.clone(),
+        ));
+        Ok(())
     }
 
     pub(super) fn refresh(&mut self) -> Result<bool> {
@@ -275,6 +292,8 @@ fn set_nonblocking(fd: RawFd) -> Result<()> {
 fn drain_output(
     mut reader: Box<dyn Read + Send>,
     terminal: Arc<Mutex<TerminalState>>,
+    events: Arc<EventHub>,
+    session_id: String,
 ) -> OutputDrain {
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
@@ -283,10 +302,21 @@ fn drain_output(
         while !thread_stop.load(Ordering::Acquire) {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
-                Ok(count) => terminal
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .process_output(&buffer[..count]),
+                Ok(count) => {
+                    let revision = terminal
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .process_output(&buffer[..count]);
+                    if let Some((screen_revision, output_sequence)) = revision {
+                        events.publish(
+                            session_id.clone(),
+                            SessionEventKind::Screen {
+                                screen_revision,
+                                output_sequence,
+                            },
+                        );
+                    }
+                }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                     thread::sleep(POLL_INTERVAL);
                 }

@@ -1,7 +1,10 @@
+use crate::events::EventHub;
 use crate::keys::encode_key;
+use crate::operation::{OperationStore, Replay, validate_operation_id};
 use crate::protocol::{
-    DaemonInfo, DiagnosticSnapshot, PROTOCOL_VERSION, SessionInfo, SessionSelector, StartSession,
-    TerminalKey, TerminalResize, TerminalSnapshot, TerminalWrite, TerminalWriteBytes,
+    DaemonInfo, DiagnosticSnapshot, EventBatch, PROTOCOL_VERSION, SessionEventKind, SessionInfo,
+    SessionSelector, SessionSubscribe, SessionWait, StartSession, SubscriptionAck, TerminalKey,
+    TerminalResize, TerminalSnapshot, TerminalWrite, TerminalWriteBytes,
 };
 use anyhow::Error;
 use std::collections::{HashMap, VecDeque};
@@ -17,6 +20,9 @@ use super::{
     MAX_TOMBSTONES,
 };
 
+#[path = "registry/control.rs"]
+mod control;
+
 #[derive(Debug)]
 pub(super) enum SessionError {
     NotFound(String),
@@ -24,6 +30,7 @@ pub(super) enum SessionError {
     InvalidState(String),
     ResourceLimit(String),
     InvalidInput(String),
+    Timeout(String),
     Internal(Error),
 }
 
@@ -34,7 +41,8 @@ impl std::fmt::Display for SessionError {
             | Self::Conflict(message)
             | Self::InvalidState(message)
             | Self::ResourceLimit(message)
-            | Self::InvalidInput(message) => formatter.write_str(message),
+            | Self::InvalidInput(message)
+            | Self::Timeout(message) => formatter.write_str(message),
             Self::Internal(error) => write!(formatter, "{error:#}"),
         }
     }
@@ -56,6 +64,8 @@ pub(super) struct RegistryState {
 pub(super) struct SessionRegistry {
     pub(super) state: Mutex<RegistryState>,
     shutting_down: AtomicBool,
+    pub(super) events: std::sync::Arc<EventHub>,
+    operations: Mutex<OperationStore>,
 }
 
 impl SessionRegistry {
@@ -65,7 +75,7 @@ impl SessionRegistry {
 
     pub(super) fn list(&self) -> std::result::Result<Vec<SessionInfo>, SessionError> {
         let mut state = self.state.lock().expect("session registry poisoned");
-        refresh_all(&mut state)?;
+        refresh_all(&mut state, &self.events)?;
         let mut result = state
             .sessions
             .values()
@@ -84,7 +94,7 @@ impl SessionRegistry {
         if self.is_shutting_down() {
             return Err(SessionError::InvalidState("daemon is shutting down".into()));
         }
-        refresh_all(&mut state)?;
+        refresh_all(&mut state, &self.events)?;
         if state.sessions.contains_key(&request.session_id) {
             return Err(SessionError::Conflict(format!(
                 "session already exists: {}",
@@ -102,6 +112,17 @@ impl SessionRegistry {
         let session = ManagedSession::spawn(request)?;
         let info = session.info.clone();
         state.sessions.insert(info.session_id.clone(), session);
+        self.events.publish(
+            info.session_id.clone(),
+            SessionEventKind::Lifecycle {
+                state: info.state.clone(),
+                exit_code: info.exit_code,
+            },
+        );
+        let session = state.sessions.get_mut(&info.session_id).ok_or_else(|| {
+            SessionError::Internal(anyhow::anyhow!("inserted session disappeared"))
+        })?;
+        session.start_output_drain(std::sync::Arc::clone(&self.events))?;
         Ok(info)
     }
 
@@ -121,6 +142,7 @@ impl SessionRegistry {
             (session.info.clone(), transitioned)
         };
         if transitioned {
+            publish_lifecycle(&self.events, &info);
             record_tombstone(&mut state, selector.session_id);
         }
         Ok(info)
@@ -142,6 +164,7 @@ impl SessionRegistry {
             (session.info.clone(), transitioned)
         };
         if transitioned {
+            publish_lifecycle(&self.events, &info);
             record_tombstone(&mut state, selector.session_id);
         }
         Ok(info)
@@ -168,6 +191,13 @@ impl SessionRegistry {
             (written, transitioned)
         };
         if transitioned {
+            let info = state
+                .sessions
+                .get(&request.session_id)
+                .map(|session| session.info.clone());
+            if let Some(info) = info {
+                publish_lifecycle(&self.events, &info);
+            }
             record_tombstone(&mut state, request.session_id);
         }
         Ok(written)
@@ -197,56 +227,16 @@ impl SessionRegistry {
             (session.resize(request), transitioned)
         };
         if transitioned {
+            let info = state
+                .sessions
+                .get(&session_id)
+                .map(|session| session.info.clone());
+            if let Some(info) = info {
+                publish_lifecycle(&self.events, &info);
+            }
             record_tombstone(&mut state, session_id);
         }
         result
-    }
-
-    pub(super) fn snapshot(
-        &self,
-        selector: SessionSelector,
-    ) -> std::result::Result<TerminalSnapshot, SessionError> {
-        let state = self.state.lock().expect("session registry poisoned");
-        let session = state.sessions.get(&selector.session_id).ok_or_else(|| {
-            SessionError::NotFound(format!("unknown session: {}", selector.session_id))
-        })?;
-        Ok(session.snapshot())
-    }
-
-    pub(super) fn diagnostic(
-        &self,
-        selector: SessionSelector,
-    ) -> std::result::Result<DiagnosticSnapshot, SessionError> {
-        let mut state = self.state.lock().expect("session registry poisoned");
-        let (session, transitioned) = {
-            let session = state
-                .sessions
-                .get_mut(&selector.session_id)
-                .ok_or_else(|| {
-                    SessionError::NotFound(format!("unknown session: {}", selector.session_id))
-                })?;
-            let transitioned = session.refresh()?;
-            (session.info.clone(), transitioned)
-        };
-        if transitioned {
-            record_tombstone(&mut state, selector.session_id.clone());
-        }
-        let terminal = state
-            .sessions
-            .get(&selector.session_id)
-            .ok_or_else(|| {
-                SessionError::NotFound(format!("unknown session: {}", selector.session_id))
-            })?
-            .snapshot();
-        Ok(DiagnosticSnapshot {
-            protocol: DaemonInfo {
-                name: "vivi-ptyd".into(),
-                version: env!("CARGO_PKG_VERSION").into(),
-                protocol_version: PROTOCOL_VERSION,
-            },
-            session,
-            terminal,
-        })
     }
 
     pub(super) fn shutdown(&self) {
@@ -280,7 +270,10 @@ impl Drop for SessionRegistry {
     }
 }
 
-fn refresh_all(state: &mut RegistryState) -> std::result::Result<(), SessionError> {
+fn refresh_all(
+    state: &mut RegistryState,
+    events: &EventHub,
+) -> std::result::Result<(), SessionError> {
     let ids = state.sessions.keys().cloned().collect::<Vec<_>>();
     for session_id in ids {
         let Some(session) = state.sessions.get_mut(&session_id) else {
@@ -288,11 +281,22 @@ fn refresh_all(state: &mut RegistryState) -> std::result::Result<(), SessionErro
         };
         let transitioned = session.refresh()?;
         if transitioned {
+            publish_lifecycle(events, &session.info);
             record_tombstone(state, session_id);
         }
     }
     trim_tombstones(state);
     Ok(())
+}
+
+fn publish_lifecycle(events: &EventHub, info: &SessionInfo) {
+    events.publish(
+        info.session_id.clone(),
+        SessionEventKind::Lifecycle {
+            state: info.state.clone(),
+            exit_code: info.exit_code,
+        },
+    );
 }
 
 fn record_tombstone(state: &mut RegistryState, session_id: String) {
