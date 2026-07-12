@@ -8,6 +8,17 @@ pub fn call(socket: &Path, method: &str, params: Value) -> Result<Value> {
     call_request(socket, Request::new(1, method, params))
 }
 
+pub fn call_with_operation_id(
+    socket: &Path,
+    method: &str,
+    params: Value,
+    operation_id: String,
+) -> Result<Value> {
+    let mut request = Request::new(1, method, params);
+    request.operation_id = Some(operation_id);
+    call_request(socket, request)
+}
+
 pub fn call_request(socket: &Path, request: Request) -> Result<Value> {
     let mut stream = UnixStream::connect(socket)
         .with_context(|| format!("connect to daemon at {}", socket.display()))?;

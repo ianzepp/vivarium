@@ -57,6 +57,9 @@ enum SessionCommand {
     Stop {
         session_id: String,
     },
+    Restart {
+        session_id: String,
+    },
     Diagnostic {
         session_id: String,
     },
@@ -189,6 +192,21 @@ fn run_session(socket: &std::path::Path, command: SessionCommand) -> Result<()> 
         )?,
         SessionCommand::Stop { session_id } => {
             client::call(socket, "session.stop", json!({ "session_id": session_id }))?
+        }
+        SessionCommand::Restart { session_id } => {
+            let operation_id = format!(
+                "restart-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            );
+            client::call_with_operation_id(
+                socket,
+                "session.restart",
+                json!({ "session_id": session_id }),
+                operation_id,
+            )?
         }
         SessionCommand::Diagnostic { session_id } => client::call(
             socket,
