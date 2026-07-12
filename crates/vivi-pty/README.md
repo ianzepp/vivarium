@@ -82,6 +82,11 @@ It advertises the built-in drivers, attachment, lease, event, and replay
 capabilities through `daemon.capabilities`, and rejects methods outside its
 allowlist before connecting.
 
+Fleet migration uses `binding::resolve_role` to validate a role’s selected
+runtime. Legacy entries resolve to tmux; a `runtime.kind` of `vivi_pty`
+produces a canonical role/session/socket/driver/command plan and rejects any
+remaining tmux target, preventing dual ownership.
+
 The daemon owns each session's Unix process group, not only its direct child.
 Stopping a session or shutting down the daemon terminates and reaps that group;
 SIGINT and SIGTERM perform the same cleanup before the socket is removed.

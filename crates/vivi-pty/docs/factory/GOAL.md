@@ -13,8 +13,9 @@ The standalone prototype, runtime-lifecycle phase, raw-terminal phase,
 events/waits phase, generic driver framework, Codex acknowledged submission
 state machine, read-only attachment, and exclusive control leases are
 complete. The thin MCP facade and capability negotiation are now also complete.
-Active work continues in this Vivarium workspace with the first canary Fleet
-runtime binding as the next useful milestone.
+The canonical Fleet runtime-binding contract is now also complete. Active work
+continues in this Vivarium workspace with live canary execution as the next
+useful milestone.
 
 ## Problem
 
@@ -93,6 +94,8 @@ runtime binding as the next useful milestone.
   records the read-only attachment and exclusive control lease contract.
 - `crates/vivi-pty/docs/factory/delivery/07-mcp-capabilities.md`: Phase 7
   records the allowlisted MCP facade and capability-discovery contract.
+- `crates/vivi-pty/docs/factory/delivery/08-fleet-binding.md`: Phase 8 records
+  the canonical role/runtime binding and dual-ownership contract.
 - Standalone source commit `c72e123`: the last complete implementation point
   before migration into Vivarium.
 - Vivarium commit `eb9da73`: the recovered implementation and project-scoped
@@ -260,10 +263,16 @@ daemon RPC, preserves operation IDs, and exposes descriptive protocol, driver,
 attachment, lease, event, and replay capabilities without claiming
 authorization.
 
+### Completed milestone: canonical Fleet runtime binding
+
+Fleet-shaped role configuration can be resolved into a canonical Vivi PTY
+session plan. Legacy tmux roles remain readable, while Vivi PTY roles reject
+tmux fields and derive session identity from the configured role identity.
+
 ### Following milestones
 
-1. Integrate a canary Fleet role using a canonical Vivi PTY runtime binding;
-   remove tmux control for that role and exercise repeated real Fleet cycles.
+1. Integrate a canary Fleet role using the validated binding; remove tmux
+   control for that role and exercise repeated real Fleet cycles.
 2. Validate the abstraction with Pi and OpenCode drivers.
 3. Operationalize installation, daemon lifecycle, authorization, diagnostics,
    soak testing, migration guidance, and release packaging.
