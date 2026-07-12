@@ -41,6 +41,8 @@ With curl on macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/ianzepp/vivarium/main/install.sh | bash
 ```
 
+The installer downloads both `vivi` and `vivi-pty` binaries for your platform.
+
 From source, requires Rust 1.93+:
 
 ```sh

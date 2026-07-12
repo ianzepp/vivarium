@@ -3,6 +3,7 @@ set -eu
 
 REPO="${VIVI_REPO:-ianzepp/vivarium}"
 BIN_NAME="${VIVI_BIN_NAME:-vivi}"
+PTY_BIN_NAME="vivi-pty"
 INSTALL_DIR="${VIVI_INSTALL_DIR:-${HOME}/.local/bin}"
 VERSION="${VIVI_VERSION:-}"
 
@@ -49,13 +50,31 @@ install_binary_release() {
 
   tar -xzf "${archive}" -C "${tmp}"
   mkdir -p "${INSTALL_DIR}"
-  install -m 0755 "${tmp}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+  installed=false
+  if [ -f "${tmp}/${BIN_NAME}" ]; then
+    install -m 0755 "${tmp}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+    echo "Installed ${BIN_NAME} to ${INSTALL_DIR}/${BIN_NAME}"
+    installed=true
+  fi
+  if [ -f "${tmp}/${PTY_BIN_NAME}" ]; then
+    install -m 0755 "${tmp}/${PTY_BIN_NAME}" "${INSTALL_DIR}/${PTY_BIN_NAME}"
+    echo "Installed ${PTY_BIN_NAME} to ${INSTALL_DIR}/${PTY_BIN_NAME}"
+    installed=true
+  fi
+  if [ "$installed" = false ]; then
+    echo "error: no binaries found in release archive" >&2
+    rm -rf "${tmp}"
+    return 1
+  fi
   rm -rf "${tmp}"
 }
 
 install_from_source() {
   need cargo
+  echo "Installing ${BIN_NAME} from source..."
   cargo install --git "https://github.com/${REPO}.git" --tag "${VERSION}" --root "${INSTALL_DIR%/bin}"
+  echo "Installing ${PTY_BIN_NAME} from source..."
+  cargo install --git "https://github.com/${REPO}.git" --tag "${VERSION}" --root "${INSTALL_DIR%/bin}" --path crates/vivi-pty || echo "Warning: ${PTY_BIN_NAME} source install failed" >&2
 }
 
 main() {
@@ -71,16 +90,15 @@ main() {
   echo "Installing ${BIN_NAME} ${VERSION} for ${target}"
 
   if install_binary_release "${target}"; then
-    echo "Installed ${BIN_NAME} to ${INSTALL_DIR}/${BIN_NAME}"
+    : # both binaries installed from single archive
   else
     echo "No binary release for ${target}; falling back to cargo install"
     install_from_source
-    echo "Installed ${BIN_NAME} to ${INSTALL_DIR}/${BIN_NAME}"
   fi
 
   case ":${PATH}:" in
-    *":${INSTALL_DIR}:"*) ;;
-    *) echo "Note: add ${INSTALL_DIR} to PATH if ${BIN_NAME} is not found." ;;
+    *":${INSTALL_DIR}"*) ;;
+    *) echo "Note: add ${INSTALL_DIR} to PATH if ${BIN_NAME} or ${PTY_BIN_NAME} are not found." ;;
   esac
 }
 
