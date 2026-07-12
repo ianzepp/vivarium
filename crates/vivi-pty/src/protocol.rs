@@ -1,3 +1,4 @@
+use crate::driver::{Confidence, Evidence, HarnessState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{self, Read, Write};
@@ -213,6 +214,10 @@ pub struct TerminalSnapshot {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DiagnosticSnapshot {
     pub protocol: DaemonInfo,
+    pub process_state: SessionState,
+    pub harness_state: HarnessState,
+    pub confidence: Confidence,
+    pub evidence: Vec<Evidence>,
     pub session: SessionInfo,
     pub terminal: TerminalSnapshot,
 }

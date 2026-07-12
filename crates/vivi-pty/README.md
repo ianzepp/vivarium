@@ -50,7 +50,10 @@ monotonic screen/output revisions; it does not merely return raw stdout.
 `terminal.write` sends literal UTF-8 text, `terminal.write-bytes` accepts raw
 bytes as hexadecimal, and `terminal.key` encodes named keys and modifiers.
 `terminal.resize` updates both the child PTY and emulator. `session diagnostic`
-returns process, protocol, and terminal evidence in one snapshot.
+returns protocol and terminal evidence plus separate `process_state` and
+`harness_state` fields. Process state reports owned-child lifecycle; harness
+state is the selected driver's normalized classification and may honestly be
+`unknown`. Confidence and classification evidence are included alongside it.
 
 Long-lived JSON-RPC clients can subscribe to ordered `session.event`
 notifications, wait for a state or screen revision, and recover from a lagged

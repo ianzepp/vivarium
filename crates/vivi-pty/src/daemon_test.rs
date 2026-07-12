@@ -1,4 +1,5 @@
 use super::*;
+use crate::driver::{Confidence, HarnessState};
 use std::os::unix::net::UnixListener;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -479,6 +480,10 @@ fn diagnostic_snapshot_contains_protocol_process_and_terminal_evidence() {
     );
     let snapshot: DiagnosticSnapshot = serde_json::from_value(response.result.unwrap()).unwrap();
     assert_eq!(snapshot.protocol.protocol_version, PROTOCOL_VERSION);
+    assert_eq!(snapshot.process_state, SessionState::Running);
+    assert_eq!(snapshot.harness_state, HarnessState::Unknown);
+    assert_eq!(snapshot.confidence, Confidence::Low);
+    assert!(!snapshot.evidence.is_empty());
     assert_eq!(snapshot.session.session_id, "diagnostic-test");
     assert_eq!(snapshot.terminal.session_id, "diagnostic-test");
 }

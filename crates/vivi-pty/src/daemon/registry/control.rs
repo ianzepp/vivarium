@@ -147,12 +147,20 @@ impl SessionRegistry {
                 SessionError::NotFound(format!("unknown session: {}", selector.session_id))
             })?
             .snapshot();
+        let driver = self.drivers.get(&session.driver).map_err(|error| {
+            SessionError::InvalidState(format!("session driver unavailable: {error:?}"))
+        })?;
+        let classification = driver.classify(&terminal);
         Ok(DiagnosticSnapshot {
             protocol: DaemonInfo {
                 name: "vivi-ptyd".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
                 protocol_version: PROTOCOL_VERSION,
             },
+            process_state: session.state.clone(),
+            harness_state: classification.state,
+            confidence: classification.confidence,
+            evidence: classification.evidence,
             session,
             terminal,
         })
