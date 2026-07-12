@@ -4,6 +4,7 @@ pub mod codex;
 pub mod daemon;
 pub mod driver;
 pub mod events;
+pub mod grok;
 pub mod keys;
 pub mod lease;
 pub mod mcp;

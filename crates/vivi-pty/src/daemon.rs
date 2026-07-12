@@ -129,6 +129,9 @@ struct ActiveSubscription {
 
 fn serve_client(mut stream: UnixStream, sessions: Arc<SessionRegistry>) -> Result<()> {
     stream
+        .set_nonblocking(false)
+        .context("configure client socket blocking")?;
+    stream
         .set_read_timeout(Some(Duration::from_millis(50)))
         .context("configure client read timeout")?;
     let mut subscription: Option<ActiveSubscription> = None;
