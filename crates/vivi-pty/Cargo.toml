@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 description = "Project-scoped PTY runtime adapter for Vivi-managed Fleets"
 license = "MIT"
+autobins = false
+
+[[bin]]
+name = "vivi-pty"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
