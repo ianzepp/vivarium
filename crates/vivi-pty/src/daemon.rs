@@ -1,16 +1,17 @@
 use crate::lease::LeaseError;
-use crate::operation::Replay;
 use crate::protocol::{
-    DaemonInfo, PROTOCOL_VERSION, Request, Response, ServerNotification, SessionAttach,
-    SessionSelector, SessionSubscribe, error_codes, read_frame, write_frame,
+    AttachmentAck, DaemonInfo, PROTOCOL_VERSION, Request, Response, ServerNotification,
+    SessionSelector, SubscriptionAck, error_codes, read_frame, write_frame,
 };
 use anyhow::{Context, Result, bail};
+use libc;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::flag as signal_flag;
 use std::fs;
 use std::io;
+use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -29,9 +30,9 @@ mod session;
 use crate::events::MAX_EVENT_HISTORY;
 #[cfg(test)]
 use crate::protocol::{
-    AttachmentAck, ControlLease, DiagnosticSnapshot, EventBatch, LeasedTerminalWrite,
-    SemanticOutcome, SessionEventKind, SessionLeaseRelease, SessionState, SessionWait,
-    StartSession, TerminalResize, TerminalWrite, TerminalWriteBytes,
+    ControlLease, DiagnosticSnapshot, EventBatch, LeasedTerminalWrite, SemanticOutcome,
+    SessionEventKind, SessionLeaseRelease, SessionState, SessionWait, StartSession, TerminalResize,
+    TerminalWrite, TerminalWriteBytes,
 };
 use registry::{SessionError, SessionRegistry};
 #[cfg(test)]
@@ -112,13 +113,35 @@ fn prepare_socket(path: &Path) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("create socket directory {}", parent.display()))?;
     }
-    if path.exists() {
+    if !path.exists() {
+        return Ok(());
+    }
+    let metadata = fs::metadata(path).with_context(|| format!("stat socket {}", path.display()))?;
+    if !metadata.file_type().is_socket() {
+        fs::remove_file(path)
+            .with_context(|| format!("remove non-socket file {}", path.display()))?;
+        return Ok(());
+    }
+    // A live daemon will accept the connection. ECONNREFUSED means the socket
+    // file is stale. Retry briefly to avoid racing a daemon that is still
+    // binding its listener.
+    for _ in 0..3 {
         match UnixStream::connect(path) {
             Ok(_) => bail!("daemon already listening at {}", path.display()),
-            Err(_) => fs::remove_file(path)
-                .with_context(|| format!("remove stale socket {}", path.display()))?,
+            Err(error) if error.raw_os_error() == Some(libc::ECONNREFUSED) => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "socket at {} is not reachable; not removing",
+                        path.display()
+                    )
+                });
+            }
         }
     }
+    fs::remove_file(path).with_context(|| format!("remove stale socket {}", path.display()))?;
     Ok(())
 }
 
@@ -169,21 +192,24 @@ fn serve_client(mut stream: UnixStream, sessions: Arc<SessionRegistry>) -> Resul
             Err(error) => return Err(error.into()),
         };
         let method = request.method.clone();
-        let params = request.params.clone();
         let response = dispatch(request, &sessions);
         if method == "session.subscribe" && response.error.is_none() {
-            if let Ok(request) = serde_json::from_value::<SessionSubscribe>(params) {
-                subscription = Some(ActiveSubscription {
-                    session_id: request.session_id,
-                    next_sequence: request.after_sequence,
-                });
+            if let Some(result) = response.result.as_ref() {
+                if let Ok(ack) = serde_json::from_value::<SubscriptionAck>(result.clone()) {
+                    subscription = Some(ActiveSubscription {
+                        session_id: ack.session_id,
+                        next_sequence: ack.next_sequence,
+                    });
+                }
             }
         } else if method == "session.attach" && response.error.is_none() {
-            if let Ok(request) = serde_json::from_value::<SessionAttach>(params) {
-                subscription = Some(ActiveSubscription {
-                    session_id: request.session_id,
-                    next_sequence: request.after_sequence,
-                });
+            if let Some(result) = response.result.as_ref() {
+                if let Ok(ack) = serde_json::from_value::<AttachmentAck>(result.clone()) {
+                    subscription = Some(ActiveSubscription {
+                        session_id: ack.session_id,
+                        next_sequence: ack.next_sequence,
+                    });
+                }
             }
         } else if method == "session.unsubscribe" && response.error.is_none() {
             subscription = None;
@@ -196,43 +222,24 @@ fn dispatch(request: Request, sessions: &SessionRegistry) -> Response {
     let method = request.method.clone();
     let params = request.params.clone();
     let operation_id = request.operation_id.clone();
-    let fingerprint = json!({ "method": method, "params": params });
-    if let Some(operation_id) = operation_id.as_deref() {
-        match sessions.replay_operation(operation_id, &fingerprint) {
-            Ok(Replay::Hit(mut response)) => {
-                response.id = request.id;
-                return response;
-            }
-            Ok(Replay::Conflict) => {
-                let mut response = Response::error(
-                    request.id,
-                    error_codes::OPERATION_CONFLICT,
-                    "operation_id was already used for a different request",
-                );
-                response.operation_id = Some(operation_id.into());
-                return response;
-            }
-            Ok(Replay::Miss) => {}
-            Err(error) => {
-                let mut response =
-                    Response::error(request.id, error_codes::INVALID_PARAMS, error.to_string());
-                response.operation_id = Some(operation_id.into());
-                return response;
-            }
-        }
-    }
     let session_id = request
         .params
         .get("session_id")
         .and_then(Value::as_str)
         .map(str::to_owned);
-    let mut response = dispatch_request(request, sessions);
-    if let Some(operation_id) = operation_id {
-        response.operation_id = Some(operation_id.clone());
-        sessions.record_operation(operation_id.clone(), fingerprint, response.clone());
-        sessions.publish_operation(session_id.as_deref(), &operation_id, &method, &response);
+    if let Some(operation_id) = operation_id.as_deref() {
+        let fingerprint = json!({ "method": method, "params": params });
+        let request_id = request.id.clone();
+        return sessions.with_operation(
+            operation_id,
+            &fingerprint,
+            request_id,
+            session_id.as_deref(),
+            &method,
+            || dispatch_request(request, sessions),
+        );
     }
-    response
+    dispatch_request(request, sessions)
 }
 
 fn dispatch_request(request: Request, sessions: &SessionRegistry) -> Response {

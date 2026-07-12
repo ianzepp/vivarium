@@ -113,6 +113,7 @@ impl McpBridge {
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             drivers: vec![
                 "generic".into(),
+                "grok".into(),
                 "codex".into(),
                 "pi".into(),
                 "opencode".into(),

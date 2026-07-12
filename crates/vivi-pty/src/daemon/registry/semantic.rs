@@ -31,7 +31,8 @@ impl SessionRegistry {
         }
         validate_operation_id(&operation_id).map_err(SessionError::InvalidInput)?;
 
-        {
+        let session_id = request.session_id.clone();
+        self.with_session_gate(session_id, move |_session_id| {
             let mut state = self
                 .state
                 .lock()
@@ -81,7 +82,7 @@ impl SessionRegistry {
                     Err(map_driver_error(error))
                 }
             }
-        }
+        })
     }
 
     fn drive_codex_submission(
@@ -136,48 +137,51 @@ impl SessionRegistry {
         operation_id: String,
     ) -> std::result::Result<SemanticOutcome, SessionError> {
         validate_operation_id(&operation_id).map_err(SessionError::InvalidInput)?;
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let session = state.sessions.get_mut(&request.session_id).ok_or_else(|| {
-            SessionError::NotFound(format!("unknown session: {}", request.session_id))
-        })?;
-        ensure_running(session)?;
-        let driver = self
-            .drivers
-            .get(&session.info.driver)
-            .map_err(map_driver_error)?;
-        let classification = driver.classify(&session.snapshot());
-        let planned = match session.actions.start(
-            ActionRequest {
-                operation_id: operation_id.clone(),
-                action: SemanticAction::Interrupt,
-                expected_state: None,
-            },
-            &classification,
-            driver.as_ref(),
-        ) {
-            Ok(planned) => planned,
-            Err(error) => return Err(map_driver_error(error)),
-        };
-        if let Err(error) = apply_actions(session, &planned.actions) {
-            let _ = session.actions.clear_active(&operation_id);
-            return Err(error);
-        }
-        let classification = driver.classify(&session.snapshot());
-        let outcome = session
-            .actions
-            .complete(&operation_id, &classification)
-            .map_err(map_driver_error)?;
-        Ok(semantic_outcome(
-            &request.session_id,
-            outcome.operation_id,
-            &outcome.state,
-            &outcome.evidence,
-            None,
-            None,
-        ))
+        let session_id = request.session_id.clone();
+        self.with_session_gate(session_id, move |_session_id| {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let session = state.sessions.get_mut(&request.session_id).ok_or_else(|| {
+                SessionError::NotFound(format!("unknown session: {}", request.session_id))
+            })?;
+            ensure_running(session)?;
+            let driver = self
+                .drivers
+                .get(&session.info.driver)
+                .map_err(map_driver_error)?;
+            let classification = driver.classify(&session.snapshot());
+            let planned = match session.actions.start(
+                ActionRequest {
+                    operation_id: operation_id.clone(),
+                    action: SemanticAction::Interrupt,
+                    expected_state: None,
+                },
+                &classification,
+                driver.as_ref(),
+            ) {
+                Ok(planned) => planned,
+                Err(error) => return Err(map_driver_error(error)),
+            };
+            if let Err(error) = apply_actions(session, &planned.actions) {
+                let _ = session.actions.clear_active(&operation_id);
+                return Err(error);
+            }
+            let classification = driver.classify(&session.snapshot());
+            let outcome = session
+                .actions
+                .complete(&operation_id, &classification)
+                .map_err(map_driver_error)?;
+            Ok(semantic_outcome(
+                &request.session_id,
+                outcome.operation_id,
+                &outcome.state,
+                &outcome.evidence,
+                None,
+                None,
+            ))
+        })
     }
 
     pub(in crate::daemon) fn restart(
@@ -186,68 +190,76 @@ impl SessionRegistry {
         operation_id: String,
     ) -> std::result::Result<SemanticOutcome, SessionError> {
         validate_operation_id(&operation_id).map_err(SessionError::InvalidInput)?;
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let session = state.sessions.get_mut(&request.session_id).ok_or_else(|| {
-            SessionError::NotFound(format!("unknown session: {}", request.session_id))
-        })?;
-        session
-            .actions
-            .begin_exclusive(&operation_id)
-            .map_err(map_driver_error)?;
-        let start = StartSession {
-            session_id: session.info.session_id.clone(),
-            driver: session.info.driver.clone(),
-            command: session.info.command.clone(),
-            cwd: session.info.cwd.clone(),
-            columns: session.snapshot().columns,
-            rows: session.snapshot().rows,
-        };
-        let old_group = session.process_group;
-        if let Err(error) = session.stop() {
-            let _ = session.actions.clear_active(&operation_id);
-            return Err(error.into());
-        }
-        if super::super::session::process_group_exists(old_group) {
-            let _ = session.actions.clear_active(&operation_id);
-            return Err(SessionError::Internal(anyhow::anyhow!(
-                "process group {old_group} still alive after restart stop"
-            )));
-        }
-        let stopped = session.info.clone();
-        publish_lifecycle(&self.events, &stopped);
-        state.sessions.remove(&request.session_id);
-
-        let mut replacement = match ManagedSession::spawn(start) {
-            Ok(session) => session,
-            Err(error) => return Err(SessionError::Internal(error)),
-        };
-        if let Err(error) = replacement.start_output_drain(std::sync::Arc::clone(&self.events)) {
-            replacement.kill_group_best_effort();
-            return Err(SessionError::Internal(error));
-        }
-        let info = replacement.info.clone();
-        let driver = match self.drivers.get(&info.driver) {
-            Ok(driver) => driver,
-            Err(error) => {
-                replacement.kill_group_best_effort();
-                return Err(map_driver_error(error));
+        let session_id = request.session_id.clone();
+        self.with_session_gate(session_id, move |_session_id| {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let session = state.sessions.get_mut(&request.session_id).ok_or_else(|| {
+                SessionError::NotFound(format!("unknown session: {}", request.session_id))
+            })?;
+            session
+                .actions
+                .begin_exclusive(&operation_id)
+                .map_err(map_driver_error)?;
+            let start = StartSession {
+                session_id: session.info.session_id.clone(),
+                driver: session.info.driver.clone(),
+                command: session.info.command.clone(),
+                cwd: session.info.cwd.clone(),
+                columns: session.snapshot().columns,
+                rows: session.snapshot().rows,
+            };
+            let old_group = session.process_group;
+            if let Err(error) = session.stop() {
+                let _ = session.actions.clear_active(&operation_id);
+                return Err(error.into());
             }
-        };
-        let classification = driver.classify(&replacement.snapshot());
-        state.sessions.insert(info.session_id.clone(), replacement);
-        publish_lifecycle(&self.events, &info);
+            if super::super::session::process_group_exists(old_group) {
+                let _ = session.actions.clear_active(&operation_id);
+                return Err(SessionError::Internal(anyhow::anyhow!(
+                    "process group {old_group} still alive after restart stop"
+                )));
+            }
+            let stopped = session.info.clone();
+            publish_lifecycle(&self.events, &stopped);
 
-        Ok(semantic_outcome(
-            &info.session_id,
-            operation_id,
-            &classification.state,
-            &classification.evidence,
-            None,
-            Some(info.clone()),
-        ))
+            let mut replacement = match ManagedSession::spawn(start) {
+                Ok(session) => session,
+                Err(error) => {
+                    let _ = session.actions.clear_active(&operation_id);
+                    return Err(SessionError::Internal(error));
+                }
+            };
+            if let Err(error) = replacement.start_output_drain(std::sync::Arc::clone(&self.events))
+            {
+                replacement.kill_group_best_effort();
+                let _ = session.actions.clear_active(&operation_id);
+                return Err(SessionError::Internal(error));
+            }
+            let info = replacement.info.clone();
+            let driver = match self.drivers.get(&info.driver) {
+                Ok(driver) => driver,
+                Err(error) => {
+                    replacement.kill_group_best_effort();
+                    let _ = session.actions.clear_active(&operation_id);
+                    return Err(map_driver_error(error));
+                }
+            };
+            let classification = driver.classify(&replacement.snapshot());
+            state.sessions.insert(info.session_id.clone(), replacement);
+            publish_lifecycle(&self.events, &info);
+
+            Ok(semantic_outcome(
+                &info.session_id,
+                operation_id,
+                &classification.state,
+                &classification.evidence,
+                None,
+                Some(info.clone()),
+            ))
+        })
     }
 
     fn apply_actions_unlocked(

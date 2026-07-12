@@ -2,7 +2,7 @@ use crate::driver::DriverRegistry;
 use crate::events::EventHub;
 use crate::keys::encode_key;
 use crate::lease::{LeaseError, LeaseManager};
-use crate::operation::{OperationStore, Replay, validate_operation_id};
+use crate::operation::{OperationStore, validate_operation_id};
 use crate::protocol::{
     AttachmentAck, ControlLease, DaemonInfo, DiagnosticSnapshot, EventBatch, LeasedTerminalKey,
     LeasedTerminalResize, LeasedTerminalWrite, LeasedTerminalWriteBytes, PROTOCOL_VERSION,
@@ -14,7 +14,7 @@ use anyhow::Error;
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::{
-    Mutex,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 
@@ -81,6 +81,7 @@ pub(super) struct SessionRegistry {
     operations: Mutex<OperationStore>,
     pub(super) leases: LeaseManager,
     pub(super) drivers: DriverRegistry,
+    session_gates: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl Default for SessionRegistry {
@@ -92,6 +93,7 @@ impl Default for SessionRegistry {
             operations: Mutex::new(OperationStore::default()),
             leases: LeaseManager::default(),
             drivers: DriverRegistry::with_builtins(),
+            session_gates: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -101,9 +103,37 @@ impl SessionRegistry {
         self.shutting_down.load(Ordering::Acquire)
     }
 
+    fn gate_for(&self, session_id: &str) -> Arc<Mutex<()>> {
+        let mut gates = self
+            .session_gates
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        gates
+            .entry(session_id.to_owned())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+
+    fn remove_gate(&self, session_id: &str) {
+        let mut gates = self
+            .session_gates
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        gates.remove(session_id);
+    }
+
+    fn with_session_gate<F, T>(&self, session_id: String, f: F) -> Result<T, SessionError>
+    where
+        F: FnOnce(String) -> Result<T, SessionError>,
+    {
+        let gate = self.gate_for(&session_id);
+        let _guard = gate.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        f(session_id)
+    }
+
     pub(super) fn list(&self) -> std::result::Result<Vec<SessionInfo>, SessionError> {
         let mut state = self.state.lock().expect("session registry poisoned");
-        refresh_all(&mut state, &self.events)?;
+        refresh_all(&mut state, &self.events, &self.leases)?;
         let mut result = state
             .sessions
             .values()
@@ -122,7 +152,7 @@ impl SessionRegistry {
         if self.is_shutting_down() {
             return Err(SessionError::InvalidState("daemon is shutting down".into()));
         }
-        refresh_all(&mut state, &self.events)?;
+        refresh_all(&mut state, &self.events, &self.leases)?;
         if state.sessions.contains_key(&request.session_id) {
             return Err(SessionError::Conflict(format!(
                 "session already exists: {}",
@@ -130,11 +160,13 @@ impl SessionRegistry {
             )));
         }
         if state.sessions.len() >= MAX_SESSIONS {
-            evict_oldest_tombstone(&mut state).ok_or_else(|| {
+            let evicted = evict_oldest_tombstone(&mut state).ok_or_else(|| {
                 SessionError::ResourceLimit(format!(
                     "maximum session count reached: {MAX_SESSIONS}"
                 ))
             })?;
+            self.remove_gate(&evicted);
+            self.events.remove_history(&evicted);
         }
 
         let session = ManagedSession::spawn(request)?;
@@ -181,23 +213,24 @@ impl SessionRegistry {
         &self,
         selector: SessionSelector,
     ) -> std::result::Result<SessionInfo, SessionError> {
-        let mut state = self.state.lock().expect("session registry poisoned");
-        let (info, transitioned) = {
-            let session = state
-                .sessions
-                .get_mut(&selector.session_id)
-                .ok_or_else(|| {
-                    SessionError::NotFound(format!("unknown session: {}", selector.session_id))
+        let session_id = selector.session_id.clone();
+        self.with_session_gate(session_id, |session_id| {
+            let mut state = self.state.lock().expect("session registry poisoned");
+            let (info, transitioned) = {
+                let session = state.sessions.get_mut(&session_id).ok_or_else(|| {
+                    SessionError::NotFound(format!("unknown session: {}", session_id))
                 })?;
-            let transitioned = session.stop()?;
-            (session.info.clone(), transitioned)
-        };
-        if transitioned {
-            publish_lifecycle(&self.events, &info);
-            record_tombstone(&mut state, selector.session_id.clone());
-        }
-        self.leases.release_session(&selector.session_id);
-        Ok(info)
+                let transitioned = session.stop()?;
+                (session.info.clone(), transitioned)
+            };
+            if transitioned {
+                publish_lifecycle(&self.events, &info);
+                record_tombstone(&mut state, session_id.clone());
+            }
+            self.leases.release_session(&session_id);
+            self.remove_gate(&session_id);
+            Ok(info)
+        })
     }
 
     pub(super) fn write(&self, request: TerminalWrite) -> std::result::Result<usize, SessionError> {
@@ -211,26 +244,22 @@ impl SessionRegistry {
         &self,
         request: TerminalWriteBytes,
     ) -> std::result::Result<usize, SessionError> {
-        let mut state = self.state.lock().expect("session registry poisoned");
-        let (written, transitioned) = {
+        let session_id = request.session_id.clone();
+        self.with_session_gate(session_id, |_session_id| {
+            let mut state = self.state.lock().expect("session registry poisoned");
             let session = state.sessions.get_mut(&request.session_id).ok_or_else(|| {
                 SessionError::NotFound(format!("unknown session: {}", request.session_id))
             })?;
             let transitioned = session.refresh()?;
-            let written = session.write_running(&request.data)?;
-            (written, transitioned)
-        };
-        if transitioned {
-            let info = state
-                .sessions
-                .get(&request.session_id)
-                .map(|session| session.info.clone());
-            if let Some(info) = info {
+            let written = session.write_running(&request.data);
+            if transitioned {
+                let info = session.info.clone();
                 publish_lifecycle(&self.events, &info);
+                record_tombstone(&mut state, info.session_id.clone());
+                self.leases.release_session(&info.session_id);
             }
-            record_tombstone(&mut state, request.session_id);
-        }
-        Ok(written)
+            written
+        })
     }
 
     pub(super) fn key(&self, request: TerminalKey) -> std::result::Result<usize, SessionError> {
@@ -248,25 +277,21 @@ impl SessionRegistry {
     ) -> std::result::Result<TerminalSnapshot, SessionError> {
         validate_dimensions(request.columns, request.rows).map_err(SessionError::InvalidInput)?;
         let session_id = request.session_id.clone();
-        let mut state = self.state.lock().expect("session registry poisoned");
-        let (result, transitioned) = {
-            let session = state.sessions.get_mut(&request.session_id).ok_or_else(|| {
-                SessionError::NotFound(format!("unknown session: {}", request.session_id))
+        self.with_session_gate(session_id, |session_id| {
+            let mut state = self.state.lock().expect("session registry poisoned");
+            let session = state.sessions.get_mut(&session_id).ok_or_else(|| {
+                SessionError::NotFound(format!("unknown session: {}", session_id))
             })?;
             let transitioned = session.refresh()?;
-            (session.resize(request), transitioned)
-        };
-        if transitioned {
-            let info = state
-                .sessions
-                .get(&session_id)
-                .map(|session| session.info.clone());
-            if let Some(info) = info {
+            let result = session.resize(request);
+            if transitioned {
+                let info = session.info.clone();
                 publish_lifecycle(&self.events, &info);
+                record_tombstone(&mut state, session_id);
+                self.leases.release_session(&info.session_id);
             }
-            record_tombstone(&mut state, session_id);
-        }
-        result
+            result
+        })
     }
 
     pub(super) fn shutdown(&self) {
@@ -303,6 +328,7 @@ impl Drop for SessionRegistry {
 fn refresh_all(
     state: &mut RegistryState,
     events: &EventHub,
+    leases: &LeaseManager,
 ) -> std::result::Result<(), SessionError> {
     let ids = state.sessions.keys().cloned().collect::<Vec<_>>();
     for session_id in ids {
@@ -312,7 +338,8 @@ fn refresh_all(
         let transitioned = session.refresh()?;
         if transitioned {
             publish_lifecycle(events, &session.info);
-            record_tombstone(state, session_id);
+            record_tombstone(state, session_id.clone());
+            leases.release_session(&session_id);
         }
     }
     trim_tombstones(state);
@@ -345,10 +372,10 @@ fn trim_tombstones(state: &mut RegistryState) {
     }
 }
 
-fn evict_oldest_tombstone(state: &mut RegistryState) -> Option<()> {
+fn evict_oldest_tombstone(state: &mut RegistryState) -> Option<String> {
     while let Some(session_id) = state.tombstones.pop_front() {
         if state.sessions.remove(&session_id).is_some() {
-            return Some(());
+            return Some(session_id);
         }
     }
     None

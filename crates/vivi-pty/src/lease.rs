@@ -1,7 +1,7 @@
 use crate::protocol::ControlLease;
 use std::collections::HashMap;
 use std::sync::{
-    Mutex,
+    Arc, Mutex,
     atomic::{AtomicU64, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -38,6 +38,7 @@ struct ActiveLease {
 pub struct LeaseManager {
     next_id: AtomicU64,
     active: Mutex<HashMap<String, ActiveLease>>,
+    session_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl LeaseManager {
@@ -53,6 +54,8 @@ impl LeaseManager {
                 "lease ttl must be within 1..={MAX_LEASE_TTL_MS} milliseconds"
             )));
         }
+        let lock = self.session_lock(session_id);
+        let _lock = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut active = self
             .active
             .lock()
@@ -107,13 +110,14 @@ impl LeaseManager {
     }
 
     pub fn release(&self, session_id: &str, lease_id: &str) -> Result<(), LeaseError> {
-        self.validate(session_id, lease_id)?;
-        let mut active = self
-            .active
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        active.remove(session_id);
-        Ok(())
+        self.with_lease(session_id, lease_id, || {
+            let mut active = self
+                .active
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            active.remove(session_id);
+            Ok(())
+        })
     }
 
     pub fn release_session(&self, session_id: &str) {
@@ -122,6 +126,50 @@ impl LeaseManager {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         active.remove(session_id);
+    }
+
+    fn session_lock(&self, session_id: &str) -> Arc<Mutex<()>> {
+        let mut locks = self
+            .session_locks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        locks
+            .entry(session_id.to_owned())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+
+    pub fn with_lease<F, T, E>(&self, session_id: &str, lease_id: &str, f: F) -> Result<T, E>
+    where
+        F: FnOnce() -> Result<T, E>,
+        E: From<LeaseError>,
+    {
+        validate_field("lease_id", lease_id)?;
+        let lock = self.session_lock(session_id);
+        let _lock = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        {
+            let mut active = self
+                .active
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let Some(lease) = active.get(session_id) else {
+                return Err(LeaseError::NotFound(format!(
+                    "no active control lease for session {session_id}"
+                ))
+                .into());
+            };
+            if lease.expires_at <= Instant::now() {
+                active.remove(session_id);
+                return Err(LeaseError::Expired(format!(
+                    "control lease expired for session {session_id}"
+                ))
+                .into());
+            }
+            if lease.grant.lease_id != lease_id {
+                return Err(LeaseError::NotFound("control lease does not match".into()).into());
+            }
+        }
+        f()
     }
 }
 

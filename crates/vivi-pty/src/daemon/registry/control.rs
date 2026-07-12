@@ -1,4 +1,6 @@
 use super::*;
+use crate::operation::OperationSlot;
+use crate::protocol::{Response, SessionState, error_codes};
 use serde_json::{Value, json};
 
 impl SessionRegistry {
@@ -25,9 +27,12 @@ impl SessionRegistry {
             .state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !state.sessions.contains_key(&request.session_id) {
-            return Err(SessionError::NotFound(format!(
-                "unknown session: {}",
+        let session = state.sessions.get(&request.session_id).ok_or_else(|| {
+            SessionError::NotFound(format!("unknown session: {}", request.session_id))
+        })?;
+        if !matches!(session.info.state, SessionState::Running) {
+            return Err(SessionError::InvalidState(format!(
+                "session is not running: {}",
                 request.session_id
             )));
         }
@@ -51,10 +56,12 @@ impl SessionRegistry {
         &self,
         request: LeasedTerminalWrite,
     ) -> std::result::Result<usize, SessionError> {
-        self.require_lease(&request.session_id, &request.lease_id)?;
-        self.write(TerminalWrite {
-            session_id: request.session_id,
-            data: request.data,
+        let session_id = request.session_id.clone();
+        self.leases.with_lease(&session_id, &request.lease_id, || {
+            self.write(TerminalWrite {
+                session_id: request.session_id,
+                data: request.data,
+            })
         })
     }
 
@@ -62,10 +69,12 @@ impl SessionRegistry {
         &self,
         request: LeasedTerminalWriteBytes,
     ) -> std::result::Result<usize, SessionError> {
-        self.require_lease(&request.session_id, &request.lease_id)?;
-        self.write_bytes(TerminalWriteBytes {
-            session_id: request.session_id,
-            data: request.data,
+        let session_id = request.session_id.clone();
+        self.leases.with_lease(&session_id, &request.lease_id, || {
+            self.write_bytes(TerminalWriteBytes {
+                session_id: request.session_id,
+                data: request.data,
+            })
         })
     }
 
@@ -73,11 +82,13 @@ impl SessionRegistry {
         &self,
         request: LeasedTerminalKey,
     ) -> std::result::Result<usize, SessionError> {
-        self.require_lease(&request.session_id, &request.lease_id)?;
-        self.key(TerminalKey {
-            session_id: request.session_id,
-            key: request.key,
-            modifiers: request.modifiers,
+        let session_id = request.session_id.clone();
+        self.leases.with_lease(&session_id, &request.lease_id, || {
+            self.key(TerminalKey {
+                session_id: request.session_id,
+                key: request.key,
+                modifiers: request.modifiers,
+            })
         })
     }
 
@@ -85,18 +96,14 @@ impl SessionRegistry {
         &self,
         request: LeasedTerminalResize,
     ) -> std::result::Result<TerminalSnapshot, SessionError> {
-        self.require_lease(&request.session_id, &request.lease_id)?;
-        self.resize(TerminalResize {
-            session_id: request.session_id,
-            columns: request.columns,
-            rows: request.rows,
+        let session_id = request.session_id.clone();
+        self.leases.with_lease(&session_id, &request.lease_id, || {
+            self.resize(TerminalResize {
+                session_id: request.session_id,
+                columns: request.columns,
+                rows: request.rows,
+            })
         })
-    }
-
-    fn require_lease(&self, session_id: &str, lease_id: &str) -> Result<(), SessionError> {
-        self.leases
-            .validate(session_id, lease_id)
-            .map_err(SessionError::from)
     }
 
     pub(in crate::daemon) fn snapshot(
@@ -131,6 +138,7 @@ impl SessionRegistry {
         if transitioned {
             publish_lifecycle(&self.events, &session);
             record_tombstone(&mut state, selector.session_id.clone());
+            self.leases.release_session(&selector.session_id);
         }
         let terminal = state
             .sessions
@@ -240,30 +248,62 @@ impl SessionRegistry {
         }
     }
 
-    pub(in crate::daemon) fn replay_operation(
+    pub(in crate::daemon) fn with_operation<F>(
         &self,
         operation_id: &str,
         fingerprint: &serde_json::Value,
-    ) -> std::result::Result<Replay, SessionError> {
-        validate_operation_id(operation_id).map_err(SessionError::InvalidInput)?;
-        let operations = self
-            .operations
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        Ok(operations.lookup(operation_id, fingerprint))
-    }
-
-    pub(in crate::daemon) fn record_operation(
-        &self,
-        operation_id: String,
-        fingerprint: serde_json::Value,
-        response: crate::protocol::Response,
-    ) {
-        let mut operations = self
-            .operations
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        operations.insert(operation_id, fingerprint, response);
+        request_id: serde_json::Value,
+        session_id: Option<&str>,
+        method: &str,
+        execute: F,
+    ) -> Response
+    where
+        F: FnOnce() -> Response,
+    {
+        if let Err(message) = crate::operation::validate_operation_id(operation_id) {
+            return Response::error(request_id, error_codes::INVALID_PARAMS, message);
+        }
+        let slot = {
+            let mut operations = self
+                .operations
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            operations.reserve(operation_id, fingerprint)
+        };
+        match slot {
+            OperationSlot::Hit(response) => Response {
+                id: request_id,
+                ..response
+            },
+            OperationSlot::Conflict => {
+                let mut response = Response::error(
+                    request_id,
+                    error_codes::OPERATION_CONFLICT,
+                    "operation_id was already used for a different request",
+                );
+                response.operation_id = Some(operation_id.to_string());
+                response
+            }
+            OperationSlot::Coalesce(pending) => {
+                let response = pending.wait_for_response();
+                Response {
+                    id: request_id,
+                    ..response
+                }
+            }
+            OperationSlot::Own => {
+                let mut response = execute();
+                response.operation_id = Some(operation_id.to_string());
+                let mut operations = self
+                    .operations
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                operations.complete(operation_id, fingerprint, response.clone());
+                drop(operations);
+                self.publish_operation(session_id, operation_id, method, &response);
+                response
+            }
+        }
     }
 
     pub(in crate::daemon) fn publish_operation(

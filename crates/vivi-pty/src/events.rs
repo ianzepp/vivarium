@@ -53,6 +53,14 @@ impl EventHub {
             .unwrap_or(0)
     }
 
+    pub(crate) fn remove_history(&self, session_id: &str) {
+        let mut histories = self
+            .histories
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        histories.remove(session_id);
+    }
+
     pub(crate) fn batch(&self, session_id: &str, after_sequence: u64) -> EventBatch {
         let histories = self
             .histories

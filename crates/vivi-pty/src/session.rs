@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::os::fd::{FromRawFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -28,6 +28,7 @@ pub(super) struct ManagedSession {
     pub(crate) process_group: libc::pid_t,
     pub(super) actions: ActionQueue,
     reader: Option<Box<dyn Read + Send>>,
+    reader_fd: RawFd,
     _drain: Option<OutputDrain>,
 }
 
@@ -54,7 +55,7 @@ impl ManagedSession {
                 return Err(anyhow!("PTY did not expose a process-group leader"));
             }
         };
-        let reader = match duplicate_reader(pair.master.as_raw_fd()) {
+        let (reader, reader_fd) = match duplicate_reader(pair.master.as_raw_fd()) {
             Ok(reader) => reader,
             Err(error) => {
                 abort_spawned_child(&mut child, Some(process_group));
@@ -92,6 +93,7 @@ impl ManagedSession {
             process_group,
             actions: ActionQueue::default(),
             reader: Some(reader),
+            reader_fd,
             _drain: None,
         })
     }
@@ -103,6 +105,7 @@ impl ManagedSession {
             .ok_or_else(|| anyhow!("session output drain already started"))?;
         self._drain = Some(drain_output(
             reader,
+            self.reader_fd,
             Arc::clone(&self.terminal),
             events,
             self.info.session_id.clone(),
@@ -260,15 +263,15 @@ impl Drop for OutputDrain {
     }
 }
 
-fn duplicate_reader(fd: Option<RawFd>) -> Result<Box<dyn Read + Send>> {
+fn duplicate_reader(fd: Option<RawFd>) -> Result<(Box<dyn Read + Send>, RawFd)> {
     let fd = fd.ok_or_else(|| anyhow!("PTY did not expose a readable file descriptor"))?;
     let duplicate = unsafe { libc::dup(fd) };
     if duplicate < 0 {
         return Err(io::Error::last_os_error()).context("duplicate PTY reader");
     }
-    set_nonblocking(duplicate)?;
     let reader = unsafe { File::from_raw_fd(duplicate) };
-    Ok(Box::new(reader))
+    let reader_fd = reader.as_raw_fd();
+    Ok((Box::new(reader), reader_fd))
 }
 
 fn abort_spawned_child(
@@ -283,19 +286,26 @@ fn abort_spawned_child(
     let _ = child.wait();
 }
 
-fn set_nonblocking(fd: RawFd) -> Result<()> {
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    if flags < 0 {
-        return Err(io::Error::last_os_error()).context("read PTY flags");
+fn poll_readable(fd: RawFd, timeout_ms: i32) -> Result<bool> {
+    let mut pollfd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let result = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
+    if result < 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::EINTR) {
+            return Ok(false);
+        }
+        return Err(error).context("poll PTY reader");
     }
-    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(io::Error::last_os_error()).context("set PTY reader nonblocking");
-    }
-    Ok(())
+    Ok(result > 0 && (pollfd.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR)) != 0)
 }
 
 fn drain_output(
     mut reader: Box<dyn Read + Send>,
+    reader_fd: RawFd,
     terminal: Arc<Mutex<TerminalState>>,
     events: Arc<EventHub>,
     session_id: String,
@@ -305,26 +315,27 @@ fn drain_output(
     let handle = thread::spawn(move || {
         let mut buffer = [0_u8; 8192];
         while !thread_stop.load(Ordering::Acquire) {
-            match reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(count) => {
-                    let revision = terminal
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .process_output(&buffer[..count]);
-                    if let Some((screen_revision, output_sequence)) = revision {
-                        events.publish(
-                            session_id.clone(),
-                            SessionEventKind::Screen {
-                                screen_revision,
-                                output_sequence,
-                            },
-                        );
+            match poll_readable(reader_fd, POLL_INTERVAL.as_millis() as i32) {
+                Ok(true) => match reader.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(count) => {
+                        let revision = terminal
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .process_output(&buffer[..count]);
+                        if let Some((screen_revision, output_sequence)) = revision {
+                            events.publish(
+                                session_id.clone(),
+                                SessionEventKind::Screen {
+                                    screen_revision,
+                                    output_sequence,
+                                },
+                            );
+                        }
                     }
-                }
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    thread::sleep(POLL_INTERVAL);
-                }
+                    Err(_) => break,
+                },
+                Ok(false) => continue,
                 Err(_) => break,
             }
         }
