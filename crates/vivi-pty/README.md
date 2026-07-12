@@ -58,9 +58,12 @@ subscription using the diagnostic snapshot included in the event batch. Set
 `operation_id` on a request to correlate and safely retry a completed session
 or terminal operation; reusing that ID for different parameters is rejected.
 
-The current session states still describe child-process lifecycle only.
-Semantic harness states, message submission, events, attachment, and the MCP
-facade are subsequent vertical slices.
+The driver layer now classifies terminal evidence into normalized harness
+states and turns guarded submit, interrupt, and raw-input requests into
+deterministic terminal-action plans. The generic driver is deliberately
+conservative: it recognizes explicit shell prompts and otherwise reports
+visible output as running. Harness-specific drivers, acknowledged submission,
+leases, attachment, and the MCP facade are subsequent vertical slices.
 
 The daemon owns each session's Unix process group, not only its direct child.
 Stopping a session or shutting down the daemon terminates and reaps that group;

@@ -52,7 +52,7 @@ impl OperationStore {
     }
 }
 
-pub(super) fn validate_operation_id(operation_id: &str) -> Result<(), String> {
+pub(crate) fn validate_operation_id(operation_id: &str) -> Result<(), String> {
     if operation_id.is_empty() || operation_id.len() > MAX_OPERATION_ID_BYTES {
         return Err(format!(
             "operation_id must be 1..={MAX_OPERATION_ID_BYTES} bytes"

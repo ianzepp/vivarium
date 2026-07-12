@@ -9,9 +9,10 @@ identities. Fleet is the first consumer and must be able to replace tmux pane
 control with a reliable local RPC surface without merging durable work truth
 and ephemeral terminal truth into one process.
 
-The standalone prototype, runtime-lifecycle phase, raw-terminal phase, and
-events/waits phase are complete. Active work continues in this Vivarium
-workspace with the driver framework as the next useful milestone.
+The standalone prototype, runtime-lifecycle phase, raw-terminal phase,
+events/waits phase, and generic driver framework are complete. Active work
+continues in this Vivarium workspace with the Codex driver as the next useful
+milestone.
 
 ## Problem
 
@@ -81,6 +82,9 @@ workspace with the driver framework as the next useful milestone.
   contract.
 - `crates/vivi-pty/docs/factory/delivery/03-events-and-waits.md`: Phase 3
   records the completed event, wait, subscription, and operation contract.
+- `crates/vivi-pty/docs/factory/delivery/04-driver-framework.md`: Phase 4
+  records the completed normalized driver, generic classification, capability,
+  and guarded-action contract.
 - Standalone source commit `c72e123`: the last complete implementation point
   before migration into Vivarium.
 - Vivarium commit `eb9da73`: the recovered implementation and project-scoped
@@ -219,17 +223,23 @@ Ordered lifecycle, screen, and operation events, bounded subscriptions with lag
 snapshots, state/revision waits, and operation-ID replay/conflict handling are
 implemented and tested.
 
+### Completed milestone: driver framework and generic semantic runtime
+
+Normalized harness states, confidence-bearing terminal evidence, named driver
+capabilities, conservative generic classification, deterministic semantic
+action plans, and per-session-style serialized action guards are implemented
+and tested. Unsupported capabilities, invalid operation IDs, busy sessions,
+and expected-state mismatches are explicit errors.
+
 ### Following milestones
 
-1. Define the driver contract and conservative generic driver with serialized,
-   guarded semantic actions.
-2. Implement the Codex driver and acknowledged submission state machine.
-3. Add read-only attachment plus exclusive expiring control leases.
-4. Add the thin MCP facade and version/capability negotiation.
-5. Integrate a canary Fleet role using a canonical Vivi PTY runtime binding;
+1. Implement the Codex driver and acknowledged submission state machine.
+2. Add read-only attachment plus exclusive expiring control leases.
+3. Add the thin MCP facade and version/capability negotiation.
+4. Integrate a canary Fleet role using a canonical Vivi PTY runtime binding;
    remove tmux control for that role and exercise repeated real Fleet cycles.
-6. Validate the abstraction with Pi and OpenCode drivers.
-7. Operationalize installation, daemon lifecycle, authorization, diagnostics,
+5. Validate the abstraction with Pi and OpenCode drivers.
+6. Operationalize installation, daemon lifecycle, authorization, diagnostics,
    soak testing, migration guidance, and release packaging.
 
 Each milestone receives its own delivery spec, validation checkpoint, and
