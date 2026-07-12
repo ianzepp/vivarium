@@ -4,6 +4,7 @@ pub mod daemon;
 pub mod driver;
 pub mod events;
 pub mod keys;
+pub mod lease;
 pub mod operation;
 pub mod protocol;
 pub mod pty;

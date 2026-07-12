@@ -71,6 +71,12 @@ the submitted text to appear on a newer screen revision, and only then plans
 the Codex submit key. Stale, contradictory, or unrecognized evidence becomes
 an explicit uncertain result.
 
+`session.attach` provides a read-only ordered event stream. Human interaction
+uses a short-lived exclusive lease acquired with `session.lease.acquire`; the
+lease token is required by `terminal.control_write`,
+`terminal.control_write_bytes`, `terminal.control_key`, and
+`terminal.control_resize`. Observation never grants input authority.
+
 The daemon owns each session's Unix process group, not only its direct child.
 Stopping a session or shutting down the daemon terminates and reaps that group;
 SIGINT and SIGTERM perform the same cleanup before the socket is removed.

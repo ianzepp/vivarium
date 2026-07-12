@@ -348,6 +348,96 @@ fn dispatch_exposes_typed_session_errors() {
 }
 
 #[test]
+fn attachment_is_read_only_and_control_writes_require_an_exclusive_lease() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    registry
+        .start(request("lease-test", &["/bin/sh", "-c", "sleep 30"]))
+        .unwrap();
+
+    let attached = dispatch(
+        Request::new(
+            6,
+            "session.attach",
+            serde_json::json!({ "session_id": "lease-test" }),
+        ),
+        &registry,
+    );
+    let attachment: AttachmentAck = serde_json::from_value(attached.result.unwrap()).unwrap();
+    assert!(attachment.read_only);
+
+    let lease_response = dispatch(
+        Request::new(
+            7,
+            "session.lease.acquire",
+            serde_json::json!({
+                "session_id": "lease-test",
+                "holder": "operator",
+                "ttl_ms": 1_000
+            }),
+        ),
+        &registry,
+    );
+    let lease: ControlLease = serde_json::from_value(lease_response.result.unwrap()).unwrap();
+
+    let denied = dispatch(
+        Request::new(
+            8,
+            "terminal.control_write",
+            serde_json::json!({
+                "session_id": "lease-test",
+                "lease_id": "wrong",
+                "data": "blocked"
+            }),
+        ),
+        &registry,
+    );
+    assert_eq!(denied.error.unwrap().code, error_codes::LEASE_REQUIRED);
+
+    let written = dispatch(
+        Request::new(
+            9,
+            "terminal.control_write",
+            serde_json::to_value(LeasedTerminalWrite {
+                session_id: lease.session_id.clone(),
+                lease_id: lease.lease_id.clone(),
+                data: "accepted".into(),
+            })
+            .unwrap(),
+        ),
+        &registry,
+    );
+    assert_eq!(written.result.unwrap()["written"], 8);
+
+    let second = dispatch(
+        Request::new(
+            10,
+            "session.lease.acquire",
+            serde_json::json!({
+                "session_id": "lease-test",
+                "holder": "other"
+            }),
+        ),
+        &registry,
+    );
+    assert_eq!(second.error.unwrap().code, error_codes::LEASE_CONFLICT);
+
+    let released = dispatch(
+        Request::new(
+            11,
+            "session.lease.release",
+            serde_json::to_value(SessionLeaseRelease {
+                session_id: lease.session_id,
+                lease_id: lease.lease_id,
+            })
+            .unwrap(),
+        ),
+        &registry,
+    );
+    assert!(released.error.is_none());
+}
+
+#[test]
 fn diagnostic_snapshot_contains_protocol_process_and_terminal_evidence() {
     let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();

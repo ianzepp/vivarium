@@ -1,7 +1,8 @@
+use crate::lease::LeaseError;
 use crate::operation::Replay;
 use crate::protocol::{
-    DaemonInfo, PROTOCOL_VERSION, Request, Response, ServerNotification, SessionSelector,
-    SessionSubscribe, error_codes, read_frame, write_frame,
+    DaemonInfo, PROTOCOL_VERSION, Request, Response, ServerNotification, SessionAttach,
+    SessionSelector, SessionSubscribe, error_codes, read_frame, write_frame,
 };
 use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
@@ -28,8 +29,9 @@ mod session;
 use crate::events::MAX_EVENT_HISTORY;
 #[cfg(test)]
 use crate::protocol::{
-    DiagnosticSnapshot, EventBatch, SessionEventKind, SessionState, SessionWait, StartSession,
-    TerminalResize, TerminalWrite, TerminalWriteBytes,
+    AttachmentAck, ControlLease, DiagnosticSnapshot, EventBatch, LeasedTerminalWrite,
+    SessionEventKind, SessionLeaseRelease, SessionState, SessionWait, StartSession, TerminalResize,
+    TerminalWrite, TerminalWriteBytes,
 };
 use registry::{SessionError, SessionRegistry};
 #[cfg(test)]
@@ -173,6 +175,13 @@ fn serve_client(mut stream: UnixStream, sessions: Arc<SessionRegistry>) -> Resul
                     next_sequence: request.after_sequence,
                 });
             }
+        } else if method == "session.attach" && response.error.is_none() {
+            if let Ok(request) = serde_json::from_value::<SessionAttach>(params) {
+                subscription = Some(ActiveSubscription {
+                    session_id: request.session_id,
+                    next_sequence: request.after_sequence,
+                });
+            }
         } else if method == "session.unsubscribe" && response.error.is_none() {
             subscription = None;
         }
@@ -264,7 +273,16 @@ fn dispatch_request(request: Request, sessions: &SessionRegistry) -> Response {
         "session.subscribe" => parse(request.params)
             .and_then(|params| sessions.subscribe(params).map_err(Into::into))
             .map(|ack| json!(ack)),
+        "session.attach" => parse(request.params)
+            .and_then(|params| sessions.attach(params).map_err(Into::into))
+            .map(|ack| json!(ack)),
         "session.unsubscribe" => Ok(json!({ "unsubscribed": true })),
+        "session.lease.acquire" => parse(request.params)
+            .and_then(|params| sessions.acquire_lease(params).map_err(Into::into))
+            .map(|lease| json!(lease)),
+        "session.lease.release" => parse(request.params)
+            .and_then(|params| sessions.release_lease(params).map_err(Into::into))
+            .map(|result| json!(result)),
         "session.wait" => parse(request.params)
             .and_then(|params| sessions.wait(params).map_err(Into::into))
             .map(|snapshot| json!(snapshot)),
@@ -274,11 +292,23 @@ fn dispatch_request(request: Request, sessions: &SessionRegistry) -> Response {
         "terminal.write_bytes" => parse(request.params)
             .and_then(|params| sessions.write_bytes(params).map_err(Into::into))
             .map(|written| json!({ "written": written })),
+        "terminal.control_write" => parse(request.params)
+            .and_then(|params| sessions.control_write(params).map_err(Into::into))
+            .map(|written| json!({ "written": written })),
+        "terminal.control_write_bytes" => parse(request.params)
+            .and_then(|params| sessions.control_write_bytes(params).map_err(Into::into))
+            .map(|written| json!({ "written": written })),
         "terminal.key" => parse(request.params)
             .and_then(|params| sessions.key(params).map_err(Into::into))
             .map(|written| json!({ "written": written })),
+        "terminal.control_key" => parse(request.params)
+            .and_then(|params| sessions.control_key(params).map_err(Into::into))
+            .map(|written| json!({ "written": written })),
         "terminal.resize" => parse(request.params)
             .and_then(|params| sessions.resize(params).map_err(Into::into))
+            .map(|snapshot| json!(snapshot)),
+        "terminal.control_resize" => parse(request.params)
+            .and_then(|params| sessions.control_resize(params).map_err(Into::into))
             .map(|snapshot| json!(snapshot)),
         "terminal.snapshot" => parse(request.params)
             .and_then(|params| sessions.snapshot(params).map_err(Into::into))
@@ -322,6 +352,11 @@ impl From<SessionError> for DispatchError {
             SessionError::ResourceLimit(_) => error_codes::RESOURCE_LIMIT,
             SessionError::InvalidInput(_) => error_codes::INVALID_PARAMS,
             SessionError::Timeout(_) => error_codes::TIMEOUT,
+            SessionError::Lease(LeaseError::Busy(_)) => error_codes::LEASE_CONFLICT,
+            SessionError::Lease(LeaseError::InvalidInput(_)) => error_codes::INVALID_PARAMS,
+            SessionError::Lease(LeaseError::NotFound(_) | LeaseError::Expired(_)) => {
+                error_codes::LEASE_REQUIRED
+            }
             SessionError::Internal(_) => error_codes::INTERNAL,
         };
         Self {

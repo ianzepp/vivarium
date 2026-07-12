@@ -1,6 +1,104 @@
 use super::*;
+use serde_json::{Value, json};
 
 impl SessionRegistry {
+    pub(in crate::daemon) fn attach(
+        &self,
+        request: SessionAttach,
+    ) -> std::result::Result<AttachmentAck, SessionError> {
+        let ack = self.subscribe(SessionSubscribe {
+            session_id: request.session_id,
+            after_sequence: request.after_sequence,
+        })?;
+        Ok(AttachmentAck {
+            session_id: ack.session_id,
+            next_sequence: ack.next_sequence,
+            read_only: true,
+        })
+    }
+
+    pub(in crate::daemon) fn acquire_lease(
+        &self,
+        request: SessionLeaseAcquire,
+    ) -> std::result::Result<ControlLease, SessionError> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !state.sessions.contains_key(&request.session_id) {
+            return Err(SessionError::NotFound(format!(
+                "unknown session: {}",
+                request.session_id
+            )));
+        }
+        drop(state);
+        self.leases
+            .acquire(&request.session_id, request.holder, request.ttl_ms)
+            .map_err(SessionError::from)
+    }
+
+    pub(in crate::daemon) fn release_lease(
+        &self,
+        request: SessionLeaseRelease,
+    ) -> std::result::Result<Value, SessionError> {
+        self.leases
+            .release(&request.session_id, &request.lease_id)
+            .map_err(SessionError::from)?;
+        Ok(json!({ "released": true }))
+    }
+
+    pub(in crate::daemon) fn control_write(
+        &self,
+        request: LeasedTerminalWrite,
+    ) -> std::result::Result<usize, SessionError> {
+        self.require_lease(&request.session_id, &request.lease_id)?;
+        self.write(TerminalWrite {
+            session_id: request.session_id,
+            data: request.data,
+        })
+    }
+
+    pub(in crate::daemon) fn control_write_bytes(
+        &self,
+        request: LeasedTerminalWriteBytes,
+    ) -> std::result::Result<usize, SessionError> {
+        self.require_lease(&request.session_id, &request.lease_id)?;
+        self.write_bytes(TerminalWriteBytes {
+            session_id: request.session_id,
+            data: request.data,
+        })
+    }
+
+    pub(in crate::daemon) fn control_key(
+        &self,
+        request: LeasedTerminalKey,
+    ) -> std::result::Result<usize, SessionError> {
+        self.require_lease(&request.session_id, &request.lease_id)?;
+        self.key(TerminalKey {
+            session_id: request.session_id,
+            key: request.key,
+            modifiers: request.modifiers,
+        })
+    }
+
+    pub(in crate::daemon) fn control_resize(
+        &self,
+        request: LeasedTerminalResize,
+    ) -> std::result::Result<TerminalSnapshot, SessionError> {
+        self.require_lease(&request.session_id, &request.lease_id)?;
+        self.resize(TerminalResize {
+            session_id: request.session_id,
+            columns: request.columns,
+            rows: request.rows,
+        })
+    }
+
+    fn require_lease(&self, session_id: &str, lease_id: &str) -> Result<(), SessionError> {
+        self.leases
+            .validate(session_id, lease_id)
+            .map_err(SessionError::from)
+    }
+
     pub(in crate::daemon) fn snapshot(
         &self,
         selector: SessionSelector,

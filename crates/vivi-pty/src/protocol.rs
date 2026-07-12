@@ -17,6 +17,8 @@ pub mod error_codes {
     pub const TIMEOUT: i32 = -32012;
     pub const EVENT_LAGGED: i32 = -32013;
     pub const OPERATION_CONFLICT: i32 = -32014;
+    pub const LEASE_CONFLICT: i32 = -32015;
+    pub const LEASE_REQUIRED: i32 = -32016;
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -265,6 +267,77 @@ pub struct SessionSubscribe {
     pub session_id: String,
     #[serde(default)]
     pub after_sequence: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SessionAttach {
+    pub session_id: String,
+    #[serde(default)]
+    pub after_sequence: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AttachmentAck {
+    pub session_id: String,
+    pub next_sequence: u64,
+    pub read_only: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SessionLeaseAcquire {
+    pub session_id: String,
+    pub holder: String,
+    #[serde(default = "default_lease_ttl_ms")]
+    pub ttl_ms: u64,
+}
+
+fn default_lease_ttl_ms() -> u64 {
+    crate::lease::DEFAULT_LEASE_TTL_MS
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SessionLeaseRelease {
+    pub session_id: String,
+    pub lease_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ControlLease {
+    pub session_id: String,
+    pub lease_id: String,
+    pub holder: String,
+    pub expires_in_ms: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LeasedTerminalWrite {
+    pub session_id: String,
+    pub lease_id: String,
+    pub data: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LeasedTerminalWriteBytes {
+    pub session_id: String,
+    pub lease_id: String,
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LeasedTerminalKey {
+    pub session_id: String,
+    pub lease_id: String,
+    pub key: String,
+    #[serde(default)]
+    pub modifiers: Vec<KeyModifier>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LeasedTerminalResize {
+    pub session_id: String,
+    pub lease_id: String,
+    pub columns: u16,
+    pub rows: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

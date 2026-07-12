@@ -1,8 +1,11 @@
 use crate::events::EventHub;
 use crate::keys::encode_key;
+use crate::lease::{LeaseError, LeaseManager};
 use crate::operation::{OperationStore, Replay, validate_operation_id};
 use crate::protocol::{
-    DaemonInfo, DiagnosticSnapshot, EventBatch, PROTOCOL_VERSION, SessionEventKind, SessionInfo,
+    AttachmentAck, ControlLease, DaemonInfo, DiagnosticSnapshot, EventBatch, LeasedTerminalKey,
+    LeasedTerminalResize, LeasedTerminalWrite, LeasedTerminalWriteBytes, PROTOCOL_VERSION,
+    SessionAttach, SessionEventKind, SessionInfo, SessionLeaseAcquire, SessionLeaseRelease,
     SessionSelector, SessionSubscribe, SessionWait, StartSession, SubscriptionAck, TerminalKey,
     TerminalResize, TerminalSnapshot, TerminalWrite, TerminalWriteBytes,
 };
@@ -31,6 +34,7 @@ pub(super) enum SessionError {
     ResourceLimit(String),
     InvalidInput(String),
     Timeout(String),
+    Lease(LeaseError),
     Internal(Error),
 }
 
@@ -43,6 +47,7 @@ impl std::fmt::Display for SessionError {
             | Self::ResourceLimit(message)
             | Self::InvalidInput(message)
             | Self::Timeout(message) => formatter.write_str(message),
+            Self::Lease(error) => write!(formatter, "{error}"),
             Self::Internal(error) => write!(formatter, "{error:#}"),
         }
     }
@@ -51,6 +56,12 @@ impl std::fmt::Display for SessionError {
 impl From<Error> for SessionError {
     fn from(error: Error) -> Self {
         Self::Internal(error)
+    }
+}
+
+impl From<LeaseError> for SessionError {
+    fn from(error: LeaseError) -> Self {
+        Self::Lease(error)
     }
 }
 
@@ -66,6 +77,7 @@ pub(super) struct SessionRegistry {
     shutting_down: AtomicBool,
     pub(super) events: std::sync::Arc<EventHub>,
     operations: Mutex<OperationStore>,
+    pub(super) leases: LeaseManager,
 }
 
 impl SessionRegistry {
@@ -143,7 +155,8 @@ impl SessionRegistry {
         };
         if transitioned {
             publish_lifecycle(&self.events, &info);
-            record_tombstone(&mut state, selector.session_id);
+            record_tombstone(&mut state, selector.session_id.clone());
+            self.leases.release_session(&selector.session_id);
         }
         Ok(info)
     }
@@ -165,8 +178,9 @@ impl SessionRegistry {
         };
         if transitioned {
             publish_lifecycle(&self.events, &info);
-            record_tombstone(&mut state, selector.session_id);
+            record_tombstone(&mut state, selector.session_id.clone());
         }
+        self.leases.release_session(&selector.session_id);
         Ok(info)
     }
 
