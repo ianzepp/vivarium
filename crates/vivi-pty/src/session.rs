@@ -126,7 +126,9 @@ impl ManagedSession {
     pub(super) fn stop(&mut self) -> Result<bool> {
         self.refresh()?;
         if !matches!(self.info.state, SessionState::Running) {
-            return Ok(false);
+            // The session was already exited; the caller still needs to record
+            // a tombstone and release resources, so treat it as a transition.
+            return Ok(true);
         }
 
         signal_process_group(self.process_group, libc::SIGTERM)

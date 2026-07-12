@@ -257,6 +257,30 @@ fn exited_sessions_are_bounded_tombstones() {
 }
 
 #[test]
+fn stopping_exited_sessions_frees_registry_capacity() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    for index in 0..(MAX_SESSIONS + 1) {
+        registry
+            .start(request(
+                &format!("stop-exited-{index}"),
+                &["/bin/sh", "-c", "exit 0"],
+            ))
+            .unwrap();
+        // Wait for the child to exit on its own, then stop it. The registry
+        // must still treat this as a tombstone transition so the session slot
+        // is freed for the next iteration.
+        std::thread::sleep(Duration::from_millis(50));
+        registry
+            .stop(selector(&format!("stop-exited-{index}")))
+            .unwrap();
+    }
+    // All stopped sessions should be evictable; the final start succeeded.
+    let sessions = registry.list().unwrap();
+    assert!(sessions.len() <= MAX_SESSIONS);
+}
+
+#[test]
 fn multiple_sessions_can_be_started_and_inspected_concurrently() {
     let _lock = lock_pty_tests();
     let registry = Arc::new(SessionRegistry::default());
