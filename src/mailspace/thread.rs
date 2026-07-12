@@ -65,44 +65,56 @@ impl Mailspace {
             return Ok(Vec::new());
         }
         let storage = self.storage()?;
-        let seed_id = storage.resolve_message_token(handle)?;
-        let seed = storage
-            .message_by_id(&seed_id)?
-            .ok_or_else(|| VivariumError::Message(format!("message not found: {handle}")))?;
-        let candidates = thread_candidates(&storage)?;
-        let by_content = candidates
-            .iter()
-            .map(|candidate| (candidate.view.content_id.clone(), candidate))
-            .collect::<BTreeMap<_, _>>();
-        let Some(seed) = by_content.get(&seed.content_id) else {
-            return Err(VivariumError::Message(format!(
-                "message not found: {handle}"
-            )));
-        };
-        let mut links = storage
-            .list_mailspace_links()?
-            .into_iter()
-            .map(|link| (link.child_content_id.clone(), link))
-            .collect::<BTreeMap<_, _>>();
+        let seed = resolve_seed(&storage, handle)?;
+        let mut links = link_map(&storage)?;
         if infer {
-            add_inferred_links(&candidates, &mut links);
+            // Inference needs every message body/handle. Explicit links do not.
+            add_inferred_links(&thread_candidates(&storage)?, &mut links);
         }
-        let included = connected_content_ids(&seed.view.content_id, &links, limit, max_depth);
-        let mut messages = included
-            .into_iter()
-            .filter_map(|content_id| {
-                by_content
-                    .get(&content_id)
-                    .map(|candidate| thread_message(candidate, links.get(&content_id)))
-            })
-            .collect::<Vec<_>>();
-        messages.sort_by(|left, right| {
-            left.date
-                .cmp(&right.date)
-                .then_with(|| left.content_id.cmp(&right.content_id))
-        });
-        Ok(messages)
+        let included = connected_content_ids(&seed.content_id, &links, limit, max_depth);
+        assemble_thread(&storage, &seed, &links, included)
     }
+}
+
+fn resolve_seed(storage: &Storage, handle: &str) -> Result<StoredMessageView, VivariumError> {
+    let seed_id = storage.resolve_message_token(handle)?;
+    storage
+        .message_by_id(&seed_id)?
+        .ok_or_else(|| VivariumError::Message(format!("message not found: {handle}")))
+}
+
+fn link_map(storage: &Storage) -> Result<BTreeMap<String, MailspaceLink>, VivariumError> {
+    Ok(storage
+        .list_mailspace_links()?
+        .into_iter()
+        .map(|link| (link.child_content_id.clone(), link))
+        .collect())
+}
+
+fn assemble_thread(
+    storage: &Storage,
+    seed: &StoredMessageView,
+    links: &BTreeMap<String, MailspaceLink>,
+    included: BTreeSet<String>,
+) -> Result<Vec<MailspaceThreadMessage>, VivariumError> {
+    let mut messages = Vec::with_capacity(included.len());
+    for content_id in included {
+        let view = if content_id == seed.content_id {
+            seed.clone()
+        } else if let Some(view) = storage.message_by_content_id(&content_id)? {
+            view
+        } else {
+            continue;
+        };
+        let candidate = load_candidate(storage, view)?;
+        messages.push(thread_message(&candidate, links.get(&content_id)));
+    }
+    messages.sort_by(|left, right| {
+        left.date
+            .cmp(&right.date)
+            .then_with(|| left.content_id.cmp(&right.content_id))
+    });
+    Ok(messages)
 }
 
 fn thread_candidates(storage: &Storage) -> Result<Vec<ThreadCandidate>, VivariumError> {
@@ -112,13 +124,20 @@ fn thread_candidates(storage: &Storage) -> Result<Vec<ThreadCandidate>, Vivarium
         if !seen.insert(view.content_id.clone()) {
             continue;
         }
-        let data = storage.read_message(&view.message_id)?;
-        let events = storage.list_mailspace_events(&view.message_id)?;
-        let body = text_body(&data);
-        let kind = effective_kind(&view.local_role, &data, &events);
-        candidates.push(ThreadCandidate { view, body, kind });
+        candidates.push(load_candidate(storage, view)?);
     }
     Ok(candidates)
+}
+
+fn load_candidate(
+    storage: &Storage,
+    view: StoredMessageView,
+) -> Result<ThreadCandidate, VivariumError> {
+    let data = storage.read_message(&view.message_id)?;
+    let events = storage.list_mailspace_events(&view.message_id)?;
+    let body = text_body(&data);
+    let kind = effective_kind(&view.local_role, &data, &events);
+    Ok(ThreadCandidate { view, body, kind })
 }
 
 fn connected_content_ids(

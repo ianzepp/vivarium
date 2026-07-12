@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Instant;
 
 #[test]
 fn detects_mailspace_from_subdirectory() {
@@ -136,4 +137,84 @@ fn rename_identity_rejects_unknown_or_colliding_names() {
 
     let err = mailspace.rename_identity("ceo", "cto").unwrap_err();
     assert!(err.to_string().contains("already exists"));
+}
+
+#[test]
+fn explicit_thread_skips_unrelated_messages() {
+    let (_tmp, mailspace, handle) = fixture_with_noise(80);
+    let messages = mailspace.thread(&handle, false, 50, 50).unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].kind.as_deref(), Some("need"));
+    assert_eq!(messages[0].subject, "target need");
+    assert!(messages[0].body.contains("need body"));
+}
+
+#[test]
+fn explicit_thread_stays_cheap_with_many_unrelated_messages() {
+    let (_tmp, mailspace, handle) = fixture_with_noise(200);
+    // Warm SQLite/page cache so the sample measures path cost, not cold open.
+    let _ = mailspace.thread(&handle, false, 50, 50).unwrap();
+    let optimized = sample_ms(|| {
+        let messages = mailspace.thread(&handle, false, 50, 50).unwrap();
+        assert_eq!(messages.len(), 1);
+    });
+    // Full-candidate scan still used by inference; prove it is the old bottleneck.
+    let full_scan = sample_ms(|| {
+        let messages = mailspace.thread(&handle, true, 50, 50).unwrap();
+        assert_eq!(messages.len(), 1);
+    });
+    assert!(
+        optimized < full_scan / 3.0 || optimized < 40.0,
+        "optimized={optimized:.1}ms full_scan={full_scan:.1}ms"
+    );
+    assert!(
+        optimized < full_scan,
+        "optimized={optimized:.1}ms should beat full_scan={full_scan:.1}ms"
+    );
+}
+
+fn fixture_with_noise(noise: usize) -> (tempfile::TempDir, Mailspace, String) {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("alice").unwrap();
+    mailspace.add_identity("bob").unwrap();
+    for i in 0..noise {
+        mailspace
+            .send(SendRequest {
+                from: "alice".into(),
+                to: vec!["bob".into()],
+                cc: Vec::new(),
+                bcc: Vec::new(),
+                subject: format!("noise {i}"),
+                body: format!("noise body {i}"),
+                role: "inbox".into(),
+                kind: None,
+                reply_to: None,
+            })
+            .unwrap();
+    }
+    let sent = mailspace
+        .send(SendRequest {
+            from: "alice".into(),
+            to: vec!["bob".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "target need".into(),
+            body: "need body to show".into(),
+            role: "needs".into(),
+            kind: Some("need".into()),
+            reply_to: None,
+        })
+        .unwrap();
+    (tmp, mailspace, sent.delivered[0].handle.clone())
+}
+
+fn sample_ms(mut op: impl FnMut()) -> f64 {
+    let mut total = 0.0;
+    for _ in 0..3 {
+        let start = Instant::now();
+        op();
+        total += start.elapsed().as_secs_f64() * 1000.0;
+    }
+    total / 3.0
 }
