@@ -32,10 +32,13 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package binary
+      - name: Build vivi-pty
+        run: cargo build --release --target ${{ matrix.target }} -p vivi-pty
+
+      - name: Package binaries
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf vivi-${{ matrix.target }}.tar.gz vivi
+          tar czf vivi-${{ matrix.target }}.tar.gz vivi vivi-pty
           mv vivi-${{ matrix.target }}.tar.gz ../../../
 
       - name: Upload artifact
@@ -98,11 +101,12 @@ jobs:
             end
 
             def install
-              bin.install "vivi"
+              bin.install "vivi", "vivi-pty"
             end
 
             test do
               assert_match version.to_s, shell_output("#{bin}/vivi --version")
+              assert_match version.to_s, shell_output("#{bin}/vivi-pty --version")
               assert_match "exec", shell_output("#{bin}/vivi --help")
               assert_match "agent", shell_output("#{bin}/vivi --help")
               assert_match "poll", shell_output("#{bin}/vivi agent --help")
