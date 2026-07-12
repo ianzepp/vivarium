@@ -115,6 +115,15 @@ pub struct DaemonInfo {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DaemonCapabilities {
+    pub protocol_version: u32,
+    pub daemon_version: String,
+    pub drivers: Vec<String>,
+    pub methods: Vec<String>,
+    pub features: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StartSession {
     pub session_id: String,
     pub driver: String,

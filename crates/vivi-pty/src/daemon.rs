@@ -254,6 +254,7 @@ fn dispatch_request(request: Request, sessions: &SessionRegistry) -> Response {
             version: env!("CARGO_PKG_VERSION").into(),
             protocol_version: PROTOCOL_VERSION,
         })),
+        "daemon.capabilities" => Ok(json!(crate::mcp::McpBridge::default().capabilities())),
         "session.list" => sessions
             .list()
             .map(|sessions| json!({ "sessions": sessions }))

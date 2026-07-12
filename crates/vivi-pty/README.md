@@ -77,6 +77,11 @@ lease token is required by `terminal.control_write`,
 `terminal.control_write_bytes`, `terminal.control_key`, and
 `terminal.control_resize`. Observation never grants input authority.
 
+The `mcp::McpBridge` is a narrow client facade over the same socket protocol.
+It advertises the built-in drivers, attachment, lease, event, and replay
+capabilities through `daemon.capabilities`, and rejects methods outside its
+allowlist before connecting.
+
 The daemon owns each session's Unix process group, not only its direct child.
 Stopping a session or shutting down the daemon terminates and reaps that group;
 SIGINT and SIGTERM perform the same cleanup before the socket is removed.

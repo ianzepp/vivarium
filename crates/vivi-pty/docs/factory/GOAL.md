@@ -12,8 +12,9 @@ and ephemeral terminal truth into one process.
 The standalone prototype, runtime-lifecycle phase, raw-terminal phase,
 events/waits phase, generic driver framework, Codex acknowledged submission
 state machine, read-only attachment, and exclusive control leases are
-complete. Active work continues in this Vivarium workspace with the thin MCP
-facade and capability negotiation as the next useful milestone.
+complete. The thin MCP facade and capability negotiation are now also complete.
+Active work continues in this Vivarium workspace with the first canary Fleet
+runtime binding as the next useful milestone.
 
 ## Problem
 
@@ -90,6 +91,8 @@ facade and capability negotiation as the next useful milestone.
   the Codex classification and acknowledged submission contract.
 - `crates/vivi-pty/docs/factory/delivery/06-attachment-leases.md`: Phase 6
   records the read-only attachment and exclusive control lease contract.
+- `crates/vivi-pty/docs/factory/delivery/07-mcp-capabilities.md`: Phase 7
+  records the allowlisted MCP facade and capability-discovery contract.
 - Standalone source commit `c72e123`: the last complete implementation point
   before migration into Vivarium.
 - Vivarium commit `eb9da73`: the recovered implementation and project-scoped
@@ -250,13 +253,19 @@ The daemon exposes a read-only attachment stream and short-lived per-session
 control leases. Lease-required controlled terminal operations reject missing,
 wrong, expired, and competing tokens before reaching the PTY.
 
+### Completed milestone: MCP facade and capability negotiation
+
+The built-in `McpBridge` maps stable allowlisted tool names to the existing
+daemon RPC, preserves operation IDs, and exposes descriptive protocol, driver,
+attachment, lease, event, and replay capabilities without claiming
+authorization.
+
 ### Following milestones
 
-1. Add the thin MCP facade and version/capability negotiation.
-2. Integrate a canary Fleet role using a canonical Vivi PTY runtime binding;
+1. Integrate a canary Fleet role using a canonical Vivi PTY runtime binding;
    remove tmux control for that role and exercise repeated real Fleet cycles.
-3. Validate the abstraction with Pi and OpenCode drivers.
-4. Operationalize installation, daemon lifecycle, authorization, diagnostics,
+2. Validate the abstraction with Pi and OpenCode drivers.
+3. Operationalize installation, daemon lifecycle, authorization, diagnostics,
    soak testing, migration guidance, and release packaging.
 
 Each milestone receives its own delivery spec, validation checkpoint, and
