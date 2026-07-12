@@ -369,6 +369,46 @@ fn default_wait_timeout_ms() -> u64 {
     30_000
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SessionSubmit {
+    pub session_id: String,
+    pub message: String,
+    #[serde(default = "default_submit_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+fn default_submit_timeout_ms() -> u64 {
+    5_000
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SessionInterrupt {
+    pub session_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SessionRestart {
+    pub session_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SemanticEvidence {
+    pub source: String,
+    pub detail: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SemanticOutcome {
+    pub session_id: String,
+    pub operation_id: String,
+    pub state: String,
+    pub evidence: Vec<SemanticEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<SessionInfo>,
+}
+
 pub use crate::keys::encode_key;
 
 pub fn write_frame<T: Serialize>(writer: &mut impl Write, message: &T) -> io::Result<()> {

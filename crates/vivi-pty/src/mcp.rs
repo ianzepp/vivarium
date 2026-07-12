@@ -91,6 +91,14 @@ impl McpBridge {
                     false,
                     true,
                 ),
+                tool("vivi_pty.session_submit", "session.submit", false, false),
+                tool(
+                    "vivi_pty.session_interrupt",
+                    "session.interrupt",
+                    false,
+                    false,
+                ),
+                tool("vivi_pty.session_restart", "session.restart", false, false),
             ],
         }
     }
@@ -120,6 +128,7 @@ impl McpBridge {
                 "control_leases".into(),
                 "operation_replay".into(),
                 "ordered_events".into(),
+                "semantic_actions".into(),
             ],
         }
     }

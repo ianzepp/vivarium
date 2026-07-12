@@ -1,3 +1,4 @@
+use crate::driver::DriverRegistry;
 use crate::events::EventHub;
 use crate::keys::encode_key;
 use crate::lease::{LeaseError, LeaseManager};
@@ -25,6 +26,8 @@ use super::{
 
 #[path = "registry/control.rs"]
 mod control;
+#[path = "registry/semantic.rs"]
+mod semantic;
 
 #[derive(Debug)]
 pub(super) enum SessionError {
@@ -71,13 +74,26 @@ pub(super) struct RegistryState {
     tombstones: VecDeque<String>,
 }
 
-#[derive(Default)]
 pub(super) struct SessionRegistry {
     pub(super) state: Mutex<RegistryState>,
     shutting_down: AtomicBool,
     pub(super) events: std::sync::Arc<EventHub>,
     operations: Mutex<OperationStore>,
     pub(super) leases: LeaseManager,
+    pub(super) drivers: DriverRegistry,
+}
+
+impl Default for SessionRegistry {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(RegistryState::default()),
+            shutting_down: AtomicBool::new(false),
+            events: std::sync::Arc::new(EventHub::default()),
+            operations: Mutex::new(OperationStore::default()),
+            leases: LeaseManager::default(),
+            drivers: DriverRegistry::with_builtins(),
+        }
+    }
 }
 
 impl SessionRegistry {

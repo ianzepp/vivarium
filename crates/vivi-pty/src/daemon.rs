@@ -30,8 +30,8 @@ use crate::events::MAX_EVENT_HISTORY;
 #[cfg(test)]
 use crate::protocol::{
     AttachmentAck, ControlLease, DiagnosticSnapshot, EventBatch, LeasedTerminalWrite,
-    SessionEventKind, SessionLeaseRelease, SessionState, SessionWait, StartSession, TerminalResize,
-    TerminalWrite, TerminalWriteBytes,
+    SemanticOutcome, SessionEventKind, SessionLeaseRelease, SessionState, SessionWait,
+    StartSession, TerminalResize, TerminalWrite, TerminalWriteBytes,
 };
 use registry::{SessionError, SessionRegistry};
 #[cfg(test)]
@@ -314,6 +314,30 @@ fn dispatch_request(request: Request, sessions: &SessionRegistry) -> Response {
         "terminal.snapshot" => parse(request.params)
             .and_then(|params| sessions.snapshot(params).map_err(Into::into))
             .map(|snapshot| json!(snapshot)),
+        "session.submit" => require_operation_id(&request).and_then(|operation_id| {
+            parse(request.params).and_then(|params| {
+                sessions
+                    .submit(params, operation_id)
+                    .map_err(Into::into)
+                    .map(|outcome| json!(outcome))
+            })
+        }),
+        "session.interrupt" => require_operation_id(&request).and_then(|operation_id| {
+            parse(request.params).and_then(|params| {
+                sessions
+                    .interrupt(params, operation_id)
+                    .map_err(Into::into)
+                    .map(|outcome| json!(outcome))
+            })
+        }),
+        "session.restart" => require_operation_id(&request).and_then(|operation_id| {
+            parse(request.params).and_then(|params| {
+                sessions
+                    .restart(params, operation_id)
+                    .map_err(Into::into)
+                    .map(|outcome| json!(outcome))
+            })
+        }),
         _ => {
             return Response::error(
                 request.id,
@@ -369,6 +393,13 @@ impl From<SessionError> for DispatchError {
 
 fn parse<T: DeserializeOwned>(value: Value) -> std::result::Result<T, DispatchError> {
     serde_json::from_value(value).map_err(DispatchError::invalid_params)
+}
+
+fn require_operation_id(request: &Request) -> std::result::Result<String, DispatchError> {
+    request.operation_id.clone().ok_or_else(|| DispatchError {
+        code: error_codes::INVALID_PARAMS,
+        message: format!("{} requires operation_id", request.method),
+    })
 }
 
 #[cfg(test)]

@@ -295,6 +295,30 @@ impl ActionQueue {
         operation_id: &str,
         classification: &Classification,
     ) -> Result<ActionOutcome, DriverError> {
+        self.clear_active(operation_id)?;
+        Ok(ActionOutcome {
+            operation_id: operation_id.into(),
+            state: classification.state.clone(),
+            evidence: classification.evidence.clone(),
+        })
+    }
+
+    /// Acquire the per-session semantic lock without a driver plan.
+    /// Used for daemon-owned operations such as process-group restart.
+    pub fn begin_exclusive(&self, operation_id: &str) -> Result<(), DriverError> {
+        validate_operation_id(operation_id).map_err(DriverError::InvalidOperationId)?;
+        let mut active = self
+            .active_operation
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(existing) = active.as_ref() {
+            return Err(DriverError::Busy(existing.clone()));
+        }
+        *active = Some(operation_id.into());
+        Ok(())
+    }
+
+    pub fn clear_active(&self, operation_id: &str) -> Result<(), DriverError> {
         let mut active = self
             .active_operation
             .lock()
@@ -303,11 +327,7 @@ impl ActionQueue {
             return Err(DriverError::UnknownOperation(operation_id.into()));
         }
         *active = None;
-        Ok(ActionOutcome {
-            operation_id: operation_id.into(),
-            state: classification.state.clone(),
-            evidence: classification.evidence.clone(),
-        })
+        Ok(())
     }
 }
 

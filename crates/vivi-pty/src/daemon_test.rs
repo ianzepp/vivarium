@@ -599,3 +599,264 @@ fn lagged_subscription_includes_current_diagnostic_snapshot() {
     assert!(batch.events.is_empty());
     assert!(batch.snapshot.is_some());
 }
+
+#[test]
+fn semantic_busy_rejects_without_pty_input() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    registry
+        .start(request("busy-test", &["/bin/sh", "-c", "sleep 30"]))
+        .unwrap();
+    let process_group = registry
+        .state
+        .lock()
+        .unwrap()
+        .sessions
+        .get("busy-test")
+        .unwrap()
+        .process_group;
+    {
+        let state = registry.state.lock().unwrap();
+        let session = state.sessions.get("busy-test").unwrap();
+        session.actions.begin_exclusive("hold-op").unwrap();
+    }
+
+    let mut interrupt = Request::new(
+        1,
+        "session.interrupt",
+        serde_json::json!({ "session_id": "busy-test" }),
+    );
+    interrupt.operation_id = Some("interrupt-1".into());
+    let response = dispatch(interrupt, &registry);
+    assert_eq!(
+        response.error.as_ref().map(|error| error.code),
+        Some(error_codes::SESSION_CONFLICT)
+    );
+    assert!(response.error.unwrap().message.contains("busy"));
+    assert!(process_group_exists(process_group));
+    assert_eq!(
+        registry.inspect(selector("busy-test")).unwrap().state,
+        SessionState::Running
+    );
+}
+
+#[test]
+fn semantic_restart_replaces_process_group_under_same_identity() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    registry
+        .start(request("restart-test", &["/bin/sh", "-c", "sleep 30"]))
+        .unwrap();
+    let old_group = registry
+        .state
+        .lock()
+        .unwrap()
+        .sessions
+        .get("restart-test")
+        .unwrap()
+        .process_group;
+
+    let mut restart = Request::new(
+        1,
+        "session.restart",
+        serde_json::json!({ "session_id": "restart-test" }),
+    );
+    restart.operation_id = Some("restart-1".into());
+    let response = dispatch(restart, &registry);
+    assert!(response.error.is_none(), "{response:?}");
+    let outcome: SemanticOutcome = serde_json::from_value(response.result.unwrap()).unwrap();
+    assert_eq!(outcome.session_id, "restart-test");
+    assert_eq!(outcome.operation_id, "restart-1");
+    assert_eq!(response.operation_id.as_deref(), Some("restart-1"));
+    let session = outcome.session.expect("restart returns session info");
+    assert_eq!(session.session_id, "restart-test");
+    assert_eq!(session.state, SessionState::Running);
+    assert!(!process_group_exists(old_group));
+
+    let new_group = registry
+        .state
+        .lock()
+        .unwrap()
+        .sessions
+        .get("restart-test")
+        .unwrap()
+        .process_group;
+    assert_ne!(old_group, new_group);
+    assert!(process_group_exists(new_group));
+
+    let events = registry.events.batch("restart-test", 0);
+    assert!(events.events.iter().any(|event| {
+        matches!(
+            event.kind,
+            SessionEventKind::Lifecycle {
+                state: SessionState::Stopped,
+                ..
+            }
+        )
+    }));
+    assert!(events.events.iter().any(|event| {
+        matches!(
+            event.kind,
+            SessionEventKind::Lifecycle {
+                state: SessionState::Running,
+                ..
+            }
+        )
+    }));
+    assert!(events.events.iter().any(|event| {
+        matches!(
+            &event.kind,
+            SessionEventKind::Operation {
+                operation_id,
+                method,
+                success: true,
+                ..
+            } if operation_id == "restart-1" && method == "session.restart"
+        )
+    }));
+}
+
+#[test]
+fn semantic_submit_requires_operation_id_and_codex_driver() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    registry
+        .start(request("submit-generic", &["/bin/sh", "-c", "sleep 30"]))
+        .unwrap();
+
+    let missing = Request::new(
+        1,
+        "session.submit",
+        serde_json::json!({
+            "session_id": "submit-generic",
+            "message": "hello"
+        }),
+    );
+    let missing_response = dispatch(missing, &registry);
+    assert_eq!(
+        missing_response.error.as_ref().map(|error| error.code),
+        Some(error_codes::INVALID_PARAMS)
+    );
+
+    let mut generic = Request::new(
+        2,
+        "session.submit",
+        serde_json::json!({
+            "session_id": "submit-generic",
+            "message": "hello"
+        }),
+    );
+    generic.operation_id = Some("submit-1".into());
+    let generic_response = dispatch(generic, &registry);
+    assert_eq!(
+        generic_response.error.as_ref().map(|error| error.code),
+        Some(error_codes::INVALID_STATE)
+    );
+    assert!(
+        generic_response
+            .error
+            .unwrap()
+            .message
+            .contains("only implemented for codex")
+    );
+}
+
+#[test]
+fn codex_submit_waits_for_receipt_before_enter() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    let script = r#"
+import sys, time
+sys.stdout.write("› "); sys.stdout.flush()
+buf = ""
+while True:
+    ch = sys.stdin.read(1)
+    if not ch:
+        break
+    if ch in ("\n", "\r"):
+        break
+    buf += ch
+    sys.stdout.write(ch)
+    sys.stdout.flush()
+sys.stdout.write("\nThinking…\n")
+sys.stdout.flush()
+time.sleep(30)
+"#;
+    registry
+        .start(StartSession {
+            session_id: "codex-submit".into(),
+            driver: "codex".into(),
+            command: vec!["python3".into(), "-u".into(), "-c".into(), script.into()],
+            cwd: "/tmp".into(),
+            columns: 80,
+            rows: 24,
+        })
+        .unwrap();
+    wait_for_screen(&registry, "codex-submit", "›");
+
+    let mut submit = Request::new(
+        1,
+        "session.submit",
+        serde_json::json!({
+            "session_id": "codex-submit",
+            "message": "hello",
+            "timeout_ms": 3_000
+        }),
+    );
+    submit.operation_id = Some("turn-1".into());
+    let response = dispatch(submit, &registry);
+    assert!(response.error.is_none(), "{response:?}");
+    let outcome: SemanticOutcome = serde_json::from_value(response.result.unwrap()).unwrap();
+    assert_eq!(outcome.operation_id, "turn-1");
+    assert_eq!(outcome.phase.as_deref(), Some("running"));
+    assert_eq!(response.operation_id.as_deref(), Some("turn-1"));
+    let snapshot = registry.snapshot(selector("codex-submit")).unwrap();
+    assert!(snapshot.contents.contains("hello"));
+    assert!(snapshot.contents.contains("Thinking"));
+}
+
+#[test]
+fn codex_submit_returns_uncertain_when_receipt_times_out() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    let script = r#"
+import sys, time
+sys.stdout.write("› "); sys.stdout.flush()
+time.sleep(30)
+"#;
+    registry
+        .start(StartSession {
+            session_id: "codex-uncertain".into(),
+            driver: "codex".into(),
+            command: vec!["python3".into(), "-u".into(), "-c".into(), script.into()],
+            cwd: "/tmp".into(),
+            columns: 80,
+            rows: 24,
+        })
+        .unwrap();
+    wait_for_screen(&registry, "codex-uncertain", "›");
+
+    let mut submit = Request::new(
+        1,
+        "session.submit",
+        serde_json::json!({
+            "session_id": "codex-uncertain",
+            "message": "hello",
+            "timeout_ms": 200
+        }),
+    );
+    submit.operation_id = Some("turn-timeout".into());
+    let response = dispatch(submit, &registry);
+    assert!(response.error.is_none(), "{response:?}");
+    let outcome: SemanticOutcome = serde_json::from_value(response.result.unwrap()).unwrap();
+    assert_eq!(outcome.phase.as_deref(), Some("uncertain"));
+    // Busy lock must be released after uncertain completion.
+    let mut interrupt = Request::new(
+        2,
+        "session.interrupt",
+        serde_json::json!({ "session_id": "codex-uncertain" }),
+    );
+    interrupt.operation_id = Some("interrupt-after".into());
+    let interrupt_response = dispatch(interrupt, &registry);
+    assert!(interrupt_response.error.is_none(), "{interrupt_response:?}");
+}

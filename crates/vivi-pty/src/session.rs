@@ -1,3 +1,4 @@
+use crate::driver::ActionQueue;
 use crate::events::EventHub;
 use crate::protocol::{
     SessionEventKind, SessionInfo, SessionState, StartSession, TerminalResize, TerminalSnapshot,
@@ -25,6 +26,7 @@ pub(super) struct ManagedSession {
     writer: Box<dyn Write + Send>,
     terminal: Arc<Mutex<TerminalState>>,
     pub(crate) process_group: libc::pid_t,
+    pub(super) actions: ActionQueue,
     reader: Option<Box<dyn Read + Send>>,
     _drain: Option<OutputDrain>,
 }
@@ -88,6 +90,7 @@ impl ManagedSession {
             writer,
             terminal,
             process_group,
+            actions: ActionQueue::default(),
             reader: Some(reader),
             _drain: None,
         })
