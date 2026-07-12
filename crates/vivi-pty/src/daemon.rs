@@ -194,22 +194,22 @@ fn serve_client(mut stream: UnixStream, sessions: Arc<SessionRegistry>) -> Resul
         let method = request.method.clone();
         let response = dispatch(request, &sessions);
         if method == "session.subscribe" && response.error.is_none() {
-            if let Some(result) = response.result.as_ref() {
-                if let Ok(ack) = serde_json::from_value::<SubscriptionAck>(result.clone()) {
-                    subscription = Some(ActiveSubscription {
-                        session_id: ack.session_id,
-                        next_sequence: ack.next_sequence,
-                    });
-                }
+            if let Some(result) = response.result.as_ref()
+                && let Ok(ack) = serde_json::from_value::<SubscriptionAck>(result.clone())
+            {
+                subscription = Some(ActiveSubscription {
+                    session_id: ack.session_id,
+                    next_sequence: ack.next_sequence,
+                });
             }
         } else if method == "session.attach" && response.error.is_none() {
-            if let Some(result) = response.result.as_ref() {
-                if let Ok(ack) = serde_json::from_value::<AttachmentAck>(result.clone()) {
-                    subscription = Some(ActiveSubscription {
-                        session_id: ack.session_id,
-                        next_sequence: ack.next_sequence,
-                    });
-                }
+            if let Some(result) = response.result.as_ref()
+                && let Ok(ack) = serde_json::from_value::<AttachmentAck>(result.clone())
+            {
+                subscription = Some(ActiveSubscription {
+                    session_id: ack.session_id,
+                    next_sequence: ack.next_sequence,
+                });
             }
         } else if method == "session.unsubscribe" && response.error.is_none() {
             subscription = None;

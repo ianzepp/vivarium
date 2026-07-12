@@ -11,11 +11,12 @@ and ephemeral terminal truth into one process.
 
 The standalone prototype, runtime-lifecycle phase, raw-terminal phase,
 events/waits phase, generic driver framework, Codex acknowledged submission
-state machine, read-only attachment, and exclusive control leases are
-complete. The thin MCP facade and capability negotiation are now also complete.
-The canonical Fleet runtime-binding contract is now also complete. Active work
-continues in this Vivarium workspace with live canary execution as the next
-useful milestone.
+state machine, read-only attachment, exclusive control leases, the thin MCP
+facade and capability negotiation, and the canonical Fleet runtime-binding
+contract are complete. Pi and OpenCode driver conformance, semantic daemon
+actions (submit, interrupt, restart), and a Grok driver are also complete.
+Active work continues in this Vivarium workspace with live canary execution as
+the next useful milestone.
 
 ## Problem
 
@@ -98,6 +99,9 @@ useful milestone.
   the canonical role/runtime binding and dual-ownership contract.
 - `crates/vivi-pty/docs/factory/delivery/09-pi-opencode-drivers.md`: Phase 9
   records cross-harness driver conformance for Pi and OpenCode.
+- `crates/vivi-pty/docs/factory/delivery/10-semantic-actions.md`: Phase 10
+  records the semantic daemon submit, interrupt, and restart actions with
+  per-session busy guards and operation-correlated outcomes.
 - Standalone source commit `c72e123`: the last complete implementation point
   before migration into Vivarium.
 - Vivarium commit `eb9da73`: the recovered implementation and project-scoped
@@ -276,6 +280,17 @@ tmux fields and derive session identity from the configured role identity.
 Pi and OpenCode have independent evidence markers, capabilities, semantic
 action plans, and shared conformance assertions with Generic and Codex. Live
 harness execution remains a separate opt-in validation gate.
+
+### Completed milestone: semantic daemon actions
+
+The daemon exposes `session.submit`, `session.interrupt`, and `session.restart`
+through the driver boundary. Submit uses the Codex acknowledgement flow with
+operation IDs; interrupt emits the driver's terminal plan; restart stops and
+reaps the daemon-owned process group, then respawns under the same session
+identity. Per-session semantic busy guards reject concurrent actions, and
+outcomes carry normalized state and evidence. A Grok driver with submit,
+interrupt, and raw-input capabilities is also implemented and shares the
+conformance suite.
 
 ### Following milestones
 
