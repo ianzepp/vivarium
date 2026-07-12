@@ -30,7 +30,11 @@ target/debug/vivi-pty session start demo \
   --cwd /tmp -- /bin/sh
 target/debug/vivi-pty session inspect demo
 target/debug/vivi-pty terminal write demo "printf 'hello from PTY\\n'" --enter
+target/debug/vivi-pty terminal write-bytes demo 1b5b324a
+target/debug/vivi-pty terminal key demo c --modifiers control
+target/debug/vivi-pty terminal resize demo 160 50
 target/debug/vivi-pty terminal snapshot demo
+target/debug/vivi-pty session diagnostic demo
 target/debug/vivi-pty session stop demo
 ```
 
@@ -40,9 +44,13 @@ mailspace with `--project`; override discovery with `VIVI_PTY_SOCKET` or
 `--socket`.
 
 Terminal output is continuously parsed into an in-memory VT100 screen.
-`terminal.snapshot` returns the rendered visible contents, dimensions, and cursor
-position; it does not merely return raw stdout. `terminal.write` sends literal
-text, with the CLI's `--enter` option appending a carriage return.
+`terminal.snapshot` returns rendered visible contents, lossless formatted bytes,
+dimensions, cursor position, mode flags, bounded scrollback metadata, and
+monotonic screen/output revisions; it does not merely return raw stdout.
+`terminal.write` sends literal UTF-8 text, `terminal.write-bytes` accepts raw
+bytes as hexadecimal, and `terminal.key` encodes named keys and modifiers.
+`terminal.resize` updates both the child PTY and emulator. `session diagnostic`
+returns process, protocol, and terminal evidence in one snapshot.
 
 The current session states still describe child-process lifecycle only.
 Semantic harness states, message submission, events, attachment, and the MCP

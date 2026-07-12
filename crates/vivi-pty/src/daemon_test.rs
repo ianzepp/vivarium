@@ -116,6 +116,80 @@ fn registry_writes_command_and_reads_rendered_screen() {
 }
 
 #[test]
+fn registry_writes_raw_bytes_without_text_decoding() {
+    let registry = SessionRegistry::default();
+    registry
+        .start(request("raw-write-test", &["/bin/sh", "-c", "sleep 30"]))
+        .unwrap();
+
+    let written = registry
+        .write_bytes(TerminalWriteBytes {
+            session_id: "raw-write-test".into(),
+            data: vec![0, 0xff, 0x1b, b'\n'],
+        })
+        .unwrap();
+    assert_eq!(written, 4);
+}
+
+#[test]
+fn resize_updates_pty_and_terminal_snapshot() {
+    let registry = SessionRegistry::default();
+    registry
+        .start(request("resize-test", &["/bin/sh", "-c", "sleep 30"]))
+        .unwrap();
+
+    let snapshot = registry
+        .resize(TerminalResize {
+            session_id: "resize-test".into(),
+            columns: 100,
+            rows: 30,
+        })
+        .unwrap();
+    assert_eq!((snapshot.columns, snapshot.rows), (100, 30));
+
+    let state = registry.state.lock().unwrap();
+    let size = state.sessions["resize-test"].pty_size().unwrap();
+    assert_eq!((size.cols, size.rows), (100, 30));
+}
+
+#[test]
+fn snapshot_reports_modes_revisions_and_formatted_contents() {
+    let registry = SessionRegistry::default();
+    let ansi = "\x1b[?1049h\x1b[2J\x1b[?25lalt-screen";
+    let command = format!("printf '{}'; sleep 30", ansi);
+    registry
+        .start(request("snapshot-test", &["/bin/sh", "-c", &command]))
+        .unwrap();
+    let initial = registry.snapshot(selector("snapshot-test")).unwrap();
+    wait_for_screen(&registry, "snapshot-test", "alt-screen");
+
+    let snapshot = registry.snapshot(selector("snapshot-test")).unwrap();
+    assert!(snapshot.modes.alternate_screen);
+    assert!(snapshot.modes.cursor_hidden);
+    assert!(snapshot.screen_revision > 0);
+    assert!(snapshot.output_sequence > 0);
+    assert!(snapshot.screen_revision >= initial.screen_revision);
+    assert!(snapshot.output_sequence >= initial.output_sequence);
+    assert!(!snapshot.formatted_contents.is_empty());
+    assert_eq!(snapshot.scrollback_limit, MAX_SCROLLBACK_ROWS);
+}
+
+#[test]
+fn high_output_keeps_bounded_scrollback_metadata() {
+    let registry = SessionRegistry::default();
+    let command =
+        "i=0; while [ $i -lt 3000 ]; do printf 'line-%s\\n' $i; i=$((i+1)); done; sleep 30";
+    registry
+        .start(request("high-output-test", &["/bin/sh", "-c", command]))
+        .unwrap();
+    wait_for_screen(&registry, "high-output-test", "line-2999");
+
+    let snapshot = registry.snapshot(selector("high-output-test")).unwrap();
+    assert!(snapshot.scrollback <= snapshot.scrollback_limit);
+    assert_eq!(snapshot.scrollback_limit, MAX_SCROLLBACK_ROWS);
+}
+
+#[test]
 fn invalid_identifiers_and_duplicate_sessions_are_typed() {
     let registry = SessionRegistry::default();
     let invalid = registry.start(request("bad/id", &["/bin/sh"])).unwrap_err();
@@ -224,4 +298,52 @@ fn dispatch_exposes_typed_session_errors() {
         &registry,
     );
     assert_eq!(response.error.unwrap().code, error_codes::INVALID_PARAMS);
+
+    let response = dispatch(
+        Request::new(
+            3,
+            "terminal.resize",
+            serde_json::json!({
+                "session_id": "missing",
+                "columns": 0,
+                "rows": 24
+            }),
+        ),
+        &registry,
+    );
+    assert_eq!(response.error.unwrap().code, error_codes::INVALID_PARAMS);
+
+    let response = dispatch(
+        Request::new(
+            4,
+            "terminal.key",
+            serde_json::json!({
+                "session_id": "missing",
+                "key": "unknown"
+            }),
+        ),
+        &registry,
+    );
+    assert_eq!(response.error.unwrap().code, error_codes::INVALID_PARAMS);
+}
+
+#[test]
+fn diagnostic_snapshot_contains_protocol_process_and_terminal_evidence() {
+    let registry = SessionRegistry::default();
+    registry
+        .start(request("diagnostic-test", &["/bin/sh", "-c", "sleep 30"]))
+        .unwrap();
+
+    let response = dispatch(
+        Request::new(
+            5,
+            "session.diagnostic",
+            serde_json::json!({ "session_id": "diagnostic-test" }),
+        ),
+        &registry,
+    );
+    let snapshot: DiagnosticSnapshot = serde_json::from_value(response.result.unwrap()).unwrap();
+    assert_eq!(snapshot.protocol.protocol_version, PROTOCOL_VERSION);
+    assert_eq!(snapshot.session.session_id, "diagnostic-test");
+    assert_eq!(snapshot.terminal.session_id, "diagnostic-test");
 }

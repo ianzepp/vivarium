@@ -1,11 +1,11 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use serde_json::{Value, json};
 use std::env;
 use std::path::Path;
 use std::path::PathBuf;
 use vivarium::mailspace::Mailspace;
-use vivi_pty::{client, daemon::Daemon};
+use vivi_pty::{client, daemon::Daemon, protocol::KeyModifier};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -57,6 +57,9 @@ enum SessionCommand {
     Stop {
         session_id: String,
     },
+    Diagnostic {
+        session_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -66,6 +69,22 @@ enum TerminalCommand {
         data: String,
         #[arg(long)]
         enter: bool,
+    },
+    WriteBytes {
+        session_id: String,
+        /// Raw input bytes encoded as hexadecimal.
+        data: String,
+    },
+    Key {
+        session_id: String,
+        key: String,
+        #[arg(long, value_delimiter = ',')]
+        modifiers: Vec<String>,
+    },
+    Resize {
+        session_id: String,
+        columns: u16,
+        rows: u16,
     },
     Snapshot {
         session_id: String,
@@ -103,6 +122,35 @@ fn run_terminal(socket: &std::path::Path, command: TerminalCommand) -> Result<()
                 json!({ "session_id": session_id, "data": data }),
             )?
         }
+        TerminalCommand::WriteBytes { session_id, data } => client::call(
+            socket,
+            "terminal.write_bytes",
+            json!({ "session_id": session_id, "data": decode_hex(&data)? }),
+        )?,
+        TerminalCommand::Key {
+            session_id,
+            key,
+            modifiers,
+        } => {
+            let modifiers = modifiers
+                .iter()
+                .map(|modifier| parse_modifier(modifier))
+                .collect::<Result<Vec<_>>>()?;
+            client::call(
+                socket,
+                "terminal.key",
+                json!({ "session_id": session_id, "key": key, "modifiers": modifiers }),
+            )?
+        }
+        TerminalCommand::Resize {
+            session_id,
+            columns,
+            rows,
+        } => client::call(
+            socket,
+            "terminal.resize",
+            json!({ "session_id": session_id, "columns": columns, "rows": rows }),
+        )?,
         TerminalCommand::Snapshot { session_id } => client::call(
             socket,
             "terminal.snapshot",
@@ -142,6 +190,11 @@ fn run_session(socket: &std::path::Path, command: SessionCommand) -> Result<()> 
         SessionCommand::Stop { session_id } => {
             client::call(socket, "session.stop", json!({ "session_id": session_id }))?
         }
+        SessionCommand::Diagnostic { session_id } => client::call(
+            socket,
+            "session.diagnostic",
+            json!({ "session_id": session_id }),
+        )?,
     };
     print_result(result)
 }
@@ -157,6 +210,39 @@ fn default_socket_path(project: Option<&Path>) -> Result<PathBuf> {
     }
     let mailspace = Mailspace::discover(project)?;
     Ok(mailspace.dir.join("vivi-pty.sock"))
+}
+
+fn parse_modifier(modifier: &str) -> Result<KeyModifier> {
+    match modifier.to_ascii_lowercase().as_str() {
+        "control" | "ctrl" => Ok(KeyModifier::Control),
+        "alt" | "meta" => Ok(KeyModifier::Alt),
+        "shift" => Ok(KeyModifier::Shift),
+        _ => bail!("unsupported key modifier: {modifier}"),
+    }
+}
+
+fn decode_hex(input: &str) -> Result<Vec<u8>> {
+    if !input.len().is_multiple_of(2) {
+        bail!("raw byte input must contain an even number of hexadecimal digits");
+    }
+    input
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = hex_digit(pair[0])?;
+            let low = hex_digit(pair[1])?;
+            Ok((high << 4) | low)
+        })
+        .collect()
+}
+
+fn hex_digit(byte: u8) -> Result<u8> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        _ => bail!("invalid hexadecimal digit: {:?}", char::from(byte)),
+    }
 }
 
 #[cfg(test)]

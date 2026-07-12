@@ -9,9 +9,9 @@ identities. Fleet is the first consumer and must be able to replace tmux pane
 control with a reliable local RPC surface without merging durable work truth
 and ephemeral terminal truth into one process.
 
-The standalone prototype and runtime-lifecycle phase are complete. Active work
-resumes in this Vivarium workspace with raw terminal control as the next useful
-milestone.
+The standalone prototype, runtime-lifecycle phase, and raw-terminal phase are
+complete. Active work continues in this Vivarium workspace with ordered events
+and operation correlation as the next useful milestone.
 
 ## Problem
 
@@ -76,6 +76,9 @@ milestone.
   terminal writes, and rendered VT100 snapshots.
 - `crates/vivi-pty/docs/factory/delivery/01-runtime-lifecycle.md`: Phase 1
   records the completed lifecycle, limits, cleanup, and typed-error contract.
+- `crates/vivi-pty/docs/factory/delivery/02-terminal-control.md`: Phase 2
+  records the completed raw-terminal protocol, emulator, and diagnostic
+  contract.
 - Standalone source commit `c72e123`: the last complete implementation point
   before migration into Vivarium.
 - Vivarium commit `eb9da73`: the recovered implementation and project-scoped
@@ -202,12 +205,11 @@ remote command execution rather than a public TCP listener.
 - Vivarium migration: workspace member, renamed binary/protocol surface,
   shared mailspace discovery, and per-project default socket.
 
-### Next milestone: complete raw terminal substrate
+### Completed milestone: complete raw terminal substrate
 
-Add raw bytes, named keys and chords, resize propagation, bounded scrollback,
+Raw bytes, named keys and chords, resize propagation, bounded scrollback,
 screen and output revisions, cursor/mode reporting, and atomic diagnostic
-snapshots. Prove the surface against a deterministic fixture TUI before adding
-harness-specific policy.
+snapshots are implemented and tested against deterministic PTY fixtures.
 
 ### Following milestones
 

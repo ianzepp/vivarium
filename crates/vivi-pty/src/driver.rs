@@ -1,4 +1,4 @@
-use crate::{protocol::SessionState, terminal::TerminalSnapshot};
+use crate::protocol::{SessionState, TerminalSnapshot};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Classification {

@@ -117,6 +117,46 @@ pub struct TerminalWrite {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TerminalWriteBytes {
+    pub session_id: String,
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyModifier {
+    Control,
+    Alt,
+    Shift,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TerminalKey {
+    pub session_id: String,
+    pub key: String,
+    #[serde(default)]
+    pub modifiers: Vec<KeyModifier>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TerminalResize {
+    pub session_id: String,
+    pub columns: u16,
+    pub rows: u16,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct TerminalModes {
+    pub alternate_screen: bool,
+    pub application_keypad: bool,
+    pub application_cursor: bool,
+    pub cursor_hidden: bool,
+    pub bracketed_paste: bool,
+    pub mouse_protocol: String,
+    pub mouse_encoding: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TerminalSnapshot {
     pub session_id: String,
     pub columns: u16,
@@ -124,6 +164,19 @@ pub struct TerminalSnapshot {
     pub cursor_column: u16,
     pub cursor_row: u16,
     pub contents: String,
+    pub formatted_contents: Vec<u8>,
+    pub scrollback: usize,
+    pub scrollback_limit: usize,
+    pub modes: TerminalModes,
+    pub screen_revision: u64,
+    pub output_sequence: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DiagnosticSnapshot {
+    pub protocol: DaemonInfo,
+    pub session: SessionInfo,
+    pub terminal: TerminalSnapshot,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -144,6 +197,8 @@ pub struct SessionInfo {
     pub state: SessionState,
     pub exit_code: Option<u32>,
 }
+
+pub use crate::keys::encode_key;
 
 pub fn write_frame<T: Serialize>(writer: &mut impl Write, message: &T) -> io::Result<()> {
     let payload = serde_json::to_vec(message).map_err(io::Error::other)?;

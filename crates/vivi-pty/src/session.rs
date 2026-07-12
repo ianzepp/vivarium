@@ -1,4 +1,5 @@
-use crate::protocol::{SessionInfo, SessionState, StartSession, TerminalSnapshot};
+use crate::protocol::{SessionInfo, SessionState, StartSession, TerminalResize, TerminalSnapshot};
+use crate::terminal::TerminalState;
 use anyhow::{Context, Result, anyhow};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::fs::File;
@@ -17,9 +18,9 @@ use super::{
 pub(super) struct ManagedSession {
     pub(super) info: SessionInfo,
     child: Box<dyn Child + Send + Sync>,
-    _master: Box<dyn MasterPty + Send>,
+    master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
-    terminal: Arc<Mutex<vt100::Parser>>,
+    terminal: Arc<Mutex<TerminalState>>,
     pub(crate) process_group: libc::pid_t,
     _drain: OutputDrain,
 }
@@ -63,7 +64,7 @@ impl ManagedSession {
         };
         drop(pair.slave);
 
-        let terminal = Arc::new(Mutex::new(vt100::Parser::new(
+        let terminal = Arc::new(Mutex::new(TerminalState::new(
             request.rows,
             request.columns,
             MAX_SCROLLBACK_ROWS,
@@ -81,7 +82,7 @@ impl ManagedSession {
                 exit_code: None,
             },
             child,
-            _master: pair.master,
+            master: pair.master,
             writer,
             terminal,
             process_group,
@@ -149,19 +150,41 @@ impl ManagedSession {
         Ok(bytes.len())
     }
 
-    pub(super) fn snapshot(&self) -> TerminalSnapshot {
-        let parser = self.terminal.lock().expect("terminal parser poisoned");
-        let screen = parser.screen();
-        let (rows, columns) = screen.size();
-        let (cursor_row, cursor_column) = screen.cursor_position();
-        TerminalSnapshot {
-            session_id: self.info.session_id.clone(),
-            columns,
-            rows,
-            cursor_column,
-            cursor_row,
-            contents: screen.contents(),
+    pub(super) fn resize(
+        &mut self,
+        request: TerminalResize,
+    ) -> Result<TerminalSnapshot, SessionError> {
+        if !matches!(self.info.state, SessionState::Running) {
+            return Err(SessionError::InvalidState(format!(
+                "session is not running: {}",
+                self.info.session_id
+            )));
         }
+        self.master
+            .resize(PtySize {
+                rows: request.rows,
+                cols: request.columns,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(SessionError::Internal)?;
+        self.terminal
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .resize(request.rows, request.columns);
+        Ok(self.snapshot())
+    }
+
+    #[cfg(test)]
+    pub(super) fn pty_size(&self) -> Result<PtySize> {
+        self.master.get_size().context("inspect PTY size")
+    }
+
+    pub(super) fn snapshot(&self) -> TerminalSnapshot {
+        self.terminal
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .snapshot(&self.info.session_id)
     }
 
     fn cleanup_process_group(&mut self) -> Result<()> {
@@ -251,7 +274,7 @@ fn set_nonblocking(fd: RawFd) -> Result<()> {
 
 fn drain_output(
     mut reader: Box<dyn Read + Send>,
-    terminal: Arc<Mutex<vt100::Parser>>,
+    terminal: Arc<Mutex<TerminalState>>,
 ) -> OutputDrain {
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
@@ -262,8 +285,8 @@ fn drain_output(
                 Ok(0) => break,
                 Ok(count) => terminal
                     .lock()
-                    .expect("terminal parser poisoned")
-                    .process(&buffer[..count]),
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .process_output(&buffer[..count]),
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                     thread::sleep(POLL_INTERVAL);
                 }
