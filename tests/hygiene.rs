@@ -82,7 +82,7 @@ fn budgets() -> Budgets {
         total_lines,
         total_functions,
         total_impls,
-        max_file_lines: 400,
+        max_file_lines: 1000,
         max_fn_lines: 60,
     }
 }

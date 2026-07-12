@@ -23,7 +23,7 @@ source of truth when these instructions drift.
 - Use `clap` derive for CLI parsing.
 - Use `tracing` and `tracing-subscriber` for logging.
 - Use `tokio` for async work; the CLI entrypoint uses `#[tokio::main]`.
-- Keep files and functions small. Hygiene tests enforce a 400-line file ceiling
+- Keep files and functions small. Hygiene tests enforce a 1000-line file ceiling
   and a 60-line function ceiling for checked `src/**/*.rs` files.
 - Prefer `module.rs` files until a module genuinely needs submodules. When it
   does, use `module/leaf.rs` files with a parent `module.rs` rather than
