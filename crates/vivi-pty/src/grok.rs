@@ -43,7 +43,17 @@ impl HarnessDriver for GrokDriver {
         }
         if contains_any(
             visible,
-            &["Working", "Responding", "Thinking", "Waiting for response"],
+            &[
+                "Working",
+                "Responding",
+                "Thinking",
+                "Waiting for response",
+                "Running tool",
+                "Running task",
+                "Tool call",
+                "Background task",
+                "Press Esc to stop",
+            ],
         ) {
             return evidence(
                 HarnessState::Running,

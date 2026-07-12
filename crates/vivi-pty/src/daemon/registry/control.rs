@@ -1,4 +1,5 @@
 use super::*;
+use crate::driver::{Classification, Confidence, Evidence, HarnessState};
 use crate::operation::OperationSlot;
 use crate::protocol::{Response, SessionState, error_codes};
 use serde_json::{Value, json};
@@ -140,17 +141,23 @@ impl SessionRegistry {
             record_tombstone(&mut state, selector.session_id.clone());
             self.leases.release_session(&selector.session_id);
         }
-        let terminal = state
-            .sessions
-            .get(&selector.session_id)
-            .ok_or_else(|| {
-                SessionError::NotFound(format!("unknown session: {}", selector.session_id))
-            })?
-            .snapshot();
+        let (terminal, output_advanced) = {
+            let session = state
+                .sessions
+                .get_mut(&selector.session_id)
+                .ok_or_else(|| {
+                    SessionError::NotFound(format!("unknown session: {}", selector.session_id))
+                })?;
+            let terminal = session.snapshot();
+            let output_advanced =
+                session.output_advanced_since_last_diagnostic(terminal.output_sequence);
+            (terminal, output_advanced)
+        };
         let driver = self.drivers.get(&session.driver).map_err(|error| {
             SessionError::InvalidState(format!("session driver unavailable: {error:?}"))
         })?;
-        let classification = driver.classify(&terminal);
+        let classification =
+            conservative_diagnostic_classification(driver.classify(&terminal), output_advanced);
         Ok(DiagnosticSnapshot {
             protocol: DaemonInfo {
                 name: "vivi-ptyd".into(),
@@ -333,5 +340,22 @@ impl SessionRegistry {
                 error_code: response.error.as_ref().map(|error| error.code),
             },
         );
+    }
+}
+
+fn conservative_diagnostic_classification(
+    classification: Classification,
+    output_advanced: bool,
+) -> Classification {
+    if classification.state != HarnessState::WaitingForInput || !output_advanced {
+        return classification;
+    }
+    Classification {
+        state: HarnessState::Running,
+        confidence: Confidence::Medium,
+        evidence: vec![Evidence {
+            source: "terminal".into(),
+            detail: "terminal output advanced since the previous diagnostic".into(),
+        }],
     }
 }

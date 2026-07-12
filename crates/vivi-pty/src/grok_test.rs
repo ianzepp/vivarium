@@ -1,4 +1,4 @@
-use crate::driver::{HarnessDriver, HarnessState, SemanticAction, TerminalAction};
+use crate::driver::{Confidence, HarnessDriver, HarnessState, SemanticAction, TerminalAction};
 use crate::grok::GrokDriver;
 use crate::protocol::{TerminalModes, TerminalSnapshot};
 
@@ -82,6 +82,21 @@ fn completed_turn_prompt_without_grok_branding_is_waiting() {
         "Turn completed in 30s.\n\n  │ ❯                         │\n  ╰──── GPT-5.6 Sol ──────────╯\nShift+Tab:mode │ Ctrl+.:shortcuts",
     ));
     assert_eq!(classification.state, HarnessState::WaitingForInput);
+}
+
+#[test]
+fn active_work_markers_outrank_the_visible_composer_prompt() {
+    for active_marker in [
+        "Thinking…",
+        "Running tool: cargo test",
+        "Background task: warmup",
+    ] {
+        let classification = GrokDriver.classify(&snapshot(format!(
+            "Grok Build\n{active_marker}\n\n  │ ❯                         │\n  ╰──── GPT-5.6 Sol ──────────╯"
+        )));
+        assert_eq!(classification.state, HarnessState::Running);
+        assert_eq!(classification.confidence, Confidence::High);
+    }
 }
 
 #[test]

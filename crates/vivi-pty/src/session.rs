@@ -27,6 +27,7 @@ pub(super) struct ManagedSession {
     terminal: Arc<Mutex<TerminalState>>,
     pub(crate) process_group: libc::pid_t,
     pub(super) actions: ActionQueue,
+    last_diagnostic_output_sequence: Option<u64>,
     reader: Option<Box<dyn Read + Send>>,
     reader_fd: RawFd,
     _drain: Option<OutputDrain>,
@@ -92,6 +93,7 @@ impl ManagedSession {
             terminal,
             process_group,
             actions: ActionQueue::default(),
+            last_diagnostic_output_sequence: None,
             reader: Some(reader),
             reader_fd,
             _drain: None,
@@ -210,6 +212,14 @@ impl ManagedSession {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .snapshot(&self.info.session_id)
+    }
+
+    pub(super) fn output_advanced_since_last_diagnostic(&mut self, output_sequence: u64) -> bool {
+        let advanced = self
+            .last_diagnostic_output_sequence
+            .is_some_and(|previous| output_sequence > previous);
+        self.last_diagnostic_output_sequence = Some(output_sequence);
+        advanced
     }
 
     fn cleanup_process_group(&mut self) -> Result<()> {
