@@ -228,6 +228,12 @@ impl DriverRegistry {
         registry
     }
 
+    pub fn with_builtins() -> Self {
+        let mut registry = Self::with_generic();
+        registry.register(Arc::new(crate::codex::CodexDriver));
+        registry
+    }
+
     pub fn register(&mut self, driver: Arc<dyn HarnessDriver>) {
         self.drivers.insert(driver.name().into(), driver);
     }

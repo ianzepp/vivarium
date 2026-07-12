@@ -10,9 +10,10 @@ control with a reliable local RPC surface without merging durable work truth
 and ephemeral terminal truth into one process.
 
 The standalone prototype, runtime-lifecycle phase, raw-terminal phase,
-events/waits phase, and generic driver framework are complete. Active work
-continues in this Vivarium workspace with the Codex driver as the next useful
-milestone.
+events/waits phase, generic driver framework, and Codex acknowledged
+submission state machine are complete. Active work continues in this Vivarium
+workspace with read-only attachment and exclusive control leases as the next
+useful milestone.
 
 ## Problem
 
@@ -85,6 +86,8 @@ milestone.
 - `crates/vivi-pty/docs/factory/delivery/04-driver-framework.md`: Phase 4
   records the completed normalized driver, generic classification, capability,
   and guarded-action contract.
+- `crates/vivi-pty/docs/factory/delivery/05-codex-driver.md`: Phase 5 records
+  the Codex classification and acknowledged submission contract.
 - Standalone source commit `c72e123`: the last complete implementation point
   before migration into Vivarium.
 - Vivarium commit `eb9da73`: the recovered implementation and project-scoped
@@ -231,15 +234,22 @@ action plans, and per-session-style serialized action guards are implemented
 and tested. Unsupported capabilities, invalid operation IDs, busy sessions,
 and expected-state mismatches are explicit errors.
 
+### Completed milestone: Codex driver and acknowledged submission
+
+The built-in Codex driver classifies stable prompt, approval, activity,
+completion, and failure evidence. Its operation-keyed submission workflow
+writes literal composer text, requires a newer screen revision containing that
+text before emitting Enter, and preserves uncertain outcomes for stale or
+contradictory evidence.
+
 ### Following milestones
 
-1. Implement the Codex driver and acknowledged submission state machine.
-2. Add read-only attachment plus exclusive expiring control leases.
-3. Add the thin MCP facade and version/capability negotiation.
-4. Integrate a canary Fleet role using a canonical Vivi PTY runtime binding;
+1. Add read-only attachment plus exclusive expiring control leases.
+2. Add the thin MCP facade and version/capability negotiation.
+3. Integrate a canary Fleet role using a canonical Vivi PTY runtime binding;
    remove tmux control for that role and exercise repeated real Fleet cycles.
-5. Validate the abstraction with Pi and OpenCode drivers.
-6. Operationalize installation, daemon lifecycle, authorization, diagnostics,
+4. Validate the abstraction with Pi and OpenCode drivers.
+5. Operationalize installation, daemon lifecycle, authorization, diagnostics,
    soak testing, migration guidance, and release packaging.
 
 Each milestone receives its own delivery spec, validation checkpoint, and

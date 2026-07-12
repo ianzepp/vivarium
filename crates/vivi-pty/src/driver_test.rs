@@ -95,8 +95,9 @@ fn generic_driver_plans_guarded_actions_and_rejects_unsupported() {
 
 #[test]
 fn registry_and_state_guards_are_explicit() {
-    let registry = DriverRegistry::with_generic();
+    let registry = DriverRegistry::with_builtins();
     assert_eq!(registry.get("generic").unwrap().name(), "generic");
+    assert_eq!(registry.get("codex").unwrap().name(), "codex");
     assert!(matches!(
         registry.get("missing"),
         Err(DriverError::UnknownDriver(_))

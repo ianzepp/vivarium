@@ -62,8 +62,14 @@ The driver layer now classifies terminal evidence into normalized harness
 states and turns guarded submit, interrupt, and raw-input requests into
 deterministic terminal-action plans. The generic driver is deliberately
 conservative: it recognizes explicit shell prompts and otherwise reports
-visible output as running. Harness-specific drivers, acknowledged submission,
-leases, attachment, and the MCP facade are subsequent vertical slices.
+visible output as running. Additional harness drivers, leases, attachment, and
+the MCP facade are subsequent vertical slices.
+
+The built-in Codex driver adds evidence-backed state classification and an
+acknowledged submission workflow: it writes the composer literally, waits for
+the submitted text to appear on a newer screen revision, and only then plans
+the Codex submit key. Stale, contradictory, or unrecognized evidence becomes
+an explicit uncertain result.
 
 The daemon owns each session's Unix process group, not only its direct child.
 Stopping a session or shutting down the daemon terminates and reaps that group;

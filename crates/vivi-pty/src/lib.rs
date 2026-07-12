@@ -1,4 +1,5 @@
 pub mod client;
+pub mod codex;
 pub mod daemon;
 pub mod driver;
 pub mod events;
