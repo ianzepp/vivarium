@@ -1,7 +1,7 @@
 use vivarium::VivariumError;
 use vivarium::cli::{
     Command, LocalSendCommand, MailCommand, MailDumpCommand, MailReplyCommand, MailspaceCommand,
-    MailspaceIdentityCommand, MailspaceWatchCommand, TaskCommand,
+    MailspaceIdentityCommand, MailspaceWatchCommand, MemoCommand, TaskCommand,
 };
 use vivarium::mailspace::{
     DumpFilters, MailDumpRequest, Mailspace, MailspaceWatchRequest, SendRequest,
@@ -32,6 +32,10 @@ pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumE
         }
         Command::Want { command } => {
             crate::local_work_command::handle_want_command(command)?;
+            Ok(true)
+        }
+        Command::Memo { command } => {
+            handle_memo_command(command)?;
             Ok(true)
         }
         _ => Ok(false),
@@ -147,6 +151,102 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
         }
     }
     Ok(())
+}
+
+fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
+    match command {
+        MemoCommand::Save(command) => {
+            let mailspace = Mailspace::discover(command.project.as_deref())?;
+            let body = vivarium::mailspace::read_body_input(
+                command.body.as_deref(),
+                command.body_file.as_deref(),
+            )?;
+            let handle = mailspace.save_memo(&command.for_identity, &command.subject, &body)?;
+            println!("saved {handle}");
+        }
+        MemoCommand::Delete {
+            handle,
+            for_identity,
+            project,
+        } => {
+            let mailspace = Mailspace::discover(project.as_deref())?;
+            let handle = mailspace.move_item(for_identity, handle, "trash", None, "memo delete")?;
+            println!("deleted {handle}");
+        }
+        MemoCommand::List {
+            for_identity,
+            json,
+            project,
+        } => {
+            let mailspace = Mailspace::discover(project.as_deref())?;
+            print_memo_list(&mailspace, for_identity, *json)?;
+        }
+        MemoCommand::Show {
+            handle,
+            json,
+            project,
+        } => {
+            let mailspace = Mailspace::discover(project.as_deref())?;
+            vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, *json)?;
+        }
+        MemoCommand::Dump {
+            for_identity,
+            json,
+            output,
+            project,
+        } => dump_memos(for_identity, *json, output.as_deref(), project.as_deref())?,
+    }
+    Ok(())
+}
+
+fn print_memo_list(mailspace: &Mailspace, identity: &str, json: bool) -> Result<(), VivariumError> {
+    let memos = mailspace.list_kind(identity, "memos", "memo")?;
+    if json {
+        let items: Vec<serde_json::Value> = memos
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "handle": m.handle,
+                    "date": m.date,
+                    "subject": m.subject,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&items)
+                .map_err(|e| VivariumError::Other(format!("failed to encode JSON: {e}")))?
+        );
+        return Ok(());
+    }
+    if memos.is_empty() {
+        println!("  no memos");
+        return Ok(());
+    }
+    println!("  handle  date  subject");
+    for memo in &memos {
+        println!("  {}  {}  {}", memo.handle, memo.date, memo.subject);
+    }
+    Ok(())
+}
+
+fn dump_memos(
+    for_identity: &str,
+    json: bool,
+    output: Option<&std::path::Path>,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(project)?;
+    let request = MailDumpRequest {
+        folder: "memos".into(),
+        kind: Some("memo".into()),
+        filters: DumpFilters {
+            for_identity: Some(for_identity.into()),
+            ..Default::default()
+        },
+    };
+    let records = mailspace.dump_mail(request)?;
+    crate::local_mailspace_dump::write_dump("Vivi Memo Dump", &records, json, output)
 }
 
 fn send_local_mail(command: &LocalSendCommand) -> Result<(), VivariumError> {

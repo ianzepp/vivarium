@@ -4,6 +4,103 @@ use clap::{Args, Subcommand, ValueEnum};
 
 use super::{LocalSendCommand, MailspaceWatchCommand};
 
+/// Save a memo into an identity's memos folder.
+#[derive(Debug, Clone, Args)]
+#[command(group(
+    clap::ArgGroup::new("memo_body_input")
+        .required(true)
+        .args(["body", "body_file"])
+))]
+pub struct MemoSaveCommand {
+    /// Identity whose memo store this memo belongs to
+    #[arg(long = "for")]
+    pub for_identity: String,
+
+    /// Memo subject (shown in list one-liners)
+    #[arg(long)]
+    pub subject: String,
+
+    /// Memo body, or @path to read body from a file
+    #[arg(long)]
+    pub body: Option<String>,
+
+    /// Read memo body from a file
+    #[arg(long)]
+    pub body_file: Option<PathBuf>,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum MemoCommand {
+    /// Save a memo for later reference
+    Save(MemoSaveCommand),
+
+    /// Delete a memo
+    Delete {
+        /// Memo handle or unambiguous prefix
+        handle: String,
+
+        /// Identity whose memo should be deleted
+        #[arg(long = "for")]
+        for_identity: String,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+
+    /// List memos for an identity (one-liner subjects)
+    List {
+        /// Identity whose memos should be listed
+        #[arg(long = "for")]
+        for_identity: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+
+    /// Show a single memo in full detail
+    Show {
+        /// Memo handle or unambiguous prefix
+        handle: String,
+
+        /// Include thread context as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+
+    /// Dump all memos for an identity
+    Dump {
+        /// Identity whose memos should be dumped (required)
+        #[arg(long = "for")]
+        for_identity: String,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Write dump output to a file instead of stdout
+        #[arg(long)]
+        output: Option<PathBuf>,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+}
+
 #[derive(Debug, Subcommand)]
 pub enum NeedCommand {
     /// Send a need message into the recipient's Needs folder

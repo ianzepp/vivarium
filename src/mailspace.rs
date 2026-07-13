@@ -64,6 +64,7 @@ pub struct IdentityStatus {
     pub tasks_open: usize,
     pub needs_open: usize,
     pub wants_open: usize,
+    pub memos_open: usize,
     pub done: usize,
 }
 
@@ -74,6 +75,7 @@ pub struct StatusTotals {
     pub tasks_open: usize,
     pub needs_open: usize,
     pub wants_open: usize,
+    pub memos_open: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +169,7 @@ impl Mailspace {
             let mut tasks_open = 0;
             let mut needs_open = 0;
             let mut wants_open = 0;
+            let mut memos_open = 0;
             let mut done = 0;
             for name in &names {
                 inbox_unread +=
@@ -174,6 +177,7 @@ impl Mailspace {
                 tasks_open += storage.count_messages_for_account_role(name, "tasks", None)?;
                 needs_open += storage.count_messages_for_account_role(name, "needs", None)?;
                 wants_open += storage.count_messages_for_account_role(name, "wants", None)?;
+                memos_open += storage.count_messages_for_account_role(name, "memos", None)?;
                 done += storage.count_messages_for_account_role(name, "done", None)?;
             }
             let actionable_open = tasks_open + needs_open;
@@ -182,6 +186,7 @@ impl Mailspace {
             totals.tasks_open += tasks_open;
             totals.needs_open += needs_open;
             totals.wants_open += wants_open;
+            totals.memos_open += memos_open;
             identities.push(IdentityStatus {
                 identity: identity.name.clone(),
                 address: self.address_for(&identity.name),
@@ -191,6 +196,7 @@ impl Mailspace {
                 tasks_open,
                 needs_open,
                 wants_open,
+                memos_open,
                 done,
             });
         }
@@ -210,15 +216,18 @@ pub fn print_status(status: &MailspaceStatus) {
     println!("root      {}", status.root.display());
     println!("store     {}", status.store.display());
     println!();
-    println!("identity  actionable  tasks open  needs open  wants open  inbox unread  done");
+    println!(
+        "identity  actionable  tasks open  needs open  wants open  memos open  inbox unread  done"
+    );
     for identity in &status.identities {
         println!(
-            "{:<9} {:<11} {:<11} {:<11} {:<11} {:<13} {}",
+            "{:<9} {:<11} {:<11} {:<11} {:<11} {:<11} {:<13} {}",
             identity.identity,
             identity.actionable_open,
             identity.tasks_open,
             identity.needs_open,
             identity.wants_open,
+            identity.memos_open,
             identity.inbox_unread,
             identity.done
         );
@@ -232,6 +241,7 @@ pub fn print_status(status: &MailspaceStatus) {
     println!("total open tasks: {}", status.totals.tasks_open);
     println!("total open needs: {}", status.totals.needs_open);
     println!("total open wants: {}", status.totals.wants_open);
+    println!("total open memos: {}", status.totals.memos_open);
 }
 
 pub fn canonical_local_role(role: &str) -> Result<String, VivariumError> {
@@ -244,9 +254,10 @@ pub fn canonical_local_role(role: &str) -> Result<String, VivariumError> {
         "task" | "tasks" | "open" => Ok("tasks".into()),
         "need" | "needs" => Ok("needs".into()),
         "want" | "wants" => Ok("wants".into()),
+        "memo" | "memos" => Ok("memos".into()),
         "done" | "closed" => Ok("done".into()),
         _ => Err(VivariumError::Message(format!(
-            "unsupported local folder '{role}'; expected inbox, archive, trash, sent, drafts, tasks, needs, wants, or done"
+            "unsupported local folder '{role}'; expected inbox, archive, trash, sent, drafts, tasks, needs, wants, memos, or done"
         ))),
     }
 }

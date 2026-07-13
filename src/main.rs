@@ -129,7 +129,8 @@ impl Runtime {
             | Command::Mail { .. }
             | Command::Task { .. }
             | Command::Need { .. }
-            | Command::Want { .. } => unreachable!(),
+            | Command::Want { .. }
+            | Command::Memo { .. } => unreachable!(),
             Command::Show { message_ids, json } => self.show(&message_ids, json),
             Command::Thread {
                 message_id,

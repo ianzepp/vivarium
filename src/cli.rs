@@ -15,8 +15,8 @@ pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
 pub use mailspace_command::{
     LocalSendCommand, MailCommand, MailDumpCommand, MailReplyCommand, MailThreadCommand,
-    MailspaceCommand, MailspaceIdentityCommand, MailspaceWatchCommand, NeedCommand, TaskCommand,
-    TaskDumpCommand, TaskDumpStatusArg, TaskStatus, WantCommand, WantStatus,
+    MailspaceCommand, MailspaceIdentityCommand, MailspaceWatchCommand, MemoCommand, NeedCommand,
+    TaskCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus, WantCommand, WantStatus,
 };
 pub use proton_command::ProtonCommand;
 pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
@@ -244,6 +244,12 @@ pub enum Command {
     Want {
         #[command(subcommand)]
         command: WantCommand,
+    },
+
+    /// Save and inspect project-local memos as durable role memory
+    Memo {
+        #[command(subcommand)]
+        command: MemoCommand,
     },
 
     /// Show one or more messages by ID

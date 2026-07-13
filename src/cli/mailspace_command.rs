@@ -4,8 +4,8 @@ use clap::{ArgGroup, Parser, Subcommand};
 
 mod work_command;
 pub use work_command::{
-    MailDumpCommand, NeedCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus, WantCommand,
-    WantStatus,
+    MailDumpCommand, MemoCommand, NeedCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus,
+    WantCommand, WantStatus,
 };
 
 #[derive(Debug, Subcommand)]

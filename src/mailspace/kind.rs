@@ -22,6 +22,7 @@ pub(super) fn effective_kind(role: &str, data: &[u8], events: &[MailspaceEvent])
         "tasks" => return Some("task".into()),
         "needs" => return Some("need".into()),
         "wants" => return Some("want".into()),
+        "memos" => return Some("memo".into()),
         _ => {}
     }
     if events.iter().any(|event| event.command == "need done") {

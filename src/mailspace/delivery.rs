@@ -59,6 +59,45 @@ impl Mailspace {
         })
     }
 
+    /// Save a self-addressed memo into the identity's `memos` folder.
+    /// Unlike `send`, this creates no sent copy and no recipient delivery —
+    /// it is a single-actor persistence operation.
+    pub fn save_memo(
+        &self,
+        identity: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<String, VivariumError> {
+        let identity = self.resolve_identity(identity)?;
+        let address = self.address_for(&identity);
+        let mut eml = build_compose_draft(&ComposeDraft {
+            from: address.clone(),
+            to: vec![address],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: subject.to_string(),
+            body: body.to_string(),
+            html_body: None,
+        })?;
+        eml = add_header(&eml, "X-Vivi-Kind", "memo")?;
+        let seed = Utc::now().timestamp_nanos_opt().unwrap_or_default();
+        let mut storage = self.storage()?;
+        let stored = storage.ingest_message(
+            &MessageIngestRequest {
+                account: identity.clone(),
+                local_role: "memos".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: format!("memo-save\0{seed}\0{identity}"),
+                remote: None,
+            },
+            eml.as_bytes(),
+        )?;
+        let handle = storage.display_handle(&stored.message_id)?;
+        Ok(handle)
+    }
+
     fn compose_message(
         &self,
         from: &str,
