@@ -239,9 +239,15 @@ fn import_links(
             }
             continue;
         }
-        if !target_storage.blob_exists(&link.child_content_id)?
-            || !target_storage.blob_exists(&link.parent_content_id)?
-        {
+        // A link is resolvable in the merged store when its blobs exist in the
+        // target already OR will be imported from source. In dry-run the source
+        // blobs are not written yet, so checking target alone false-positives
+        // every link whose blobs live only in source.
+        let child_present = target_storage.blob_exists(&link.child_content_id)?
+            || source_storage.blob_exists(&link.child_content_id)?;
+        let parent_present = target_storage.blob_exists(&link.parent_content_id)?
+            || source_storage.blob_exists(&link.parent_content_id)?;
+        if !child_present || !parent_present {
             report.conflicts.push(format!(
                 "link for child content_id {} references missing merged blob",
                 link.child_content_id

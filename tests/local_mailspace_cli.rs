@@ -1194,6 +1194,71 @@ fn mailspace_import_dry_run_reports_without_writing() {
 }
 
 #[test]
+fn mailspace_import_dry_run_resolves_links_via_source_blobs() {
+    // Regression: dry-run validated source links against the target blob set
+    // only. Because dry-run does not write source blobs, every link whose
+    // child/parent blob lived only in source was falsely reported as
+    // "references missing merged blob". A link is resolvable for import when
+    // its blobs exist in target OR source.
+    let source = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    init_roster(source.path());
+    init_roster(target.path());
+    let task = send_work(
+        source.path(),
+        "task",
+        "cto",
+        "linked task",
+        "Carry forward.",
+    );
+    let done = vivi([
+        "task",
+        "done",
+        "--project",
+        source.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        &task,
+        "--note",
+        "closing note creates a captured thread link",
+    ]);
+    assert_success(&done);
+
+    let dry_run = vivi([
+        "mailspace",
+        "import",
+        "--project",
+        target.path().to_str().unwrap(),
+        "--from",
+        source.path().to_str().unwrap(),
+        "--dry-run",
+        "--json",
+    ]);
+    assert_success(&dry_run);
+    let report: Value = serde_json::from_str(&stdout(&dry_run)).unwrap();
+    assert_eq!(report["dry_run"], true);
+    assert_eq!(
+        report["conflicts"].as_array().unwrap().len(),
+        0,
+        "dry-run must not flag links resolvable via source blobs: {}",
+        report["conflicts"]
+    );
+    assert_eq!(report["imported_links"], 1);
+
+    // Dry-run wrote nothing.
+    let target_tasks = vivi([
+        "task",
+        "list",
+        "--project",
+        target.path().to_str().unwrap(),
+        "--for",
+        "cto",
+    ]);
+    assert_success(&target_tasks);
+    assert!(!stdout(&target_tasks).contains("linked task"));
+}
+
+#[test]
 fn mailspace_import_copies_messages_events_and_dedupes_second_run() {
     let source = tempfile::tempdir().unwrap();
     let target = tempfile::tempdir().unwrap();
