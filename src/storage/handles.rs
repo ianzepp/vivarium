@@ -150,7 +150,13 @@ impl Storage {
         &self,
         mut messages: Vec<StoredMessageView>,
     ) -> Result<Vec<StoredMessageView>, VivariumError> {
-        let handle_map = short_handle_map(&self.active_message_ids()?);
+        // Use the same cached handle map as display_handle
+        let mut cache = self.handle_cache.borrow_mut();
+        if cache.is_none() {
+            let message_ids = self.active_message_ids()?;
+            *cache = Some(short_handle_map(&message_ids));
+        }
+        let handle_map = cache.as_ref().unwrap();
         for message in &mut messages {
             message.handle = handle_map
                 .get(&message.message_id)

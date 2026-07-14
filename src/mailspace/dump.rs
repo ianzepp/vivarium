@@ -109,41 +109,81 @@ impl Mailspace {
         kind: Option<&str>,
         filters: DumpFilters,
     ) -> Result<Vec<DumpRecord>, VivariumError> {
-        let filters = self.prepare_filters(filters)?;
+        let prepared = self.prepare_filters(filters)?;
         let storage = self.storage()?;
+        let views = if let Some(account_names) = &prepared.account {
+            let account_list: Vec<String> = account_names.iter().cloned().collect();
+            storage.list_messages_by_account_roles(&account_list, roles)?
+        } else if roles.len() <= 4 {
+            let mut all = Vec::new();
+            for role in roles {
+                all.extend(storage.list_messages_by_role(role)?);
+            }
+            all
+        } else {
+            storage.list_messages()?
+        };
+        if views.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let message_ids: Vec<String> = views.iter().map(|v| v.message_id.clone()).collect();
+        let content_ids: Vec<String> = views.iter().map(|v| v.content_id.clone()).collect();
+        let events_by_msg = storage.list_mailspace_events_for_messages(&message_ids)?;
+        let links_by_content = storage.list_mailspace_links_for_children(&content_ids)?;
+
         let mut records = Vec::new();
-        for view in storage.list_messages()? {
-            if !roles.iter().any(|role| role == &view.local_role) {
+        for view in views {
+            let events = events_by_msg.get(&view.message_id).cloned().unwrap_or_default();
+            let Some(record) = self.view_to_record(
+                &storage, view, status, kind, &events, &links_by_content, &prepared,
+            )? else {
                 continue;
-            }
-            if let Some(record) = self.filtered_record(&storage, view, status, kind, &filters)? {
-                records.push(record);
-            }
+            };
+            records.push(record);
         }
         Ok(records)
     }
 
-    fn filtered_record(
+    fn view_to_record(
         &self,
         storage: &crate::storage::Storage,
         view: StoredMessageView,
         status: Option<(TaskDumpStatus, &str)>,
         kind: Option<&str>,
+        events: &[MailspaceEvent],
+        links_by_content: &std::collections::HashMap<String, crate::storage::MailspaceLink>,
         filters: &PreparedFilters,
     ) -> Result<Option<DumpRecord>, VivariumError> {
-        let data = storage.read_message(&view.message_id)?;
-        let events = storage.list_mailspace_events(&view.message_id)?;
-        let body = text_body(&data);
-        if kind.is_some_and(|kind| !matches_kind(&view.local_role, &data, &events, kind)) {
+        let role_determined = matches!(view.local_role.as_str(), "tasks" | "needs" | "wants" | "memos");
+        let kind_needs_blob = kind.is_some_and(|k| !(role_determined && k != "mail"));
+        let body_needed = filters.body.is_some();
+        let needs_blob = kind_needs_blob || body_needed;
+
+        // Apply non-blob filters first to avoid unnecessary reads
+        if !matches_filters_header(&view, events, filters) {
             return Ok(None);
         }
-        let message_kind = effective_kind(&view.local_role, &data, &events);
-        if !matches_filters(&view, &body, &events, filters) {
-            return Ok(None);
-        }
-        let link = storage.mailspace_link_for_child(&view.content_id)?;
+
+        let (_data, message_kind, body) = if needs_blob {
+            let data = storage.read_message(&view.message_id)?;
+            if kind.is_some_and(|k| !matches_kind(&view.local_role, &data, events, k)) {
+                return Ok(None);
+            }
+            let mk = effective_kind(&view.local_role, &data, events);
+            let b = if body_needed { text_body(&data) } else { String::new() };
+            if body_needed && !matches_text(&b, filters.body.as_deref()) {
+                return Ok(None);
+            }
+            (Some(data), mk, b)
+        } else {
+            let mk = effective_kind(&view.local_role, &[], events);
+            (None, mk, String::new())
+        };
+
+        let link = links_by_content.get(&view.content_id);
         Ok(Some(DumpRecord {
-            events,
+            events: events.to_vec(),
             handle: view.handle,
             message_id: view.message_id,
             account: view.account,
@@ -156,22 +196,33 @@ impl Mailspace {
             cc: view.cc_addr,
             subject: view.subject,
             body,
-            parent_content_id: link.as_ref().map(|link| link.parent_content_id.clone()),
-            link_source: link.as_ref().map(|link| link.source.clone()),
+            parent_content_id: link.map(|l| l.parent_content_id.clone()),
+            link_source: link.map(|l| l.source.clone()),
         }))
     }
 
     fn prepare_filters(&self, filters: DumpFilters) -> Result<PreparedFilters, VivariumError> {
+        // Resolve --for and --participant to account name sets for SQL filtering
+        let account_from_for = filters
+            .for_identity
+            .as_deref()
+            .map(|identity| self.resolve_identity(identity))
+            .transpose()?
+            .map(|identity| self.identity_names(&identity));
+
+        // If --participant resolves to a known identity, use it for SQL filtering too
+        let participant_filter = self.participant_filter(filters.participant.as_deref())?;
+        let account_from_participant = participant_filter
+            .as_ref()
+            .and_then(|pf| pf.identity.clone());
+
+        let account = account_from_for.or(account_from_participant);
+
         Ok(PreparedFilters {
-            account: filters
-                .for_identity
-                .as_deref()
-                .map(|identity| self.resolve_identity(identity))
-                .transpose()?
-                .map(|identity| self.identity_names(&identity)),
+            account,
             from: filters.from.map(normalize_filter),
             to: filters.to.map(normalize_filter),
-            participant: self.participant_filter(filters.participant.as_deref())?,
+            participant: participant_filter,
             subject: filters.subject.map(normalize_filter),
             body: filters.body.map(normalize_filter),
             absorb_status: filters.absorb_status,
@@ -200,9 +251,9 @@ impl Mailspace {
     }
 }
 
-fn matches_filters(
+/// Match filters that do not require the blob body.
+fn matches_filters_header(
     view: &StoredMessageView,
-    body: &str,
     events: &[MailspaceEvent],
     filters: &PreparedFilters,
 ) -> bool {
@@ -214,10 +265,11 @@ fn matches_filters(
         && matches_text(&view.from_addr, filters.from.as_deref())
         && matches_recipients(view, filters.to.as_deref())
         && matches_text(&view.subject, filters.subject.as_deref())
-        && matches_text(body, filters.body.as_deref())
         && matches_participant(view, filters.participant.as_ref())
         && matches_absorb(events, filters)
 }
+
+
 
 fn matches_recipients(view: &StoredMessageView, filter: Option<&str>) -> bool {
     let Some(filter) = filter else {

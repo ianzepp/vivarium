@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::*;
 
 impl Storage {
@@ -84,15 +86,72 @@ impl Storage {
         &self,
         local_role: &str,
     ) -> Result<Vec<StoredMessageView>, VivariumError> {
-        let mut stmt = self
-            .conn
-            .prepare(&format!(
-                "{} ORDER BY md.date DESC, m.message_id",
-                message_query("WHERE m.local_role = ?1 AND m.deleted_at IS NULL")
-            ))
-            .map_err(|e| VivariumError::Other(format!("failed to prepare storage listing: {e}")))?;
+        self.list_messages_by_query("WHERE m.local_role = ?1 AND m.deleted_at IS NULL", params![local_role])
+    }
+
+    /// List messages filtered by account and a single role.
+    pub fn list_messages_by_account_role(
+        &self,
+        account: &str,
+        local_role: &str,
+    ) -> Result<Vec<StoredMessageView>, VivariumError> {
+        self.list_messages_by_query(
+            "WHERE m.account = ?1 AND m.local_role = ?2 AND m.deleted_at IS NULL",
+            params![account, local_role],
+        )
+    }
+
+    /// List messages filtered by one or more accounts and one or more roles.
+    pub fn list_messages_by_account_roles(
+        &self,
+        accounts: &[String],
+        roles: &[String],
+    ) -> Result<Vec<StoredMessageView>, VivariumError> {
+        if accounts.is_empty() || roles.is_empty() {
+            return Ok(Vec::new());
+        }
+        let account_placeholders: Vec<_> = accounts.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let role_offset = accounts.len();
+        let role_placeholders: Vec<_> = roles.iter().enumerate().map(|(i, _)| format!("?{}", role_offset + i + 1)).collect();
+        let sql = format!(
+            "{} WHERE m.account IN ({}) AND m.local_role IN ({}) AND m.deleted_at IS NULL ORDER BY md.date DESC, m.message_id",
+            message_query(""),
+            account_placeholders.join(","),
+            role_placeholders.join(","),
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| {
+            VivariumError::Other(format!("failed to prepare account+role listing: {e}"))
+        })?;
+        let params: Vec<&dyn rusqlite::types::ToSql> = accounts
+            .iter()
+            .map(|a| a as &dyn rusqlite::types::ToSql)
+            .chain(roles.iter().map(|r| r as &dyn rusqlite::types::ToSql))
+            .collect();
         let rows = stmt
-            .query_map(params![local_role], raw_stored_message_from_row)
+            .query_map(params.as_slice(), raw_stored_message_from_row)
+            .map_err(|e| VivariumError::Other(format!("failed to list account+role messages: {e}")))?;
+        let messages: Result<Vec<_>, _> = rows
+            .map(|row| {
+                row.map_err(|e| VivariumError::Other(format!("failed to read message row: {e}")))
+            })
+            .collect();
+        self.decorate_handles(messages?)
+    }
+
+    fn list_messages_by_query(
+        &self,
+        where_clause: &str,
+        params: impl rusqlite::Params,
+    ) -> Result<Vec<StoredMessageView>, VivariumError> {
+        let sql = format!(
+            "{} ORDER BY md.date DESC, m.message_id",
+            message_query(where_clause)
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| {
+            VivariumError::Other(format!("failed to prepare storage listing: {e}"))
+        })?;
+        let rows = stmt
+            .query_map(params, raw_stored_message_from_row)
             .map_err(|e| VivariumError::Other(format!("failed to list stored messages: {e}")))?;
         let messages: Result<Vec<_>, _> = rows
             .map(|row| {
@@ -105,24 +164,7 @@ impl Storage {
     }
 
     pub fn list_messages(&self) -> Result<Vec<StoredMessageView>, VivariumError> {
-        let mut stmt = self
-            .conn
-            .prepare(&format!(
-                "{} ORDER BY md.date DESC, m.message_id",
-                message_query("WHERE m.deleted_at IS NULL")
-            ))
-            .map_err(|e| VivariumError::Other(format!("failed to prepare storage listing: {e}")))?;
-        let rows = stmt
-            .query_map([], raw_stored_message_from_row)
-            .map_err(|e| VivariumError::Other(format!("failed to list stored messages: {e}")))?;
-        let messages: Result<Vec<_>, _> = rows
-            .map(|row| {
-                row.map_err(|e| {
-                    VivariumError::Other(format!("failed to read stored message row: {e}"))
-                })
-            })
-            .collect();
-        self.decorate_handles(messages?)
+        self.list_messages_by_query("WHERE m.deleted_at IS NULL", [])
     }
 
     pub fn list_catalog_entries(&self, account: &str) -> Result<Vec<CatalogEntry>, VivariumError> {

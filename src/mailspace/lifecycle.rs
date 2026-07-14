@@ -272,7 +272,7 @@ impl Mailspace {
     ) -> Result<Vec<super::dump::DumpRecord>, VivariumError> {
         let mut records = self.dump_mail(super::MailDumpRequest {
             folder: "inbox".into(),
-            kind: Some("mail".into()),
+            kind: None,
             filters: super::DumpFilters {
                 for_identity: Some(identity.into()),
                 absorb_status: MailAbsorbFilter::Unabsorbed,

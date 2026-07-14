@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::*;
 
 impl Storage {
@@ -106,6 +108,48 @@ impl Storage {
             row.map_err(|e| VivariumError::Other(format!("failed to read event row: {e}")))
         })
         .collect()
+    }
+
+    /// Batch-load events for multiple message IDs in a single query.
+    pub fn list_mailspace_events_for_messages(
+        &self,
+        message_ids: &[String],
+    ) -> Result<HashMap<String, Vec<MailspaceEvent>>, VivariumError> {
+        if message_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let placeholders: Vec<_> = message_ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
+        let sql = format!(
+            "SELECT event_id, occurred_at, command, event_type, actor_identity,
+                    account, message_id, content_id, from_role, to_role,
+                    from_identity, to_identity, subject, note
+             FROM mailspace_events
+             WHERE message_id IN ({})
+             ORDER BY message_id, occurred_at, event_id",
+            placeholders.join(",")
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| {
+            VivariumError::Other(format!("failed to prepare batch event query: {e}"))
+        })?;
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            message_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+        let rows = stmt
+            .query_map(params_refs.as_slice(), mailspace_event_from_row)
+            .map_err(|e| VivariumError::Other(format!("failed to query batch events: {e}")))?;
+        let mut map: HashMap<String, Vec<MailspaceEvent>> = HashMap::new();
+        for row in rows {
+            let event = row.map_err(|e| {
+                VivariumError::Other(format!("failed to read batch event row: {e}"))
+            })?;
+            map.entry(event.message_id.clone())
+                .or_default()
+                .push(event);
+        }
+        Ok(map)
     }
 
     pub fn list_mailspace_events_after(

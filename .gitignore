@@ -6,3 +6,4 @@
 # Project-local Vivi mailspace / fleet overlay (not source)
 .vivi/
 dist/
+test-data/
