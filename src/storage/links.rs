@@ -85,16 +85,17 @@ impl Storage {
         let mut stmt = self.conn.prepare(&sql).map_err(|e| {
             VivariumError::Other(format!("failed to prepare batch link query: {e}"))
         })?;
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
-            content_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> = content_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
         let rows = stmt
             .query_map(params_refs.as_slice(), mailspace_link_from_row)
             .map_err(|e| VivariumError::Other(format!("failed to query batch links: {e}")))?;
         let mut map = HashMap::new();
         for row in rows {
-            let link = row.map_err(|e| {
-                VivariumError::Other(format!("failed to read batch link row: {e}"))
-            })?;
+            let link = row
+                .map_err(|e| VivariumError::Other(format!("failed to read batch link row: {e}")))?;
             map.insert(link.child_content_id.clone(), link);
         }
         Ok(map)

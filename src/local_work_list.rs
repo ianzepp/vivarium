@@ -43,13 +43,24 @@ pub(crate) fn print_work_lists(
     json: bool,
 ) -> Result<(), VivariumError> {
     let storage = mailspace.storage()?;
-    let mut items = Vec::new();
+    let mut messages = Vec::new();
     for role in roles {
-        for message in mailspace.list_kind(identity, role, kind)? {
-            let events = storage.list_mailspace_events(&message.message_id)?;
-            items.push(work_list_item(message, kind, &events));
-        }
+        messages.extend(mailspace.list_kind(identity, role, kind)?);
     }
+    let message_ids = messages
+        .iter()
+        .map(|message| message.message_id.clone())
+        .collect::<Vec<_>>();
+    let events_by_message = storage.list_mailspace_events_for_messages(&message_ids)?;
+    let items = messages
+        .into_iter()
+        .map(|message| {
+            let events = events_by_message
+                .get(&message.message_id)
+                .map_or([].as_slice(), Vec::as_slice);
+            work_list_item(message, kind, events)
+        })
+        .collect::<Vec<_>>();
     if json {
         print_json(&items)
     } else {

@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::PathBuf;
@@ -81,11 +82,28 @@ fn build_board(
 ) -> Result<Board, VivariumError> {
     let identities = board_identities(mailspace, for_identity)?;
     let storage = mailspace.storage()?;
+    let scopes = board_identity_scopes(mailspace, &identities);
+    let account_identity = account_identity_map(&scopes);
+    let accounts = unique_scope_accounts(&scopes);
+    let roles = board_roles();
+    let mut messages = storage.list_messages_by_account_roles_raw(&accounts, &roles)?;
+    apply_scoped_handles(&storage, &scopes, &account_identity, &mut messages)?;
+    let message_ids = messages
+        .iter()
+        .map(|message| message.message_id.clone())
+        .collect::<Vec<_>>();
+    let events_by_message = storage.list_mailspace_events_for_messages(&message_ids)?;
+    let mut messages_by_identity = group_board_messages(messages, &account_identity);
     let mut boards = Vec::new();
     for identity in identities {
         boards.push(build_identity_board(
-            mailspace, &storage, &identity, wants_cap, since,
-        )?);
+            mailspace,
+            &identity,
+            messages_by_identity.remove(&identity).unwrap_or_default(),
+            &events_by_message,
+            wants_cap,
+            since,
+        ));
     }
     Ok(Board {
         name: mailspace.config.name.clone(),
@@ -110,28 +128,101 @@ fn board_identities(
         .collect())
 }
 
+fn board_identity_scopes(
+    mailspace: &Mailspace,
+    identities: &[String],
+) -> Vec<(String, Vec<String>)> {
+    identities
+        .iter()
+        .map(|identity| {
+            let mut names = mailspace
+                .identity_names(identity)
+                .into_iter()
+                .collect::<Vec<_>>();
+            names.sort();
+            (identity.clone(), names)
+        })
+        .collect()
+}
+
+fn account_identity_map(scopes: &[(String, Vec<String>)]) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for (identity, accounts) in scopes {
+        for account in accounts {
+            map.insert(account.clone(), identity.clone());
+        }
+    }
+    map
+}
+
+fn unique_scope_accounts(scopes: &[(String, Vec<String>)]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut accounts = Vec::new();
+    for (_, scope_accounts) in scopes {
+        for account in scope_accounts {
+            if seen.insert(account.clone()) {
+                accounts.push(account.clone());
+            }
+        }
+    }
+    accounts
+}
+
+fn board_roles() -> Vec<String> {
+    ["tasks", "needs", "wants"]
+        .into_iter()
+        .map(String::from)
+        .collect()
+}
+
+fn apply_scoped_handles(
+    storage: &Storage,
+    scopes: &[(String, Vec<String>)],
+    account_identity: &HashMap<String, String>,
+    messages: &mut [StoredMessageView],
+) -> Result<(), VivariumError> {
+    let handles_by_identity = storage.display_handles_for_account_scopes(scopes)?;
+    for message in messages {
+        let Some(identity) = account_identity.get(&message.account) else {
+            continue;
+        };
+        let Some(handles) = handles_by_identity.get(identity) else {
+            continue;
+        };
+        if let Some(handle) = handles.get(&message.message_id) {
+            message.handle = handle.clone();
+        }
+    }
+    Ok(())
+}
+
+fn group_board_messages(
+    messages: Vec<StoredMessageView>,
+    account_identity: &HashMap<String, String>,
+) -> HashMap<String, Vec<StoredMessageView>> {
+    let mut grouped: HashMap<String, Vec<StoredMessageView>> = HashMap::new();
+    for message in messages {
+        if let Some(identity) = account_identity.get(&message.account) {
+            grouped.entry(identity.clone()).or_default().push(message);
+        }
+    }
+    grouped
+}
+
 fn build_identity_board(
     mailspace: &Mailspace,
-    storage: &Storage,
     identity: &str,
+    messages: Vec<StoredMessageView>,
+    events_by_message: &HashMap<String, Vec<MailspaceEvent>>,
     wants_cap: usize,
     since: Option<DateTime<Utc>>,
-) -> Result<IdentityBoard, VivariumError> {
-    let tasks = board_items(
-        storage,
-        mailspace.list_kind(identity, "tasks", "task")?,
-        None,
-        since,
-    )?;
-    let needs = board_items(
-        storage,
-        mailspace.list_kind(identity, "needs", "need")?,
-        None,
-        since,
-    )?;
-    let wants_open = mailspace.list_kind(identity, "wants", "want")?;
-    let (wants, wants_count) = board_items_with_count(storage, wants_open, Some(wants_cap), since)?;
-    Ok(IdentityBoard {
+) -> IdentityBoard {
+    let (tasks_open, needs_open, wants_open) = partition_board_messages(messages);
+    let tasks = board_items(tasks_open, events_by_message, None, since);
+    let needs = board_items(needs_open, events_by_message, None, since);
+    let (wants, wants_count) =
+        board_items_with_count(wants_open, events_by_message, Some(wants_cap), since);
+    IdentityBoard {
         identity: identity.into(),
         address: mailspace.address_for(identity),
         actionable_open: tasks.len() + needs.len(),
@@ -139,38 +230,61 @@ fn build_identity_board(
         tasks,
         needs,
         wants,
-    })
+    }
+}
+
+fn partition_board_messages(
+    messages: Vec<StoredMessageView>,
+) -> (
+    Vec<StoredMessageView>,
+    Vec<StoredMessageView>,
+    Vec<StoredMessageView>,
+) {
+    let mut tasks = Vec::new();
+    let mut needs = Vec::new();
+    let mut wants = Vec::new();
+    for message in messages {
+        match message.local_role.as_str() {
+            "tasks" => tasks.push(message),
+            "needs" => needs.push(message),
+            "wants" => wants.push(message),
+            _ => {}
+        }
+    }
+    (tasks, needs, wants)
 }
 
 fn board_items(
-    storage: &Storage,
     messages: Vec<StoredMessageView>,
+    events_by_message: &HashMap<String, Vec<MailspaceEvent>>,
     cap: Option<usize>,
     since: Option<DateTime<Utc>>,
-) -> Result<Vec<BoardItem>, VivariumError> {
-    board_items_with_count(storage, messages, cap, since).map(|(items, _)| items)
+) -> Vec<BoardItem> {
+    board_items_with_count(messages, events_by_message, cap, since).0
 }
 
 fn board_items_with_count(
-    storage: &Storage,
     messages: Vec<StoredMessageView>,
+    events_by_message: &HashMap<String, Vec<MailspaceEvent>>,
     cap: Option<usize>,
     since: Option<DateTime<Utc>>,
-) -> Result<(Vec<BoardItem>, usize), VivariumError> {
+) -> (Vec<BoardItem>, usize) {
     let limit = cap.unwrap_or(usize::MAX);
     let mut items = Vec::new();
     let mut matching = 0;
     for message in messages {
-        let events = storage.list_mailspace_events(&message.message_id)?;
-        if !changed_since(&message, &events, since) {
+        let events = events_by_message
+            .get(&message.message_id)
+            .map_or([].as_slice(), Vec::as_slice);
+        if !changed_since(&message, events, since) {
             continue;
         }
         matching += 1;
         if items.len() < limit {
-            items.push(board_item(message, &events));
+            items.push(board_item(message, events));
         }
     }
-    Ok((items, matching))
+    (items, matching)
 }
 
 fn resolve_since(command: &BoardCommand) -> Result<Option<DateTime<Utc>>, VivariumError> {

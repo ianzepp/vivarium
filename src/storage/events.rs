@@ -135,8 +135,10 @@ impl Storage {
         let mut stmt = self.conn.prepare(&sql).map_err(|e| {
             VivariumError::Other(format!("failed to prepare batch event query: {e}"))
         })?;
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
-            message_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> = message_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
         let rows = stmt
             .query_map(params_refs.as_slice(), mailspace_event_from_row)
             .map_err(|e| VivariumError::Other(format!("failed to query batch events: {e}")))?;
@@ -145,9 +147,7 @@ impl Storage {
             let event = row.map_err(|e| {
                 VivariumError::Other(format!("failed to read batch event row: {e}"))
             })?;
-            map.entry(event.message_id.clone())
-                .or_default()
-                .push(event);
+            map.entry(event.message_id.clone()).or_default().push(event);
         }
         Ok(map)
     }

@@ -73,6 +73,85 @@ impl Storage {
         Ok(short_handle_map(&message_ids))
     }
 
+    pub fn display_handles_for_accounts(
+        &self,
+        accounts: &[String],
+    ) -> Result<HashMap<String, String>, VivariumError> {
+        let message_ids = self.active_message_ids_for_accounts(accounts)?;
+        Ok(short_handle_map(&message_ids))
+    }
+
+    pub fn display_handles_for_account_scopes(
+        &self,
+        scopes: &[(String, Vec<String>)],
+    ) -> Result<HashMap<String, HashMap<String, String>>, VivariumError> {
+        let mut accounts = Vec::new();
+        let mut account_scope = HashMap::new();
+        for (scope, scope_accounts) in scopes {
+            for account in scope_accounts {
+                if !account_scope.contains_key(account) {
+                    accounts.push(account.clone());
+                    account_scope.insert(account.clone(), scope.clone());
+                }
+            }
+        }
+        let mut ids_by_scope = self.active_message_ids_by_scope(&accounts, &account_scope)?;
+        let mut handles_by_scope = HashMap::new();
+        for (scope, _) in scopes {
+            let message_ids = ids_by_scope.remove(scope).unwrap_or_default();
+            handles_by_scope.insert(scope.clone(), short_handle_map(&message_ids));
+        }
+        Ok(handles_by_scope)
+    }
+
+    pub fn resolve_message_token_for_accounts(
+        &self,
+        token: &str,
+        accounts: &[String],
+    ) -> Result<String, VivariumError> {
+        if let Some(message_id) = self.message_by_id_exact_for_accounts(token, accounts)? {
+            return Ok(message_id);
+        }
+        let message_ids = self.active_message_ids_for_accounts(accounts)?;
+        let handle_matches = scoped_handle_matches(token, &message_ids);
+        match handle_matches.len() {
+            1 => return Ok(handle_matches[0].clone()),
+            n if n > 1 => {
+                return Err(VivariumError::Message(format!(
+                    "ambiguous handle '{token}' for identity; matches {} messages",
+                    n
+                )));
+            }
+            _ => {}
+        }
+        let content_matches = self.content_prefix_matches_for_accounts(token, accounts)?;
+        match content_matches.len() {
+            1 => Ok(content_matches[0].clone()),
+            n if n > 1 => Err(VivariumError::Message(format!(
+                "ambiguous content_id prefix '{token}' for identity; matches {} messages",
+                n
+            ))),
+            _ => Err(VivariumError::Message(format!(
+                "message not found for identity: {token}"
+            ))),
+        }
+    }
+
+    pub(super) fn decorate_handles_for_accounts(
+        &self,
+        mut messages: Vec<StoredMessageView>,
+        accounts: &[String],
+    ) -> Result<Vec<StoredMessageView>, VivariumError> {
+        let handle_map = self.display_handles_for_accounts(accounts)?;
+        for message in &mut messages {
+            message.handle = handle_map
+                .get(&message.message_id)
+                .cloned()
+                .unwrap_or_else(|| message.message_id.clone());
+        }
+        Ok(messages)
+    }
+
     #[cfg(test)]
     pub(super) fn blob_count(&self) -> Result<usize, VivariumError> {
         self.conn
@@ -108,6 +187,78 @@ impl Storage {
             row.map_err(|e| VivariumError::Other(format!("failed to read message id row: {e}")))
         })
         .collect()
+    }
+
+    fn active_message_ids_for_accounts(
+        &self,
+        accounts: &[String],
+    ) -> Result<Vec<String>, VivariumError> {
+        if accounts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = sql_placeholders(accounts.len(), 1);
+        let sql = format!(
+            "SELECT message_id FROM messages
+             WHERE deleted_at IS NULL AND account IN ({})
+             ORDER BY message_id",
+            placeholders.join(",")
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| {
+            VivariumError::Other(format!("failed to prepare scoped message id query: {e}"))
+        })?;
+        let params = to_sql_params(accounts);
+        let rows = stmt
+            .query_map(params.as_slice(), |row| row.get::<_, String>(0))
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to query scoped message ids: {e}"))
+            })?;
+        rows.map(|row| {
+            row.map_err(|e| {
+                VivariumError::Other(format!("failed to read scoped message id row: {e}"))
+            })
+        })
+        .collect()
+    }
+
+    fn active_message_ids_by_scope(
+        &self,
+        accounts: &[String],
+        account_scope: &HashMap<String, String>,
+    ) -> Result<HashMap<String, Vec<String>>, VivariumError> {
+        if accounts.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let placeholders = sql_placeholders(accounts.len(), 1);
+        let sql = format!(
+            "SELECT account, message_id FROM messages
+             WHERE deleted_at IS NULL AND account IN ({})
+             ORDER BY account, message_id",
+            placeholders.join(",")
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| {
+            VivariumError::Other(format!("failed to prepare scoped message id query: {e}"))
+        })?;
+        let params = to_sql_params(accounts);
+        let rows = stmt
+            .query_map(params.as_slice(), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to query scoped message ids: {e}"))
+            })?;
+        let mut ids_by_scope: HashMap<String, Vec<String>> = HashMap::new();
+        for row in rows {
+            let (account, message_id) = row.map_err(|e| {
+                VivariumError::Other(format!("failed to read scoped message id row: {e}"))
+            })?;
+            if let Some(scope) = account_scope.get(&account) {
+                ids_by_scope
+                    .entry(scope.clone())
+                    .or_default()
+                    .push(message_id);
+            }
+        }
+        Ok(ids_by_scope)
     }
 
     fn message_by_id_exact(&self, message_id: &str) -> Result<Option<String>, VivariumError> {
@@ -146,6 +297,76 @@ impl Storage {
         .collect()
     }
 
+    fn message_by_id_exact_for_accounts(
+        &self,
+        message_id: &str,
+        accounts: &[String],
+    ) -> Result<Option<String>, VivariumError> {
+        if accounts.is_empty() {
+            return Ok(None);
+        }
+        let placeholders = sql_placeholders(accounts.len(), 1);
+        let sql = format!(
+            "SELECT message_id FROM messages
+             WHERE message_id = ?{}
+               AND deleted_at IS NULL
+               AND account IN ({})",
+            accounts.len() + 1,
+            placeholders.join(",")
+        );
+        let mut params = to_sql_params(accounts);
+        params.push(&message_id);
+        self.conn
+            .query_row(&sql, params.as_slice(), |row| row.get(0))
+            .optional()
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to read scoped exact message id: {e}"))
+            })
+    }
+
+    fn content_prefix_matches_for_accounts(
+        &self,
+        token: &str,
+        accounts: &[String],
+    ) -> Result<Vec<String>, VivariumError> {
+        if accounts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = sql_placeholders(accounts.len(), 2);
+        let pattern = format!("{token}%");
+        let sql = format!(
+            "SELECT message_id
+             FROM messages
+             WHERE deleted_at IS NULL
+               AND content_id LIKE ?1
+               AND account IN ({})
+             ORDER BY message_id",
+            placeholders.join(",")
+        );
+        let mut params: Vec<&dyn rusqlite::types::ToSql> = vec![&pattern];
+        params.extend(to_sql_params(accounts));
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| {
+            VivariumError::Other(format!(
+                "failed to prepare scoped content prefix query: {e}"
+            ))
+        })?;
+        let rows = stmt
+            .query_map(params.as_slice(), |row| row.get::<_, String>(0))
+            .map_err(|e| {
+                VivariumError::Other(format!(
+                    "failed to query scoped content prefix matches: {e}"
+                ))
+            })?;
+        rows.map(|row| {
+            row.map_err(|e| {
+                VivariumError::Other(format!(
+                    "failed to read scoped content prefix match row: {e}"
+                ))
+            })
+        })
+        .collect()
+    }
+
     pub(super) fn decorate_handles(
         &self,
         mut messages: Vec<StoredMessageView>,
@@ -165,4 +386,30 @@ impl Storage {
         }
         Ok(messages)
     }
+}
+
+fn scoped_handle_matches(token: &str, message_ids: &[String]) -> Vec<String> {
+    message_ids
+        .iter()
+        .filter(|message_id| {
+            message_id.starts_with(token)
+                || message_id
+                    .strip_prefix("msg_")
+                    .is_some_and(|handle| handle.starts_with(token))
+        })
+        .cloned()
+        .collect()
+}
+
+fn sql_placeholders(count: usize, start: usize) -> Vec<String> {
+    (start..start + count)
+        .map(|index| format!("?{index}"))
+        .collect()
+}
+
+fn to_sql_params(values: &[String]) -> Vec<&dyn rusqlite::types::ToSql> {
+    values
+        .iter()
+        .map(|value| value as &dyn rusqlite::types::ToSql)
+        .collect()
 }

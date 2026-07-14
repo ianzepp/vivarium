@@ -200,14 +200,16 @@ impl Mailspace {
         kind: &str,
     ) -> Result<Vec<StoredMessageView>, VivariumError> {
         let identity = self.resolve_identity(identity)?;
-        let names = self.identity_names(&identity);
+        let names = sorted_identity_names(self.identity_names(&identity));
         let role = canonical_local_role(role)?;
         let storage = self.storage()?;
+        let role_messages =
+            storage.list_messages_by_account_roles_scoped(&names, std::slice::from_ref(&role))?;
+        if role_implies_kind(&role, kind) {
+            return Ok(role_messages);
+        }
         let mut messages = Vec::new();
-        for message in storage.list_messages_by_role(&role)? {
-            if !names.contains(&message.account) {
-                continue;
-            }
+        for message in role_messages {
             let data = storage.read_message(&message.message_id)?;
             let events = storage.list_mailspace_events(&message.message_id)?;
             if matches_kind(&message.local_role, &data, &events, kind) {
@@ -236,10 +238,10 @@ impl Mailspace {
         command: &str,
     ) -> Result<String, VivariumError> {
         let identity = self.resolve_identity(identity)?;
-        let names = self.identity_names(&identity);
+        let names = sorted_identity_names(self.identity_names(&identity));
         let role = canonical_local_role(role)?;
         let mut storage = self.storage()?;
-        let resolved = storage.resolve_message_token(handle)?;
+        let resolved = storage.resolve_message_token_for_accounts(handle, &names)?;
         let Some(before) = storage.message_by_id(&resolved)? else {
             return Err(VivariumError::Message(format!(
                 "message not found: {handle}"
@@ -297,6 +299,19 @@ impl Mailspace {
         }
         Ok(recipients)
     }
+}
+
+fn role_implies_kind(role: &str, kind: &str) -> bool {
+    matches!(
+        (role, kind),
+        ("tasks", "task") | ("needs", "need") | ("wants", "want") | ("memos", "memo")
+    )
+}
+
+fn sorted_identity_names(names: std::collections::HashSet<String>) -> Vec<String> {
+    let mut names = names.into_iter().collect::<Vec<_>>();
+    names.sort();
+    names
 }
 
 fn move_command(kind: &str, role: &str) -> &'static str {

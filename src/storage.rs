@@ -373,29 +373,36 @@ fn opaque_message_id(seed: &str) -> String {
 }
 
 fn short_handle_map(message_ids: &[String]) -> HashMap<String, String> {
+    const MIN_HANDLE_LEN: usize = 8;
+
     let bases = message_ids
         .iter()
+        .filter(|message_id| message_id.starts_with("msg_"))
         .map(|message_id| (message_id.clone(), handle_basis(message_id).to_string()))
         .collect::<Vec<_>>();
+    let mut prefix_counts = HashMap::new();
+    for (_, basis) in &bases {
+        let min_len = usize::min(MIN_HANDLE_LEN, basis.len());
+        for len in min_len..=basis.len() {
+            *prefix_counts
+                .entry(basis[..len].to_string())
+                .or_insert(0usize) += 1;
+        }
+    }
+
     let mut map = HashMap::new();
-    for (message_id, basis) in &bases {
+    for message_id in message_ids {
         if !message_id.starts_with("msg_") {
             map.insert(message_id.clone(), message_id.clone());
             continue;
         }
-        let min_len = usize::min(7, basis.len());
-        let mut handle = basis.clone();
-        for len in min_len..=basis.len() {
-            let prefix = &basis[..len];
-            let count = bases
-                .iter()
-                .filter(|(_, other)| other.starts_with(prefix))
-                .count();
-            if count == 1 {
-                handle = prefix.to_string();
-                break;
-            }
-        }
+        let basis = handle_basis(message_id);
+        let min_len = usize::min(MIN_HANDLE_LEN, basis.len());
+        let handle = (min_len..=basis.len())
+            .map(|len| &basis[..len])
+            .find(|prefix| prefix_counts.get(*prefix) == Some(&1))
+            .unwrap_or(basis)
+            .to_string();
         map.insert(message_id.clone(), handle);
     }
     map

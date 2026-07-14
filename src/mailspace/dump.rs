@@ -134,10 +134,20 @@ impl Mailspace {
 
         let mut records = Vec::new();
         for view in views {
-            let events = events_by_msg.get(&view.message_id).cloned().unwrap_or_default();
-            let Some(record) = self.view_to_record(
-                &storage, view, status, kind, &events, &links_by_content, &prepared,
-            )? else {
+            let events = events_by_msg
+                .get(&view.message_id)
+                .cloned()
+                .unwrap_or_default();
+            let Some(record) = Self::view_to_record(
+                &storage,
+                view,
+                status,
+                kind,
+                &events,
+                &links_by_content,
+                &prepared,
+            )?
+            else {
                 continue;
             };
             records.push(record);
@@ -146,7 +156,6 @@ impl Mailspace {
     }
 
     fn view_to_record(
-        &self,
         storage: &crate::storage::Storage,
         view: StoredMessageView,
         status: Option<(TaskDumpStatus, &str)>,
@@ -155,7 +164,10 @@ impl Mailspace {
         links_by_content: &std::collections::HashMap<String, crate::storage::MailspaceLink>,
         filters: &PreparedFilters,
     ) -> Result<Option<DumpRecord>, VivariumError> {
-        let role_determined = matches!(view.local_role.as_str(), "tasks" | "needs" | "wants" | "memos");
+        let role_determined = matches!(
+            view.local_role.as_str(),
+            "tasks" | "needs" | "wants" | "memos"
+        );
         let kind_needs_blob = kind.is_some_and(|k| !(role_determined && k != "mail"));
         let body_needed = filters.body.is_some();
         let needs_blob = kind_needs_blob || body_needed;
@@ -165,20 +177,17 @@ impl Mailspace {
             return Ok(None);
         }
 
-        let (_data, message_kind, body) = if needs_blob {
-            let data = storage.read_message(&view.message_id)?;
-            if kind.is_some_and(|k| !matches_kind(&view.local_role, &data, events, k)) {
-                return Ok(None);
-            }
-            let mk = effective_kind(&view.local_role, &data, events);
-            let b = if body_needed { text_body(&data) } else { String::new() };
-            if body_needed && !matches_text(&b, filters.body.as_deref()) {
-                return Ok(None);
-            }
-            (Some(data), mk, b)
-        } else {
-            let mk = effective_kind(&view.local_role, &[], events);
-            (None, mk, String::new())
+        let Some((message_kind, body)) = Self::record_blob_fields(
+            storage,
+            &view,
+            kind,
+            events,
+            filters,
+            needs_blob,
+            body_needed,
+        )?
+        else {
+            return Ok(None);
         };
 
         let link = links_by_content.get(&view.content_id);
@@ -199,6 +208,39 @@ impl Mailspace {
             parent_content_id: link.map(|l| l.parent_content_id.clone()),
             link_source: link.map(|l| l.source.clone()),
         }))
+    }
+
+    fn record_blob_fields(
+        storage: &crate::storage::Storage,
+        view: &StoredMessageView,
+        kind: Option<&str>,
+        events: &[MailspaceEvent],
+        filters: &PreparedFilters,
+        needs_blob: bool,
+        body_needed: bool,
+    ) -> Result<Option<(Option<String>, String)>, VivariumError> {
+        if !needs_blob {
+            return Ok(Some((
+                effective_kind(&view.local_role, &[], events),
+                String::new(),
+            )));
+        }
+        let data = storage.read_message(&view.message_id)?;
+        if kind.is_some_and(|k| !matches_kind(&view.local_role, &data, events, k)) {
+            return Ok(None);
+        }
+        let body = if body_needed {
+            text_body(&data)
+        } else {
+            String::new()
+        };
+        if body_needed && !matches_text(&body, filters.body.as_deref()) {
+            return Ok(None);
+        }
+        Ok(Some((
+            effective_kind(&view.local_role, &data, events),
+            body,
+        )))
     }
 
     fn prepare_filters(&self, filters: DumpFilters) -> Result<PreparedFilters, VivariumError> {
@@ -268,8 +310,6 @@ fn matches_filters_header(
         && matches_participant(view, filters.participant.as_ref())
         && matches_absorb(events, filters)
 }
-
-
 
 fn matches_recipients(view: &StoredMessageView, filter: Option<&str>) -> bool {
     let Some(filter) = filter else {
