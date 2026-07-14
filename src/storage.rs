@@ -16,6 +16,7 @@ use crate::store::secure_create_dir_all;
 mod events;
 mod handles;
 mod ingest;
+mod item_metadata;
 mod links;
 mod metadata;
 mod mutate;

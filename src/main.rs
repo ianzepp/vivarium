@@ -130,7 +130,8 @@ impl Runtime {
             | Command::Task { .. }
             | Command::Need { .. }
             | Command::Want { .. }
-            | Command::Memo { .. } => unreachable!(),
+            | Command::Memo { .. }
+            | Command::Cycle { .. } => unreachable!(),
             Command::Show { message_ids, json } => self.show(&message_ids, json),
             Command::Thread {
                 message_id,
@@ -157,19 +158,19 @@ impl Runtime {
     ) -> Result<Option<Command>, VivariumError> {
         let command = match self.run_queue_command(command).await? {
             QueueDispatch::Handled => return Ok(None),
-            QueueDispatch::Unhandled(command) => command,
+            QueueDispatch::Unhandled(command) => *command,
         };
         let command = match self.run_label_command(command).await? {
             LabelDispatch::Handled => return Ok(None),
-            LabelDispatch::Unhandled(command) => command,
+            LabelDispatch::Unhandled(command) => *command,
         };
         let command = match self.run_agent_command(command)? {
             AgentDispatch::Handled => return Ok(None),
-            AgentDispatch::Unhandled(command) => command,
+            AgentDispatch::Unhandled(command) => *command,
         };
         match self.run_draft_command(command).await? {
             DraftDispatch::Handled => Ok(None),
-            DraftDispatch::Unhandled(command) => Ok(Some(command)),
+            DraftDispatch::Unhandled(command) => Ok(Some(*command)),
         }
     }
 

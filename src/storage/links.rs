@@ -19,7 +19,7 @@ impl Storage {
                 "a mailspace message cannot reply to itself".into(),
             ));
         }
-        if !matches!(source, "captured" | "inferred") {
+        if !matches!(source, "captured" | "inferred" | "source") {
             return Err(VivariumError::Message(format!(
                 "unsupported mailspace link source '{source}'"
             )));

@@ -31,11 +31,37 @@ pub enum MailspaceCommand {
     /// Wait for project-local mailspace events; this is not IMAP watch
     Watch(Box<MailspaceWatchCommand>),
 
+    /// Import another Vivi mailspace into this one
+    Import(MailspaceImportCommand),
+
+    /// Merge another Vivi mailspace into this one
+    #[command(hide = true)]
+    Merge(MailspaceImportCommand),
+
     /// Manage local identities in the explicit roster
     Identity {
         #[command(subcommand)]
         command: MailspaceIdentityCommand,
     },
+}
+
+#[derive(Debug, Clone, Parser)]
+pub struct MailspaceImportCommand {
+    /// Project root to import into
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+
+    /// Source project root or .vivi directory to import from
+    #[arg(long = "from")]
+    pub from: PathBuf,
+
+    /// Report what would be imported without writing anything
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Output the import report as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -73,6 +99,32 @@ pub enum MailspaceIdentityCommand {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum CycleCommand {
+    /// Collect cycle intake for an identity
+    Intake {
+        /// Identity whose cycle should be inspected
+        #[arg(long = "for")]
+        for_identity: String,
+
+        /// Cursor file containing the last consumed mailspace event id
+        #[arg(long)]
+        cursor_file: Option<PathBuf>,
+
+        /// Write the updated cursor after producing output
+        #[arg(long)]
+        write_cursor: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum MailCommand {
     /// Deliver local mail inside the current project mailspace only
     Send(LocalSendCommand),
@@ -102,6 +154,12 @@ pub enum MailCommand {
         /// Folder role to list
         #[arg(long, default_value = "inbox")]
         folder: String,
+        /// Absorb status filter
+        #[arg(long, default_value = "all")]
+        status: MailAbsorbStatus,
+        /// Absorbing identity filter
+        #[arg(long = "absorbed-by")]
+        absorbed_by: Option<String>,
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -126,11 +184,36 @@ pub enum MailCommand {
     /// Show the project-local conversation containing a handle
     Thread(MailThreadCommand),
 
+    /// Mark advisory local mail as absorbed for cycle bookkeeping
+    Absorb {
+        /// Local mail handle or unambiguous prefix
+        handle: String,
+
+        /// Identity absorbing the mail
+        #[arg(long = "for")]
+        for_identity: String,
+
+        /// Optional disposition note
+        #[arg(long)]
+        note: Option<String>,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+
     /// Send a project-local reply to any mailspace kind
     Reply(MailReplyCommand),
 
     /// Dump local mailspace messages for audit and board review
     Dump(MailDumpCommand),
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum MailAbsorbStatus {
+    All,
+    Absorbed,
+    Unabsorbed,
 }
 
 #[derive(Debug, Parser)]
@@ -317,10 +400,52 @@ pub struct MailspaceWatchCommand {
     pub project: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Parser)]
+#[command(group(
+    ArgGroup::new("task_from_body")
+        .required(true)
+        .args(["body", "body_file"])
+))]
+pub struct TaskFromCommand {
+    /// Source mailspace handle or unambiguous prefix
+    pub handle: String,
+
+    /// Identity assigning the task
+    #[arg(long = "for")]
+    pub for_identity: String,
+
+    /// Local To recipient; may be passed multiple times
+    #[arg(long)]
+    pub to: Vec<String>,
+
+    /// Local Cc recipient; may be passed multiple times
+    #[arg(long)]
+    pub cc: Vec<String>,
+
+    /// Message subject
+    #[arg(long)]
+    pub subject: String,
+
+    /// Message body, or @path to read body from a file
+    #[arg(long)]
+    pub body: Option<String>,
+
+    /// Read message body from a file
+    #[arg(long)]
+    pub body_file: Option<PathBuf>,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum TaskCommand {
     /// Send a task message into the recipient's Tasks folder
     Send(LocalSendCommand),
+
+    /// Create a task from an existing source handle
+    From(TaskFromCommand),
 
     /// Wait for task events in the project-local mailspace
     Watch(Box<MailspaceWatchCommand>),

@@ -3,7 +3,10 @@ use vivarium::cli::{
     LocalSendCommand, MailDumpCommand, NeedCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus,
     WantCommand, WantStatus,
 };
-use vivarium::mailspace::{DumpFilters, MailDumpRequest, Mailspace, SendRequest, TaskDumpRequest};
+use vivarium::mailspace::{
+    DumpFilters, MailDumpRequest, Mailspace, SendRequest, TaskDumpRequest, WantListOptions,
+    WantMetadataUpdate,
+};
 
 pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumError> {
     match command {
@@ -73,73 +76,140 @@ pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumE
         WantCommand::List {
             for_identity,
             status,
+            repo,
+            lane,
+            sort,
             json,
             project,
-        } => list_wants(for_identity, status, *json, project.as_deref())?,
+        } => list_wants(
+            for_identity,
+            status,
+            WantListOptions {
+                repo: repo.clone(),
+                lane: lane.clone(),
+                sort: sort.clone(),
+            },
+            *json,
+            project.as_deref(),
+        )?,
         WantCommand::Show {
             handle,
             json,
             project,
         } => show_local_message(handle, *json, project.as_deref())?,
         WantCommand::Dump(command) => dump_wants(command)?,
+        WantCommand::SetPriority { .. } => set_want_priority(command)?,
         WantCommand::Promote {
             handle,
             for_identity,
             note,
             project,
-        } => move_item(
-            handle,
-            for_identity,
-            note,
-            project.as_deref(),
-            "needs",
-            "want promote",
-            "promoted",
-        )?,
+        } => promote_want(handle, for_identity, note, project.as_deref())?,
         WantCommand::Done {
             handle,
             for_identity,
             note,
             project,
-        } => close_want(
-            handle,
-            for_identity,
-            note,
-            project.as_deref(),
-            "want done",
-            "done",
-        )?,
+        } => close_want_done(handle, for_identity, note, project.as_deref())?,
         WantCommand::Drop {
             handle,
             for_identity,
             note,
             project,
-        } => close_want(
-            handle,
-            for_identity,
-            note,
-            project.as_deref(),
-            "want drop",
-            "dropped",
-        )?,
+        } => close_want_drop(handle, for_identity, note, project.as_deref())?,
     }
+    Ok(())
+}
+
+fn promote_want(
+    handle: &str,
+    for_identity: &str,
+    note: &Option<String>,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    move_item(
+        handle,
+        for_identity,
+        note,
+        project,
+        "needs",
+        "want promote",
+        "promoted",
+    )
+}
+
+fn set_want_priority(command: &WantCommand) -> Result<(), VivariumError> {
+    let WantCommand::SetPriority {
+        handle,
+        for_identity,
+        priority,
+        rank,
+        repo,
+        lane,
+        blocks_claim,
+        reason,
+        project,
+    } = command
+    else {
+        unreachable!();
+    };
+    let mailspace = Mailspace::discover(project.as_deref())?;
+    let handle = mailspace.set_want_metadata(
+        for_identity,
+        handle,
+        WantMetadataUpdate {
+            priority: priority.clone(),
+            rank: *rank,
+            repo: repo.clone(),
+            lane: lane.clone(),
+            blocks_claim: blocks_claim.clone(),
+            reason: reason.clone(),
+        },
+    )?;
+    println!("updated {handle}");
     Ok(())
 }
 
 fn list_wants(
     for_identity: &str,
     status: &WantStatus,
+    options: WantListOptions,
     json: bool,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    crate::local_work_list::print_work_lists(
-        &mailspace,
-        for_identity,
-        want_status_roles(status),
-        "want",
-        json,
-    )
+    let records =
+        mailspace.list_wants_with_metadata(for_identity, want_status_roles(status), options)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&records)
+                .map_err(|e| VivariumError::Other(format!("failed to encode JSON: {e}")))?
+        );
+        return Ok(());
+    }
+    if records.is_empty() {
+        println!("  no wants");
+        return Ok(());
+    }
+    println!("  handle  status  priority  rank  repo  lane  subject  active_tasks");
+    for item in &records {
+        println!(
+            "  {}  {}  {}  {}  {}  {}  {}  {}",
+            item.handle,
+            item.status,
+            item.metadata
+                .get("priority")
+                .map(String::as_str)
+                .unwrap_or("-"),
+            item.metadata.get("rank").map(String::as_str).unwrap_or("-"),
+            item.metadata.get("repo").map(String::as_str).unwrap_or("-"),
+            item.metadata.get("lane").map(String::as_str).unwrap_or("-"),
+            item.subject,
+            item.active_tasks.join(",")
+        );
+    }
+    Ok(())
 }
 
 fn close_want(
@@ -151,6 +221,24 @@ fn close_want(
     verb: &str,
 ) -> Result<(), VivariumError> {
     move_item(handle, for_identity, note, project, "done", command, verb)
+}
+
+fn close_want_done(
+    handle: &str,
+    for_identity: &str,
+    note: &Option<String>,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    close_want(handle, for_identity, note, project, "want done", "done")
+}
+
+fn close_want_drop(
+    handle: &str,
+    for_identity: &str,
+    note: &Option<String>,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    close_want(handle, for_identity, note, project, "want drop", "dropped")
 }
 
 pub(crate) fn dump_tasks(command: &TaskDumpCommand) -> Result<(), VivariumError> {
@@ -258,16 +346,7 @@ fn mail_dump_request(command: &MailDumpCommand) -> MailDumpRequest {
     MailDumpRequest {
         folder: command.folder.clone(),
         kind: Some("mail".into()),
-        filters: dump_filters(
-            &command.for_identity,
-            &command.from,
-            &command.to,
-            &command.participant,
-            &command.subject,
-            &command.body,
-            &command.since,
-            &command.before,
-        ),
+        filters: mail_dump_filters(command),
     }
 }
 
@@ -280,37 +359,34 @@ fn work_dump_request(command: &TaskDumpCommand, open_role: &str, kind: &str) -> 
         },
         open_role: open_role.into(),
         kind: kind.into(),
-        filters: dump_filters(
-            &command.for_identity,
-            &command.from,
-            &command.to,
-            &command.participant,
-            &command.subject,
-            &command.body,
-            &command.since,
-            &command.before,
-        ),
+        filters: task_dump_filters(command),
     }
 }
 
-fn dump_filters(
-    for_identity: &Option<String>,
-    from: &Option<String>,
-    to: &Option<String>,
-    participant: &Option<String>,
-    subject: &Option<String>,
-    body: &Option<String>,
-    since: &Option<String>,
-    before: &Option<String>,
-) -> DumpFilters {
+fn mail_dump_filters(command: &MailDumpCommand) -> DumpFilters {
     DumpFilters {
-        for_identity: for_identity.clone(),
-        from: from.clone(),
-        to: to.clone(),
-        participant: participant.clone(),
-        subject: subject.clone(),
-        body: body.clone(),
-        since: since.clone(),
-        before: before.clone(),
+        for_identity: command.for_identity.clone(),
+        from: command.from.clone(),
+        to: command.to.clone(),
+        participant: command.participant.clone(),
+        subject: command.subject.clone(),
+        body: command.body.clone(),
+        since: command.since.clone(),
+        before: command.before.clone(),
+        ..Default::default()
+    }
+}
+
+fn task_dump_filters(command: &TaskDumpCommand) -> DumpFilters {
+    DumpFilters {
+        for_identity: command.for_identity.clone(),
+        from: command.from.clone(),
+        to: command.to.clone(),
+        participant: command.participant.clone(),
+        subject: command.subject.clone(),
+        body: command.body.clone(),
+        since: command.since.clone(),
+        before: command.before.clone(),
+        ..Default::default()
     }
 }

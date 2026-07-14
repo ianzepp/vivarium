@@ -278,6 +278,10 @@ vivi want send --from ceo --to ceo \
   --subject "Improve board visibility" \
   --body "Consider a future governance dashboard."
 
+vivi want set-priority <handle> --for ceo \
+  --priority P1 --rank 20 --repo app --lane correctness
+vivi want list --for ceo --repo app --lane correctness \
+  --sort priority,rank,created --json
 vivi want promote <handle> --for ceo --note "Prioritize next cycle"
 vivi need list --for ceo
 vivi need done <handle> --for ceo --note "Delegated and completed"
@@ -300,6 +304,35 @@ vivi board --project /path/to/project --for cto \
 vivi task list --project /path/to/project --for cto --json
 vivi need list --project /path/to/project --for ceo --json
 vivi task show --project /path/to/project <handle>
+```
+
+Agent-cycle bookkeeping can mark ordinary advisory mail as absorbed without
+moving it into the task/need/want lifecycle. Absorb means dispositioned signal,
+not accepted work or cleared review debt:
+
+```sh
+vivi mail absorb --project /path/to/project --for mind <handle> \
+  --note "Converted to priority request"
+vivi mail list --project /path/to/project --for mind --status unabsorbed --json
+vivi mail dump --project /path/to/project --for mind \
+  --status absorbed --absorbed-by mind --json
+```
+
+When capacity opens, create executable tasking from a source handle while
+preserving source lineage. The initial supported source kind is a want:
+
+```sh
+vivi task from <want-handle> --project /path/to/project \
+  --for mind --to hand-2 \
+  --subject "Fix the prioritized issue" --body-file task.md
+```
+
+For compact Mind-style intake, `cycle intake` gathers unabsorbed mail,
+completed tasks since the cursor, open needs, and priority-sorted wants:
+
+```sh
+vivi cycle intake --project /path/to/project --for mind \
+  --cursor-file .vivi/mind-cycle.cursor --write-cursor --json
 ```
 
 ### Blocking on local mailspace changes
@@ -339,6 +372,8 @@ include `--status all` only when you intentionally want done history:
 ```sh
 
 vivi mail dump --participant cto --since 48h --output audit-mail-cto.md
+vivi mail dump --participant mind --since 2026-07-14T03:44:00 \
+  --status unabsorbed --json
 vivi task dump --participant cto --body blocker --json
 vivi need dump --participant ceo --status all --json --output audit-needs.json
 vivi want list --for ceo --json
@@ -349,6 +384,18 @@ For example, local sends record sent-copy and delivery events, and task
 completion/reopen commands record folder moves with optional `--note` text.
 Dump output includes those events so a board review can distinguish current
 state from command history.
+
+Recovered mailspaces can be imported into an active project mailspace. Start with
+`--dry-run` to see the message, blob, event, link, and conflict counts before
+writing anything:
+
+```sh
+vivi mailspace import --project /path/to/current/project \
+  --from /path/to/recovered/project --dry-run
+
+vivi mailspace import --project /path/to/current/project \
+  --from /path/to/recovered/project/.vivi
+```
 
 ## Storage Layout
 

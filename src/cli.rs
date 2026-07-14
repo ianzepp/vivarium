@@ -14,9 +14,10 @@ pub use board_command::BoardCommand;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
 pub use mailspace_command::{
-    LocalSendCommand, MailCommand, MailDumpCommand, MailReplyCommand, MailThreadCommand,
-    MailspaceCommand, MailspaceIdentityCommand, MailspaceWatchCommand, MemoCommand, NeedCommand,
-    TaskCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus, WantCommand, WantStatus,
+    CycleCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
+    MailReplyCommand, MailThreadCommand, MailspaceCommand, MailspaceIdentityCommand,
+    MailspaceImportCommand, MailspaceWatchCommand, MemoCommand, NeedCommand, TaskCommand,
+    TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand, TaskStatus, WantCommand, WantStatus,
 };
 pub use proton_command::ProtonCommand;
 pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
@@ -250,6 +251,12 @@ pub enum Command {
     Memo {
         #[command(subcommand)]
         command: MemoCommand,
+    },
+
+    /// Inspect project-local agent cycle intake
+    Cycle {
+        #[command(subcommand)]
+        command: CycleCommand,
     },
 
     /// Show one or more messages by ID

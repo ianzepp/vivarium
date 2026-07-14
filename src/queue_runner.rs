@@ -7,7 +7,7 @@ use crate::draft_runner::require_eml_path;
 
 pub(super) enum QueueDispatch {
     Handled,
-    Unhandled(Command),
+    Unhandled(Box<Command>),
 }
 
 impl Runtime {
@@ -19,7 +19,7 @@ impl Runtime {
             Command::Exec { command } => self.exec(command).await?,
             Command::Enqueue { command } => self.enqueue(command)?,
             Command::Queue { command } => self.queue(command).await?,
-            other => return Ok(QueueDispatch::Unhandled(other)),
+            other => return Ok(QueueDispatch::Unhandled(Box::new(other))),
         }
         Ok(QueueDispatch::Handled)
     }

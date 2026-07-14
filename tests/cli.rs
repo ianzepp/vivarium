@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use vivarium::cli::{
-    AgentCommand, Cli, Command, EnqueueCommand, ExecCommand, IndexCommand, MailCommand,
-    MailspaceCommand, MailspaceIdentityCommand, NeedCommand, ProtonCommand, QueueCommand,
-    TaskCommand, TaskDumpStatusArg, TaskStatus, WantCommand,
+    AgentCommand, Cli, Command, CycleCommand, EnqueueCommand, ExecCommand, IndexCommand,
+    MailAbsorbStatus, MailCommand, MailspaceCommand, MailspaceIdentityCommand, NeedCommand,
+    ProtonCommand, QueueCommand, TaskCommand, TaskDumpStatusArg, TaskStatus, WantCommand,
 };
 
 #[test]
@@ -155,6 +155,60 @@ fn parses_mailspace_identity_add() {
         } => {
             assert_eq!(identity, "cto");
             assert_eq!(project, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_mailspace_import_dry_run() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "mailspace",
+        "import",
+        "--project",
+        "/tmp/target",
+        "--from",
+        "/tmp/source",
+        "--dry-run",
+        "--json",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Mailspace {
+            command: MailspaceCommand::Import(command),
+        } => {
+            assert_eq!(
+                command.project.unwrap(),
+                std::path::PathBuf::from("/tmp/target")
+            );
+            assert_eq!(command.from, std::path::PathBuf::from("/tmp/source"));
+            assert!(command.dry_run);
+            assert!(command.json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_mailspace_merge_compatibility_alias() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "mailspace",
+        "merge",
+        "--from",
+        "/tmp/source",
+        "--dry-run",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Mailspace {
+            command: MailspaceCommand::Merge(command),
+        } => {
+            assert_eq!(command.from, std::path::PathBuf::from("/tmp/source"));
+            assert!(command.dry_run);
         }
         other => panic!("unexpected command: {other:?}"),
     }
@@ -337,12 +391,16 @@ fn parses_local_mail_list_with_json_and_project() {
                 MailCommand::List {
                     for_identity,
                     folder,
+                    status,
+                    absorbed_by,
                     json,
                     project,
                 },
         } => {
             assert_eq!(for_identity, "mind");
             assert_eq!(folder, "inbox");
+            assert!(matches!(status, MailAbsorbStatus::All));
+            assert_eq!(absorbed_by, None);
             assert!(json);
             assert_eq!(project, Some(PathBuf::from("/tmp/project")));
         }
@@ -1293,6 +1351,138 @@ fn parses_label_add_dry_run_json() {
             assert_eq!(add.as_deref(), Some("Work"));
             assert!(remove.is_none());
             assert!(dry_run);
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_mail_absorb() {
+    let cli = Cli::try_parse_from([
+        "vivi", "mail", "absorb", "abc123", "--for", "mind", "--note", "handled",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Mail {
+            command:
+                MailCommand::Absorb {
+                    handle,
+                    for_identity,
+                    note,
+                    ..
+                },
+        } => {
+            assert_eq!(handle, "abc123");
+            assert_eq!(for_identity, "mind");
+            assert_eq!(note.as_deref(), Some("handled"));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_task_from_source_handle() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "task",
+        "from",
+        "abc123",
+        "--for",
+        "mind",
+        "--to",
+        "hand-2",
+        "--subject",
+        "Do work",
+        "--body",
+        "body",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Task {
+            command: TaskCommand::From(command),
+        } => {
+            assert_eq!(command.handle, "abc123");
+            assert_eq!(command.for_identity, "mind");
+            assert_eq!(command.to, vec!["hand-2"]);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_want_set_priority() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "want",
+        "set-priority",
+        "abc123",
+        "--for",
+        "mind",
+        "--priority",
+        "P1",
+        "--rank",
+        "20",
+        "--repo",
+        "faber-runtime",
+        "--lane",
+        "correctness",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Want {
+            command:
+                WantCommand::SetPriority {
+                    handle,
+                    priority,
+                    rank,
+                    repo,
+                    lane,
+                    ..
+                },
+        } => {
+            assert_eq!(handle, "abc123");
+            assert_eq!(priority, "P1");
+            assert_eq!(rank, Some(20));
+            assert_eq!(repo.as_deref(), Some("faber-runtime"));
+            assert_eq!(lane.as_deref(), Some("correctness"));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_cycle_intake() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "cycle",
+        "intake",
+        "--for",
+        "mind",
+        "--cursor-file",
+        ".vivi/mind.cursor",
+        "--write-cursor",
+        "--json",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Cycle {
+            command:
+                CycleCommand::Intake {
+                    for_identity,
+                    cursor_file,
+                    write_cursor,
+                    json,
+                    ..
+                },
+        } => {
+            assert_eq!(for_identity, "mind");
+            assert_eq!(cursor_file, Some(PathBuf::from(".vivi/mind.cursor")));
+            assert!(write_cursor);
             assert!(json);
         }
         other => panic!("unexpected command: {other:?}"),

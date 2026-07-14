@@ -6,7 +6,7 @@ use super::Runtime;
 
 pub(super) enum LabelDispatch {
     Handled,
-    Unhandled(Command),
+    Unhandled(Box<Command>),
 }
 
 impl Runtime {
@@ -23,7 +23,7 @@ impl Runtime {
                 dry_run,
                 json,
             } => self.label(&handle, add, remove, dry_run, json)?,
-            other => return Ok(LabelDispatch::Unhandled(other)),
+            other => return Ok(LabelDispatch::Unhandled(Box::new(other))),
         }
         Ok(LabelDispatch::Handled)
     }

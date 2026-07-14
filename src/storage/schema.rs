@@ -69,10 +69,19 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
            ON mailspace_events(message_id, occurred_at, event_id);
          CREATE INDEX IF NOT EXISTS mailspace_events_account_idx
            ON mailspace_events(account, occurred_at, event_id);
+         CREATE TABLE IF NOT EXISTS mailspace_item_metadata (
+           message_id TEXT NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
+           key TEXT NOT NULL,
+           value TEXT NOT NULL,
+           updated_at TEXT NOT NULL,
+           PRIMARY KEY (message_id, key)
+         );
+         CREATE INDEX IF NOT EXISTS mailspace_item_metadata_key_idx
+           ON mailspace_item_metadata(key, value);
          CREATE TABLE IF NOT EXISTS mailspace_links (
            child_content_id TEXT PRIMARY KEY REFERENCES blobs(content_id) ON DELETE CASCADE,
            parent_content_id TEXT NOT NULL REFERENCES blobs(content_id) ON DELETE RESTRICT,
-           source TEXT NOT NULL CHECK (source IN ('captured', 'inferred'))
+           source TEXT NOT NULL CHECK (source IN ('captured', 'inferred', 'source'))
          );
          CREATE INDEX IF NOT EXISTS mailspace_links_parent_idx
            ON mailspace_links(parent_content_id, child_content_id);

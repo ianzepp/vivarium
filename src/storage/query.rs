@@ -13,6 +13,17 @@ impl Storage {
         fs::read(self.mail_root.join(relpath)).map_err(Into::into)
     }
 
+    pub fn blob_exists(&self, content_id: &str) -> Result<bool, VivariumError> {
+        self.conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM blobs WHERE content_id = ?1)",
+                params![content_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|exists| exists != 0)
+            .map_err(|e| VivariumError::Other(format!("failed to check blob row: {e}")))
+    }
+
     pub fn read_message(&self, message_id: &str) -> Result<Vec<u8>, VivariumError> {
         let resolved = self.resolve_message_token(message_id)?;
         let Some(view) = self.message_by_id(&resolved)? else {
@@ -32,6 +43,33 @@ impl Storage {
             .query_row(
                 &message_query("WHERE m.message_id = ?1"),
                 params![message_id],
+                raw_stored_message_from_row,
+            )
+            .optional()
+            .map_err(|e| VivariumError::Other(format!("failed to read stored message: {e}")))?;
+        if let Some(message) = &mut message {
+            message.handle = self.display_handle(&message.message_id)?;
+        }
+        Ok(message)
+    }
+
+    pub fn message_by_content_account_role(
+        &self,
+        content_id: &str,
+        account: &str,
+        local_role: &str,
+    ) -> Result<Option<StoredMessageView>, VivariumError> {
+        let mut message = self
+            .conn
+            .query_row(
+                &message_query(
+                    "WHERE m.content_id = ?1
+                       AND m.account = ?2
+                       AND m.local_role = ?3
+                       AND m.deleted_at IS NULL
+                     ORDER BY m.message_id LIMIT 1",
+                ),
+                params![content_id, account, local_role],
                 raw_stored_message_from_row,
             )
             .optional()

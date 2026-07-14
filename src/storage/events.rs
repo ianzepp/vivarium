@@ -6,6 +6,14 @@ impl Storage {
         event: &MailspaceEventInput,
     ) -> Result<i64, VivariumError> {
         let occurred_at = Utc::now().to_rfc3339();
+        self.append_mailspace_event_at(event, &occurred_at)
+    }
+
+    pub fn append_mailspace_event_at(
+        &self,
+        event: &MailspaceEventInput,
+        occurred_at: &str,
+    ) -> Result<i64, VivariumError> {
         self.conn
             .execute(
                 "INSERT INTO mailspace_events (
@@ -31,6 +39,48 @@ impl Storage {
             )
             .map_err(|e| VivariumError::Other(format!("failed to append mailspace event: {e}")))?;
         Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn mailspace_event_exists(
+        &self,
+        event: &MailspaceEventInput,
+        occurred_at: &str,
+    ) -> Result<bool, VivariumError> {
+        self.conn
+            .query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM mailspace_events
+                   WHERE occurred_at = ?1
+                     AND command = ?2
+                     AND event_type = ?3
+                     AND account = ?4
+                     AND message_id = ?5
+                     AND content_id = ?6
+                     AND from_role IS ?7
+                     AND to_role IS ?8
+                     AND from_identity IS ?9
+                     AND to_identity IS ?10
+                     AND subject = ?11
+                     AND note IS ?12
+                 )",
+                params![
+                    occurred_at,
+                    event.command,
+                    event.event_type,
+                    event.account,
+                    event.message_id,
+                    event.content_id,
+                    event.from_role,
+                    event.to_role,
+                    event.from_identity,
+                    event.to_identity,
+                    event.subject,
+                    event.note,
+                ],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|exists| exists != 0)
+            .map_err(|e| VivariumError::Other(format!("failed to check mailspace event: {e}")))
     }
 
     pub fn list_mailspace_events(

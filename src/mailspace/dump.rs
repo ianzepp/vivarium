@@ -4,7 +4,7 @@ use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
 use serde::Serialize;
 
 use super::kind::{effective_kind, matches_kind};
-use super::{Mailspace, canonical_local_role};
+use super::{MailAbsorbFilter, Mailspace, canonical_local_role};
 use crate::error::VivariumError;
 use crate::storage::{MailspaceEvent, StoredMessageView};
 
@@ -18,6 +18,8 @@ pub struct DumpFilters {
     pub body: Option<String>,
     pub since: Option<String>,
     pub before: Option<String>,
+    pub absorb_status: MailAbsorbFilter,
+    pub absorbed_by: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +70,8 @@ struct PreparedFilters {
     participant: Option<ParticipantFilter>,
     subject: Option<String>,
     body: Option<String>,
+    absorb_status: MailAbsorbFilter,
+    absorbed_by: Option<String>,
     window: DumpWindow,
 }
 
@@ -134,7 +138,7 @@ impl Mailspace {
             return Ok(None);
         }
         let message_kind = effective_kind(&view.local_role, &data, &events);
-        if !matches_filters(&view, &body, filters) {
+        if !matches_filters(&view, &body, &events, filters) {
             return Ok(None);
         }
         let link = storage.mailspace_link_for_child(&view.content_id)?;
@@ -170,6 +174,8 @@ impl Mailspace {
             participant: self.participant_filter(filters.participant.as_deref())?,
             subject: filters.subject.map(normalize_filter),
             body: filters.body.map(normalize_filter),
+            absorb_status: filters.absorb_status,
+            absorbed_by: filters.absorbed_by,
             window: DumpWindow::parse(filters.since.as_deref(), filters.before.as_deref())?,
         })
     }
@@ -194,7 +200,12 @@ impl Mailspace {
     }
 }
 
-fn matches_filters(view: &StoredMessageView, body: &str, filters: &PreparedFilters) -> bool {
+fn matches_filters(
+    view: &StoredMessageView,
+    body: &str,
+    events: &[MailspaceEvent],
+    filters: &PreparedFilters,
+) -> bool {
     filters
         .account
         .as_ref()
@@ -205,6 +216,7 @@ fn matches_filters(view: &StoredMessageView, body: &str, filters: &PreparedFilte
         && matches_text(&view.subject, filters.subject.as_deref())
         && matches_text(body, filters.body.as_deref())
         && matches_participant(view, filters.participant.as_ref())
+        && matches_absorb(events, filters)
 }
 
 fn matches_recipients(view: &StoredMessageView, filter: Option<&str>) -> bool {
@@ -230,6 +242,21 @@ fn matches_participant(view: &StoredMessageView, filter: Option<&ParticipantFilt
 
 fn matches_text(value: &str, filter: Option<&str>) -> bool {
     filter.is_none_or(|filter| value.to_ascii_lowercase().contains(filter))
+}
+
+fn matches_absorb(events: &[MailspaceEvent], filters: &PreparedFilters) -> bool {
+    let absorbed = events.iter().any(|event| event.command == "mail absorb");
+    let status_matches = match filters.absorb_status {
+        MailAbsorbFilter::All => true,
+        MailAbsorbFilter::Absorbed => absorbed,
+        MailAbsorbFilter::Unabsorbed => !absorbed,
+    };
+    status_matches
+        && filters.absorbed_by.as_ref().is_none_or(|identity| {
+            events.iter().any(|event| {
+                event.command == "mail absorb" && event.actor_identity.as_ref() == Some(identity)
+            })
+        })
 }
 
 fn mail_roles(folder: &str) -> Result<Vec<String>, VivariumError> {

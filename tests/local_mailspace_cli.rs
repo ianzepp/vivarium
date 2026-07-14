@@ -1147,6 +1147,131 @@ fn inferred_thread_links_are_opt_in_and_marked() {
     );
 }
 
+#[test]
+fn mailspace_import_dry_run_reports_without_writing() {
+    let source = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    init_roster(source.path());
+    init_roster(target.path());
+    send_work(
+        source.path(),
+        "task",
+        "cto",
+        "recoverable task",
+        "Preserve this institutional memory.",
+    );
+
+    let dry_run = vivi([
+        "mailspace",
+        "import",
+        "--project",
+        target.path().to_str().unwrap(),
+        "--from",
+        source.path().to_str().unwrap(),
+        "--dry-run",
+        "--json",
+    ]);
+    assert_success(&dry_run);
+    let report: Value = serde_json::from_str(&stdout(&dry_run)).unwrap();
+    assert_eq!(report["dry_run"], true);
+    assert_eq!(report["imported_messages"], 2);
+    assert_eq!(report["imported_events"], 2);
+
+    let target_tasks = vivi([
+        "task",
+        "list",
+        "--project",
+        target.path().to_str().unwrap(),
+        "--for",
+        "cto",
+    ]);
+    assert_success(&target_tasks);
+    assert!(
+        !stdout(&target_tasks).contains("recoverable task"),
+        "{}",
+        stdout(&target_tasks)
+    );
+}
+
+#[test]
+fn mailspace_import_copies_messages_events_and_dedupes_second_run() {
+    let source = tempfile::tempdir().unwrap();
+    let target = tempfile::tempdir().unwrap();
+    init_roster(source.path());
+    init_roster(target.path());
+    let task = send_work(
+        source.path(),
+        "task",
+        "cto",
+        "merged task",
+        "Carry this forward.",
+    );
+    let done = vivi([
+        "task",
+        "done",
+        "--project",
+        source.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        &task,
+        "--note",
+        "Recovered completion note",
+    ]);
+    assert_success(&done);
+
+    let import = vivi([
+        "mailspace",
+        "import",
+        "--project",
+        target.path().to_str().unwrap(),
+        "--from",
+        source.path().join(".vivi").to_str().unwrap(),
+        "--json",
+    ]);
+    assert_success(&import);
+    let report: Value = serde_json::from_str(&stdout(&import)).unwrap();
+    assert_eq!(report["imported_messages"], 4);
+    assert_eq!(report["imported_blobs"], 2);
+    assert_eq!(report["deduped_blobs"], 2);
+    assert_eq!(report["imported_events"], 3);
+    assert_eq!(report["imported_links"], 1);
+    assert_eq!(report["conflicts"].as_array().unwrap().len(), 0);
+
+    let dump = vivi([
+        "task",
+        "dump",
+        "--project",
+        target.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--status",
+        "all",
+        "--json",
+    ]);
+    assert_success(&dump);
+    let dump_stdout = stdout(&dump);
+    assert!(dump_stdout.contains("merged task"), "{dump_stdout}");
+    assert!(
+        dump_stdout.contains("Recovered completion note"),
+        "{dump_stdout}"
+    );
+
+    let second = vivi([
+        "mailspace",
+        "import",
+        "--project",
+        target.path().to_str().unwrap(),
+        "--from",
+        source.path().to_str().unwrap(),
+        "--json",
+    ]);
+    assert_success(&second);
+    let second_report: Value = serde_json::from_str(&stdout(&second)).unwrap();
+    assert_eq!(second_report["imported_messages"], 0);
+    assert_eq!(second_report["deduped_messages"], 4);
+    assert_eq!(second_report["imported_events"], 0);
+}
+
 fn init_roster(project: &std::path::Path) {
     assert_success(&vivi([
         "mailspace",

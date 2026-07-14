@@ -13,6 +13,8 @@ mod dump;
 mod event_log;
 mod identity;
 mod kind;
+mod lifecycle;
+mod merge;
 mod reply;
 #[cfg(test)]
 mod tests;
@@ -24,6 +26,11 @@ pub use dump::{
     DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
 };
 pub use identity::LocalIdentity;
+pub use lifecycle::{
+    CycleIntake, MailAbsorbFilter, SourceTaskRequest, SourceTaskResult, WantListOptions,
+    WantListRecord, WantMetadataUpdate,
+};
+pub use merge::{MailspaceImportOptions, MailspaceImportReport, import_mailspace};
 pub use thread::{MailspaceThreadMessage, print_thread};
 pub use watch::{MailspaceWatchRequest, run_watch};
 
@@ -97,7 +104,7 @@ pub struct DeliveryResult {
     pub sent: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DeliveredMessage {
     pub identity: String,
     pub handle: String,

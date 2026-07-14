@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::{LocalSendCommand, MailspaceWatchCommand};
+use super::{LocalSendCommand, MailAbsorbStatus, MailspaceWatchCommand};
 
 /// Save a memo into an identity's memos folder.
 #[derive(Debug, Clone, Args)]
@@ -200,6 +200,18 @@ pub enum WantCommand {
         #[arg(long, default_value = "open")]
         status: WantStatus,
 
+        /// Filter by repository metadata
+        #[arg(long)]
+        repo: Option<String>,
+
+        /// Filter by lane metadata
+        #[arg(long)]
+        lane: Option<String>,
+
+        /// Sort by comma-separated fields: priority,rank,created
+        #[arg(long, default_value = "created")]
+        sort: String,
+
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -225,6 +237,44 @@ pub enum WantCommand {
 
     /// Dump local want messages for audit and board review
     Dump(MailDumpCommand),
+
+    /// Set queryable priority and routing metadata on a want
+    SetPriority {
+        /// Want handle or unambiguous prefix
+        handle: String,
+
+        /// Identity whose want should be updated
+        #[arg(long = "for")]
+        for_identity: String,
+
+        /// Priority label, such as P0, P1, P2
+        #[arg(long)]
+        priority: String,
+
+        /// Numeric rank within the priority
+        #[arg(long)]
+        rank: Option<i64>,
+
+        /// Repository this want belongs to
+        #[arg(long)]
+        repo: Option<String>,
+
+        /// Work lane, such as correctness or docs
+        #[arg(long)]
+        lane: Option<String>,
+
+        /// Claim this want blocks
+        #[arg(long = "blocks-claim")]
+        blocks_claim: Option<String>,
+
+        /// Reason for the priority
+        #[arg(long)]
+        reason: Option<String>,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
 
     /// Promote a want from Wants to Needs
     Promote {
@@ -323,6 +373,14 @@ pub struct MailDumpCommand {
     /// Case-insensitive text body substring filter
     #[arg(long)]
     pub body: Option<String>,
+
+    /// Absorb status filter
+    #[arg(long, default_value = "all")]
+    pub status: MailAbsorbStatus,
+
+    /// Absorbing identity filter
+    #[arg(long = "absorbed-by")]
+    pub absorbed_by: Option<String>,
 
     /// Include messages on or after this time (RFC3339, YYYY-MM-DD, Nh, Nd, or Nw)
     #[arg(long)]

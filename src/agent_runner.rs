@@ -6,7 +6,7 @@ use vivarium::store::MailStore;
 
 pub enum AgentDispatch {
     Handled,
-    Unhandled(Command),
+    Unhandled(Box<Command>),
 }
 
 pub trait AgentRunner {
@@ -21,7 +21,7 @@ pub struct AgentContext<'a> {
 impl AgentRunner for AgentContext<'_> {
     fn run_agent_command(&self, command: Command) -> Result<AgentDispatch, VivariumError> {
         let Command::Agent { command } = command else {
-            return Ok(AgentDispatch::Unhandled(command));
+            return Ok(AgentDispatch::Unhandled(Box::new(command)));
         };
         match command {
             AgentCommand::Poll {

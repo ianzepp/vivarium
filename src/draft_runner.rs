@@ -10,7 +10,7 @@ use super::Runtime;
 
 pub(super) enum DraftDispatch {
     Handled,
-    Unhandled(Command),
+    Unhandled(Box<Command>),
 }
 
 impl Runtime {
@@ -38,7 +38,7 @@ impl Runtime {
                 .await?
             }
             Command::Compose(command) => self.compose(command).await?,
-            other => return Ok(DraftDispatch::Unhandled(other)),
+            other => return Ok(DraftDispatch::Unhandled(Box::new(other))),
         }
         Ok(DraftDispatch::Handled)
     }

@@ -1,10 +1,12 @@
 use vivarium::VivariumError;
 use vivarium::cli::{
-    Command, LocalSendCommand, MailCommand, MailDumpCommand, MailReplyCommand, MailspaceCommand,
-    MailspaceIdentityCommand, MailspaceWatchCommand, MemoCommand, TaskCommand,
+    Command, CycleCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
+    MailReplyCommand, MailspaceCommand, MailspaceIdentityCommand, MailspaceImportCommand,
+    MailspaceWatchCommand, MemoCommand, TaskCommand,
 };
 use vivarium::mailspace::{
-    DumpFilters, MailDumpRequest, Mailspace, MailspaceWatchRequest, SendRequest,
+    DumpFilters, MailAbsorbFilter, MailDumpRequest, Mailspace, MailspaceWatchRequest, SendRequest,
+    SourceTaskRequest,
 };
 use vivarium::message;
 
@@ -38,6 +40,10 @@ pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumE
             handle_memo_command(command)?;
             Ok(true)
         }
+        Command::Cycle { command } => {
+            handle_cycle_command(command)?;
+            Ok(true)
+        }
         _ => Ok(false),
     }
 }
@@ -65,6 +71,9 @@ fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumEr
             }
         }
         MailspaceCommand::Watch(command) => run_watch(command, None)?,
+        MailspaceCommand::Import(command) | MailspaceCommand::Merge(command) => {
+            import_mailspace(command)?
+        }
         MailspaceCommand::Identity { command } => match command {
             MailspaceIdentityCommand::Add { identity, project } => {
                 let mut mailspace = Mailspace::discover(project.as_deref())?;
@@ -95,6 +104,86 @@ fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumEr
     Ok(())
 }
 
+fn import_mailspace(command: &MailspaceImportCommand) -> Result<(), VivariumError> {
+    let target = Mailspace::discover(command.project.as_deref())?;
+    let report = vivarium::mailspace::import_mailspace(
+        &target,
+        &command.from,
+        vivarium::mailspace::MailspaceImportOptions {
+            dry_run: command.dry_run,
+        },
+    )?;
+    if command.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .map_err(|e| VivariumError::Other(format!("failed to encode JSON: {e}")))?
+        );
+        return Ok(());
+    }
+    let mode = if report.dry_run { "dry run" } else { "applied" };
+    println!("mailspace import {mode}");
+    println!("source    {}", report.source.display());
+    println!("target    {}", report.target.display());
+    println!(
+        "messages  scanned={} imported={} deduped={}",
+        report.scanned_messages, report.imported_messages, report.deduped_messages
+    );
+    println!(
+        "blobs     imported={} deduped={}",
+        report.imported_blobs, report.deduped_blobs
+    );
+    println!(
+        "events    imported={} deduped={}",
+        report.imported_events, report.deduped_events
+    );
+    println!(
+        "links     imported={} deduped={}",
+        report.imported_links, report.deduped_links
+    );
+    if !report.conflicts.is_empty() {
+        println!("conflicts {}", report.conflicts.len());
+        for conflict in &report.conflicts {
+            println!("  {conflict}");
+        }
+    }
+    Ok(())
+}
+
+fn handle_cycle_command(command: &CycleCommand) -> Result<(), VivariumError> {
+    match command {
+        CycleCommand::Intake {
+            for_identity,
+            cursor_file,
+            write_cursor,
+            json,
+            project,
+        } => {
+            let mailspace = Mailspace::discover(project.as_deref())?;
+            let intake =
+                mailspace.cycle_intake(for_identity, cursor_file.as_deref(), *write_cursor)?;
+            if *json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&intake)
+                        .map_err(|e| VivariumError::Other(format!("failed to encode JSON: {e}")))?
+                );
+            } else {
+                print_cycle_intake(&intake);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_cycle_intake(intake: &vivarium::mailspace::CycleIntake) {
+    println!("cursor {} -> {}", intake.cursor, intake.next_cursor);
+    println!("unabsorbed_mail {}", intake.unabsorbed_mail.len());
+    println!("completed_tasks {}", intake.completed_tasks.len());
+    println!("open_needs {}", intake.open_needs.len());
+    println!("open_wants {}", intake.open_wants.len());
+}
+
 fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
     match command {
         MailCommand::Send(command) => send_local_mail(command)?,
@@ -104,22 +193,22 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
             path,
             folder,
             project,
-        } => {
-            let mailspace = Mailspace::discover(project.as_deref())?;
-            let data = std::fs::read(path)?;
-            for delivered in mailspace.deliver_raw(&data, folder)? {
-                println!("delivered {} {}", delivered.identity, delivered.handle);
-            }
-        }
+        } => deliver_local_mail(path, folder, project.as_deref())?,
         MailCommand::List {
             for_identity,
             folder,
+            status,
+            absorbed_by,
             json,
             project,
-        } => {
-            let mailspace = Mailspace::discover(project.as_deref())?;
-            crate::local_mail_list::print_mail_list(&mailspace, for_identity, folder, *json)?;
-        }
+        } => list_local_mail(
+            for_identity,
+            folder,
+            *status,
+            absorbed_by,
+            *json,
+            project.as_deref(),
+        )?,
         MailCommand::Show {
             handles,
             json,
@@ -129,16 +218,14 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
             print_local_messages(&mailspace, handles, *json)?;
         }
         MailCommand::Thread(command) => {
-            let mailspace = Mailspace::discover(command.project.as_deref())?;
-            vivarium::mailspace::print_thread(
-                &mailspace,
-                &command.handle,
-                command.infer,
-                command.limit,
-                command.max_depth,
-                command.json,
-            )?;
+            print_local_thread(command)?;
         }
+        MailCommand::Absorb {
+            handle,
+            for_identity,
+            note,
+            project,
+        } => absorb_local_mail(handle, for_identity, note, project.as_deref())?,
         MailCommand::Dump(command) => {
             let mailspace = Mailspace::discover(command.project.as_deref())?;
             let records = mailspace.dump_mail(mail_dump_request(command))?;
@@ -150,6 +237,62 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
             )?;
         }
     }
+    Ok(())
+}
+
+fn print_local_thread(command: &vivarium::cli::MailThreadCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    vivarium::mailspace::print_thread(
+        &mailspace,
+        &command.handle,
+        command.infer,
+        command.limit,
+        command.max_depth,
+        command.json,
+    )
+}
+
+fn deliver_local_mail(
+    path: &std::path::Path,
+    folder: &str,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(project)?;
+    let data = std::fs::read(path)?;
+    for delivered in mailspace.deliver_raw(&data, folder)? {
+        println!("delivered {} {}", delivered.identity, delivered.handle);
+    }
+    Ok(())
+}
+
+fn list_local_mail(
+    for_identity: &str,
+    folder: &str,
+    status: MailAbsorbStatus,
+    absorbed_by: &Option<String>,
+    json: bool,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(project)?;
+    crate::local_mail_list::print_mail_list(
+        &mailspace,
+        for_identity,
+        folder,
+        mail_absorb_filter(status),
+        absorbed_by,
+        json,
+    )
+}
+
+fn absorb_local_mail(
+    handle: &str,
+    for_identity: &str,
+    note: &Option<String>,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(project)?;
+    let handle = mailspace.absorb_mail(for_identity, handle, note.as_deref())?;
+    println!("absorbed {handle}");
     Ok(())
 }
 
@@ -258,6 +401,7 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
         TaskCommand::Send(command) => {
             send_task(command)?;
         }
+        TaskCommand::From(command) => task_from_source(command)?,
         TaskCommand::Watch(command) => {
             run_watch(command, Some("task"))?;
         }
@@ -307,6 +451,27 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             move_task(handle, for_identity, note, project.as_deref(), "tasks")?;
         }
     }
+    Ok(())
+}
+
+fn task_from_source(command: &vivarium::cli::TaskFromCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    let result = mailspace.task_from_source(SourceTaskRequest {
+        source_handle: command.handle.clone(),
+        actor: command.for_identity.clone(),
+        to: command.to.clone(),
+        cc: command.cc.clone(),
+        subject: command.subject.clone(),
+        body: vivarium::mailspace::read_body_input(
+            command.body.as_deref(),
+            command.body_file.as_deref(),
+        )?,
+    })?;
+    for delivered in result.delivered {
+        println!("created {} {}", delivered.identity, delivered.handle);
+    }
+    println!("source {} {}", result.source_kind, result.source_handle);
+    println!("sent {}", result.sent);
     Ok(())
 }
 
@@ -442,37 +607,29 @@ fn mail_dump_request(command: &MailDumpCommand) -> MailDumpRequest {
     MailDumpRequest {
         folder: command.folder.clone(),
         kind: Some("mail".into()),
-        filters: dump_filters(
-            &command.for_identity,
-            &command.from,
-            &command.to,
-            &command.participant,
-            &command.subject,
-            &command.body,
-            &command.since,
-            &command.before,
-        ),
+        filters: dump_filters(command),
     }
 }
 
-fn dump_filters(
-    for_identity: &Option<String>,
-    from: &Option<String>,
-    to: &Option<String>,
-    participant: &Option<String>,
-    subject: &Option<String>,
-    body: &Option<String>,
-    since: &Option<String>,
-    before: &Option<String>,
-) -> DumpFilters {
+fn mail_absorb_filter(status: MailAbsorbStatus) -> MailAbsorbFilter {
+    match status {
+        MailAbsorbStatus::All => MailAbsorbFilter::All,
+        MailAbsorbStatus::Absorbed => MailAbsorbFilter::Absorbed,
+        MailAbsorbStatus::Unabsorbed => MailAbsorbFilter::Unabsorbed,
+    }
+}
+
+fn dump_filters(command: &MailDumpCommand) -> DumpFilters {
     DumpFilters {
-        for_identity: for_identity.clone(),
-        from: from.clone(),
-        to: to.clone(),
-        participant: participant.clone(),
-        subject: subject.clone(),
-        body: body.clone(),
-        since: since.clone(),
-        before: before.clone(),
+        for_identity: command.for_identity.clone(),
+        from: command.from.clone(),
+        to: command.to.clone(),
+        participant: command.participant.clone(),
+        subject: command.subject.clone(),
+        body: command.body.clone(),
+        since: command.since.clone(),
+        before: command.before.clone(),
+        absorb_status: mail_absorb_filter(command.status),
+        absorbed_by: command.absorbed_by.clone(),
     }
 }
