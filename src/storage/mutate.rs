@@ -105,6 +105,29 @@ impl Storage {
         Ok(changed > 0)
     }
 
+    /// Set the read state of a local (identity-owned) message without touching
+    /// `starred`. `mail absorb` uses this: absorb means "read, processed, loaded
+    /// into context", so the message is marked read and `unread` counts stay
+    /// honest for boards and sensors that read on `read_state`.
+    pub fn set_local_read_state(
+        &mut self,
+        account: &str,
+        message_id: &str,
+        read_state: bool,
+    ) -> Result<bool, VivariumError> {
+        let now = Utc::now().to_rfc3339();
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE messages
+                 SET read_state = ?3, updated_at = ?4
+                 WHERE account = ?1 AND message_id = ?2 AND deleted_at IS NULL",
+                params![account, message_id, if read_state { 1 } else { 0 }, now],
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to set local read state: {e}")))?;
+        Ok(changed > 0)
+    }
+
     pub fn mark_message_deleted(
         &mut self,
         account: &str,

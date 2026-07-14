@@ -100,11 +100,16 @@ impl Mailspace {
                 from_role: Some(message.local_role.clone()),
                 to_role: Some(message.local_role),
                 from_identity: None,
-                to_identity: Some(message.account),
+                to_identity: Some(message.account.clone()),
                 subject: message.subject,
                 note: note.map(str::to_string),
             })?;
-        self.storage()?.display_handle(&message.message_id)
+        // Absorb means "read, processed, loaded into context" — mark the
+        // message read so `unread` counts stay honest. Boards and sensors read
+        // on `read_state`; without this, absorbed mail inflates `unread`.
+        let mut storage = self.storage()?;
+        storage.set_local_read_state(&message.account, &message.message_id, true)?;
+        storage.display_handle(&message.message_id)
     }
 
     pub fn task_from_source(

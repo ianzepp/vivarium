@@ -40,6 +40,50 @@ fn local_delivery_rejects_unknown_identity() {
 }
 
 #[test]
+fn absorb_mail_marks_message_read() {
+    // Absorb means "read, processed, loaded into context", so it must mark the
+    // message read. Otherwise absorbed mail inflates `inbox_unread`, which
+    // boards and sensors (and Minds) read on as a neglect signal.
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("ceo").unwrap();
+    mailspace.add_identity("cto").unwrap();
+    let unread = |ms: &Mailspace| {
+        ms.status()
+            .unwrap()
+            .identities
+            .iter()
+            .find(|identity| identity.identity == "cto")
+            .unwrap()
+            .inbox_unread
+    };
+
+    let sent = mailspace
+        .send(SendRequest {
+            from: "ceo".into(),
+            to: vec!["cto".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "absorb me".into(),
+            body: "read, processed, loaded into context".into(),
+            role: "inbox".into(),
+            kind: None,
+            reply_to: None,
+        })
+        .unwrap();
+    let handle = sent.delivered[0].handle.clone();
+
+    assert_eq!(unread(&mailspace), 1, "delivered inbox mail starts unread");
+    let absorbed = mailspace.absorb_mail("cto", &handle, None).unwrap();
+    assert_eq!(absorbed, handle);
+    assert_eq!(
+        unread(&mailspace),
+        0,
+        "absorbed mail must no longer count as unread"
+    );
+}
+
+#[test]
 fn task_move_keeps_handle_stable() {
     let tmp = tempfile::tempdir().unwrap();
     let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();

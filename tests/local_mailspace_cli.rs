@@ -1272,6 +1272,73 @@ fn mailspace_import_copies_messages_events_and_dedupes_second_run() {
     assert_eq!(second_report["imported_events"], 0);
 }
 
+#[test]
+fn mail_absorb_marks_inbox_read_and_clears_unread() {
+    // Absorb means "read, processed, loaded into context", so it must mark the
+    // message read and drop it from `inbox_unread` — the count boards, sensors,
+    // and Minds read on as a neglect signal.
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+
+    let send = vivi([
+        "mail",
+        "send",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "absorb me",
+        "--body",
+        "read, processed, loaded into context",
+    ]);
+    assert_success(&send);
+    let handle = handle_after(&stdout(&send), "delivered cto");
+    assert_eq!(
+        inbox_unread(project.path(), "cto"),
+        1,
+        "delivered inbox mail starts unread"
+    );
+
+    let absorb = vivi([
+        "mail",
+        "absorb",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        &handle,
+    ]);
+    assert_success(&absorb);
+    assert_eq!(
+        inbox_unread(project.path(), "cto"),
+        0,
+        "absorbed mail must no longer count as unread"
+    );
+}
+
+fn inbox_unread(project: &std::path::Path, identity: &str) -> usize {
+    let output = vivi([
+        "mailspace",
+        "status",
+        "--project",
+        project.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_success(&output);
+    let value: Value = serde_json::from_str(&stdout(&output)).unwrap();
+    value["identities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|id| id["identity"] == identity)
+        .unwrap()["inbox_unread"]
+        .as_u64()
+        .unwrap() as usize
+}
+
 fn init_roster(project: &std::path::Path) {
     assert_success(&vivi([
         "mailspace",
