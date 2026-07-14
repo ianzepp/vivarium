@@ -8,6 +8,7 @@ use super::{store_message, uid_set_string};
 use crate::catalog::CatalogEntry;
 use crate::config::Account;
 use crate::error::VivariumError;
+use crate::storage::Storage;
 use crate::store::MailStore;
 use crate::sync::SyncResult;
 
@@ -35,11 +36,12 @@ pub(super) async fn download_missing(
     missing: Vec<RemoteMessage>,
     reject_invalid_certs: bool,
 ) -> Result<SyncResult, VivariumError> {
-    let chunks = Arc::new(Mutex::new(message_chunks(missing)));
+    let chunks = Arc::new(message_chunks(missing));
+    let cursor = Arc::new(Mutex::new(0usize));
     let result = Arc::new(Mutex::new(SyncResult::default()));
     let store = Arc::new(store.clone());
     let fetch_mode = fetch_mode(account);
-    let worker_count = WORKER_COUNT.min(chunks.lock().await.len());
+    let worker_count = WORKER_COUNT.min(chunks.len());
 
     let mut handles = Vec::new();
     for worker_id in 0..worker_count {
@@ -55,6 +57,7 @@ pub(super) async fn download_missing(
         handles.push(tokio::spawn(worker(
             context,
             Arc::clone(&chunks),
+            Arc::clone(&cursor),
             Arc::clone(&result),
         )));
     }
@@ -70,12 +73,11 @@ pub(super) async fn download_missing(
     Ok(Arc::try_unwrap(result).unwrap().into_inner())
 }
 
-fn message_chunks(missing: Vec<RemoteMessage>) -> std::vec::IntoIter<Vec<RemoteMessage>> {
+fn message_chunks(missing: Vec<RemoteMessage>) -> Vec<Vec<RemoteMessage>> {
     missing
         .chunks(CHUNK_SIZE as usize)
         .map(|chunk| chunk.to_vec())
-        .collect::<Vec<_>>()
-        .into_iter()
+        .collect()
 }
 
 fn fetch_mode(account: &Account) -> FetchMode {
@@ -88,16 +90,19 @@ fn fetch_mode(account: &Account) -> FetchMode {
 
 async fn worker(
     context: WorkerContext,
-    chunks: Arc<Mutex<std::vec::IntoIter<Vec<RemoteMessage>>>>,
+    chunks: Arc<Vec<Vec<RemoteMessage>>>,
+    cursor: Arc<Mutex<usize>>,
     result: Arc<Mutex<SyncResult>>,
 ) -> Result<(), VivariumError> {
+    let mut storage = Storage::open(context.store.root())?;
+
     let mut session = connect(&context.account, context.reject_invalid_certs).await?;
     session
         .select(&context.remote_folder)
         .await
         .map_err(|e| VivariumError::Imap(format!("worker select failed: {e}")))?;
 
-    while let Some(uids) = next_chunk(&chunks).await {
+    while let Some(uids) = next_chunk(&chunks, &cursor).await {
         let uid_set = uid_set_string(&uids.iter().map(|msg| msg.uid).collect::<Vec<_>>());
         tracing::debug!(
             worker_id = context.worker_id,
@@ -106,7 +111,7 @@ async fn worker(
         );
 
         let messages = fetch_messages(&mut session, &uid_set, context.fetch_mode).await?;
-        let entries = process_messages(&context, &uids, &messages)?;
+        let entries = process_messages(&mut storage, &context, &uids, &messages)?;
         if !entries.is_empty() {
             let mut r = result.lock().await;
             r.new += entries.len();
@@ -119,9 +124,16 @@ async fn worker(
 }
 
 async fn next_chunk(
-    chunks: &Mutex<std::vec::IntoIter<Vec<RemoteMessage>>>,
+    chunks: &Arc<Vec<Vec<RemoteMessage>>>,
+    cursor: &Arc<Mutex<usize>>,
 ) -> Option<Vec<RemoteMessage>> {
-    chunks.lock().await.next()
+    let mut pos = cursor.lock().await;
+    if *pos >= chunks.len() {
+        return None;
+    }
+    let chunk = chunks[*pos].clone();
+    *pos += 1;
+    Some(chunk)
 }
 
 async fn fetch_messages(
@@ -144,6 +156,7 @@ async fn fetch_messages(
 }
 
 fn process_messages(
+    storage: &mut Storage,
     context: &WorkerContext,
     chunk: &[RemoteMessage],
     messages: &[async_imap::types::Fetch],
@@ -158,8 +171,8 @@ fn process_messages(
             continue;
         };
         entries.push(store_message(
+            storage,
             &context.account,
-            &context.store,
             &context.remote_folder,
             &context.local_folder,
             body,

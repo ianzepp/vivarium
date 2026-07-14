@@ -49,9 +49,20 @@ impl Storage {
         }
     }
 
+    /// Compute a short display handle for a single message.
+    ///
+    /// Results are cached on `Storage` to avoid repeated full table scans of
+    /// all active message IDs. The cache is invalidated on any write that
+    /// affects messages (ingest, move, flag update, delete).
     pub fn display_handle(&self, message_id: &str) -> Result<String, VivariumError> {
-        Ok(self
-            .handle_map()?
+        let mut cache = self.handle_cache.borrow_mut();
+        if cache.is_none() {
+            let message_ids = self.active_message_ids()?;
+            *cache = Some(short_handle_map(&message_ids));
+        }
+        Ok(cache
+            .as_ref()
+            .unwrap()
             .get(message_id)
             .cloned()
             .unwrap_or_else(|| message_id.to_string()))

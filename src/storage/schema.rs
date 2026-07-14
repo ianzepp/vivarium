@@ -2,9 +2,28 @@ use rusqlite::Connection;
 
 use crate::error::VivariumError;
 
+const STORAGE_SCHEMA_VERSION: &str = "1";
+
 pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
+    // Fast path: skip DDL when schema is already current
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT value FROM storage_metadata WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    if existing.as_deref() == Some(STORAGE_SCHEMA_VERSION) {
+        return Ok(());
+    }
+
     conn.execute_batch(
         "BEGIN;
+         CREATE TABLE IF NOT EXISTS storage_metadata (
+           key TEXT PRIMARY KEY,
+           value TEXT NOT NULL
+         );
+
          CREATE TABLE IF NOT EXISTS blobs (
            content_id TEXT PRIMARY KEY,
            blob_relpath TEXT NOT NULL UNIQUE,
@@ -87,11 +106,19 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
            ON mailspace_links(parent_content_id, child_content_id);
          COMMIT;",
     )
-    .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))
+    .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO storage_metadata (key, value) VALUES ('schema_version', ?1)",
+        rusqlite::params![STORAGE_SCHEMA_VERSION],
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to write storage schema version: {e}")))?;
+
+    Ok(())
 }
 
 pub(super) fn message_query(where_clause: &str) -> String {
-    format!(
+    [
         "SELECT
             m.message_id,
             m.account,
@@ -116,7 +143,8 @@ pub(super) fn message_query(where_clause: &str) -> String {
          FROM messages m
          JOIN blobs b ON b.content_id = m.content_id
          JOIN message_metadata md ON md.content_id = m.content_id
-         LEFT JOIN remote_bindings rb ON rb.message_id = m.message_id
-         {where_clause}"
-    )
+         LEFT JOIN remote_bindings rb ON rb.message_id = m.message_id ",
+        where_clause,
+    ]
+    .concat()
 }

@@ -122,7 +122,8 @@ fn find_missing_falls_back_to_uid_and_size_with_storage_backed_rows() {
 fn store_message_preserves_remote_read_and_starred_flags() {
     let tmp = tempfile::tempdir().unwrap();
     let account = account_with_provider(Provider::Standard);
-    let store = MailStore::new(tmp.path());
+    let _store = MailStore::new(tmp.path());
+    let mut storage = Storage::open(tmp.path()).unwrap();
     let remote = RemoteMessage {
         uid: 42,
         uidvalidity: Some(123),
@@ -133,8 +134,8 @@ fn store_message_preserves_remote_read_and_starred_flags() {
     };
 
     let entry = store_message(
+        &mut storage,
         &account,
-        &store,
         "INBOX",
         "inbox",
         b"Message-ID: <m@example.com>\r\n\r\nbody",
@@ -149,8 +150,8 @@ fn store_message_preserves_remote_read_and_starred_flags() {
 #[test]
 fn refresh_remote_flags_updates_existing_storage_rows() {
     let tmp = tempfile::tempdir().unwrap();
-    let account = account_with_provider(Provider::Standard);
-    let store = MailStore::new(tmp.path());
+    let _account = account_with_provider(Provider::Standard);
+    let _store = MailStore::new(tmp.path());
     let mut storage = Storage::open(tmp.path()).unwrap();
     let stored = storage
         .ingest_message(
@@ -181,7 +182,8 @@ fn refresh_remote_flags_updates_existing_storage_rows() {
         starred: true,
     };
 
-    refresh_remote_flags(&account, &store, "INBOX", &[remote]).unwrap();
+    refresh_remote_flags(&mut storage, "test", "INBOX", &[remote]).unwrap();
+    drop(storage);
 
     let updated = Storage::open(tmp.path())
         .unwrap()

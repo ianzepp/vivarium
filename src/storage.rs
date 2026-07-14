@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 #[cfg(unix)]
@@ -127,6 +128,8 @@ pub struct MailspaceEvent {
 pub struct Storage {
     mail_root: PathBuf,
     conn: Connection,
+    /// Cached short-handle map, cleared on any write.
+    handle_cache: RefCell<Option<HashMap<String, String>>>,
 }
 
 impl Storage {
@@ -151,6 +154,8 @@ impl Storage {
             .map_err(|e| VivariumError::Other(format!("failed to open storage database: {e}")))?;
         conn.busy_timeout(Duration::from_secs(5))
             .map_err(|e| VivariumError::Other(format!("failed to set SQLite timeout: {e}")))?;
+        conn.pragma_update(None, "journal_mode", "WAL")
+            .map_err(|e| VivariumError::Other(format!("failed to set WAL journal mode: {e}")))?;
         #[cfg(unix)]
         fs::set_permissions(db_path, fs::Permissions::from_mode(0o600))?;
 
@@ -159,7 +164,13 @@ impl Storage {
         Ok(Self {
             mail_root: mail_root.to_path_buf(),
             conn,
+            handle_cache: RefCell::new(None),
         })
+    }
+
+    /// Clear the cached short-handle map after any write that affects messages.
+    fn invalidate_handle_cache(&self) {
+        *self.handle_cache.borrow_mut() = None;
     }
 
     pub fn import_catalog_entries(

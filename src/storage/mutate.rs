@@ -40,6 +40,7 @@ impl Storage {
         tx.commit().map_err(|e| {
             VivariumError::Other(format!("failed to commit lifecycle transaction: {e}"))
         })?;
+        self.invalidate_handle_cache();
         Ok(replies)
     }
 
@@ -65,6 +66,7 @@ impl Storage {
                 "message not found for {account}: {message_id}"
             )));
         }
+        self.invalidate_handle_cache();
         Ok(())
     }
 
@@ -102,6 +104,9 @@ impl Storage {
                 ],
             )
             .map_err(|e| VivariumError::Other(format!("failed to update message flags: {e}")))?;
+        if changed > 0 {
+            self.invalidate_handle_cache();
+        }
         Ok(changed > 0)
     }
 
@@ -125,6 +130,9 @@ impl Storage {
                 params![account, message_id, if read_state { 1 } else { 0 }, now],
             )
             .map_err(|e| VivariumError::Other(format!("failed to set local read state: {e}")))?;
+        if changed > 0 {
+            self.invalidate_handle_cache();
+        }
         Ok(changed > 0)
     }
 
@@ -143,6 +151,9 @@ impl Storage {
                 params![account, message_id, now],
             )
             .map_err(|e| VivariumError::Other(format!("failed to mark message deleted: {e}")))?;
+        if changed > 0 {
+            self.invalidate_handle_cache();
+        }
         Ok(changed > 0)
     }
 }
