@@ -274,3 +274,80 @@ fn remote(mailbox: &str, uid: u32) -> RemoteIdentity {
         content_fingerprint: "unused".into(),
     }
 }
+
+#[test]
+fn move_message_to_role_rejects_wrong_account() {
+    let tmp = tempfile::tempdir().unwrap();
+    let raw = message_bytes("move@example.com", "body");
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    let stored = storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "acct".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: "remote_uid:5".into(),
+                remote: Some(RemoteBindingInput {
+                    account: "acct".into(),
+                    provider: "protonmail".into(),
+                    remote_mailbox: "INBOX".into(),
+                    remote_uid: 5,
+                    remote_uidvalidity: 42,
+                }),
+            },
+            &raw,
+        )
+        .unwrap();
+
+    let err = storage
+        .move_message_to_role("other", &stored.message_id, "archive")
+        .unwrap_err();
+    assert!(err.to_string().contains("not found"));
+
+    // Original message must be unchanged.
+    let sizes = storage.local_sizes_by_role("inbox").unwrap();
+    assert!(sizes.contains_key("inbox-5"));
+}
+
+#[test]
+fn mark_message_deleted_is_idempotent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let raw = message_bytes("del@example.com", "body");
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    let stored = storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "acct".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: "remote_uid:6".into(),
+                remote: Some(RemoteBindingInput {
+                    account: "acct".into(),
+                    provider: "protonmail".into(),
+                    remote_mailbox: "INBOX".into(),
+                    remote_uid: 6,
+                    remote_uidvalidity: 42,
+                }),
+            },
+            &raw,
+        )
+        .unwrap();
+
+    // First delete succeeds.
+    assert!(
+        storage
+            .mark_message_deleted("acct", &stored.message_id)
+            .unwrap()
+    );
+
+    // Second delete returns false — already soft-deleted.
+    assert!(
+        !storage
+            .mark_message_deleted("acct", &stored.message_id)
+            .unwrap()
+    );
+}
