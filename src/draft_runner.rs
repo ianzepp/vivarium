@@ -318,4 +318,96 @@ mod tests {
         assert_eq!(send_transport(&Provider::Gmail), SendTransport::Smtp);
         assert_eq!(send_transport(&Provider::Standard), SendTransport::Smtp);
     }
+
+    fn test_runtime(
+        tmp: &std::path::Path,
+        policy: vivarium::config::MutationPolicy,
+    ) -> super::Runtime {
+        use vivarium::config::{Account, AccountsFile, Auth, Config, Security};
+
+        let account = Account {
+            name: "test".into(),
+            email: "test@example.com".into(),
+            imap_host: "localhost".into(),
+            imap_port: Some(1143),
+            imap_security: Some(Security::Starttls),
+            smtp_host: "localhost".into(),
+            smtp_port: Some(1025),
+            smtp_security: Some(Security::Starttls),
+            username: "test".into(),
+            auth: Auth::Password,
+            password: Some("secret".into()),
+            password_cmd: None,
+            token_cmd: None,
+            oauth_client_id: None,
+            oauth_client_secret: None,
+            mail_dir: Some(tmp.to_string_lossy().to_string()),
+            inbox_folder: None,
+            archive_folder: None,
+            trash_folder: None,
+            sent_folder: None,
+            drafts_folder: None,
+            label_roots: None,
+            storage_mode: None,
+            provider: vivarium::config::Provider::Standard,
+            oauth_authorization_url: None,
+            oauth_token_url: None,
+            oauth_scope: None,
+            reject_invalid_certs: None,
+            policy,
+        };
+        super::Runtime {
+            config: Config::default(),
+            accounts: AccountsFile {
+                accounts: vec![account],
+            },
+            account: Some("test".into()),
+            insecure: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn store_draft_append_remote_denied_under_read_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = test_runtime(tmp.path(), vivarium::config::MutationPolicy::ReadOnly);
+        let data = b"From: test@example.com\r\nTo: you@example.com\r\nSubject: hi\r\n\r\nbody";
+
+        let err = store_draft(&runtime, data, true).await.unwrap_err();
+        assert!(matches!(err, VivariumError::Policy(_)));
+        assert!(err.to_string().contains("append-draft"));
+    }
+
+    #[tokio::test]
+    async fn store_draft_append_remote_denied_under_archive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = test_runtime(tmp.path(), vivarium::config::MutationPolicy::Archive);
+        let data = b"From: test@example.com\r\nTo: you@example.com\r\nSubject: hi\r\n\r\nbody";
+
+        let err = store_draft(&runtime, data, true).await.unwrap_err();
+        assert!(matches!(err, VivariumError::Policy(_)));
+    }
+
+    #[tokio::test]
+    async fn store_draft_append_remote_allowed_under_full_write() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = test_runtime(tmp.path(), vivarium::config::MutationPolicy::FullWrite);
+        let data = b"From: test@example.com\r\nTo: you@example.com\r\nSubject: hi\r\n\r\nbody";
+
+        // Local draft is created; append_remote gate passes under full-write.
+        // The actual IMAP APPEND will fail because no server is running,
+        // but the error must NOT be Policy — proving authorization passed.
+        let err = store_draft(&runtime, data, true).await.unwrap_err();
+        assert!(!matches!(err, VivariumError::Policy(_)));
+    }
+
+    #[tokio::test]
+    async fn store_draft_local_only_under_read_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = test_runtime(tmp.path(), vivarium::config::MutationPolicy::ReadOnly);
+        let data = b"From: test@example.com\r\nTo: you@example.com\r\nSubject: hi\r\n\r\nbody";
+
+        // Local-only draft (append_remote=false) must succeed under any policy.
+        let path = store_draft(&runtime, data, false).await.unwrap();
+        assert!(path.exists());
+    }
 }
