@@ -6,6 +6,9 @@ use crate::config::{Account, Auth, Security};
 use crate::error::VivariumError;
 
 /// Send raw .eml bytes via the account's SMTP server.
+///
+/// Bcc headers are stripped from the transmitted DATA (RFC 5322 §3.6.3)
+/// while remaining in the SMTP envelope so delivery reaches all recipients.
 pub async fn send_raw(
     account: &Account,
     data: &[u8],
@@ -15,15 +18,19 @@ pub async fn send_raw(
     let transport = smtp_transport(account, secret, reject_invalid_certs)?;
 
     let envelope = envelope_from_raw(data)?;
+    let sanitized = strip_bcc_headers(data);
 
-    transport.send_raw(&envelope, data).await.map_err(|e| {
-        VivariumError::Smtp(format!(
-            "send failed via {}:{} using {}: {e}",
-            account.resolved_smtp_host(),
-            account.resolved_smtp_port(),
-            account.resolved_smtp_security()
-        ))
-    })?;
+    transport
+        .send_raw(&envelope, &sanitized)
+        .await
+        .map_err(|e| {
+            VivariumError::Smtp(format!(
+                "send failed via {}:{} using {}: {e}",
+                account.resolved_smtp_host(),
+                account.resolved_smtp_port(),
+                account.resolved_smtp_security()
+            ))
+        })?;
 
     tracing::info!("message sent");
     Ok(())
@@ -93,7 +100,46 @@ fn tls_parameters(
         .map_err(|e| VivariumError::Tls(format!("TLS params failed: {e}")))
 }
 
-/// Extract From/To addresses from raw .eml to build a lettre Envelope.
+/// Strip all Bcc headers (case-insensitive, including folded continuations)
+/// from the raw message bytes, preserving everything else.
+///
+/// Per RFC 5322 §3.6.3, Bcc recipients must not appear in the DATA sent
+/// to the SMTP server. The envelope (RCPT TO) still includes them.
+fn strip_bcc_headers(data: &[u8]) -> Vec<u8> {
+    let text = match std::str::from_utf8(data) {
+        Ok(s) => s,
+        Err(_) => return data.to_vec(),
+    };
+    let Some((header_block, body)) = text.split_once("\r\n\r\n") else {
+        return data.to_vec();
+    };
+    let mut result = String::new();
+    let mut in_bcc = false;
+    for line in header_block.split_inclusive("\r\n") {
+        let trimmed = line.trim_end_matches("\r\n");
+        if is_bcc_header(trimmed) {
+            in_bcc = true;
+            continue;
+        }
+        if in_bcc && is_folded_continuation(trimmed) {
+            continue;
+        }
+        in_bcc = false;
+        result.push_str(line);
+    }
+    result.push_str("\r\n\r\n");
+    result.push_str(body);
+    result.into_bytes()
+}
+
+fn is_bcc_header(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    lower.starts_with("bcc:")
+}
+
+fn is_folded_continuation(line: &str) -> bool {
+    line.starts_with(' ') || line.starts_with('\t')
+}
 fn envelope_from_raw(data: &[u8]) -> Result<Envelope, VivariumError> {
     let parsed = mail_parser::MessageParser::default()
         .parse(data)
@@ -180,6 +226,87 @@ mod tests {
         account.smtp_security = Some(Security::Starttls);
         account.auth = Auth::Xoauth2;
         smtp_transport(&account, "access-token".into(), true).unwrap();
+    }
+
+    #[test]
+    fn strip_bcc_removes_simple_bcc_header() {
+        let data = b"From: a@example.com\r\nTo: b@example.com\r\nBcc: c@example.com\r\nSubject: hi\r\n\r\nbody";
+        let result = strip_bcc_headers(data);
+        let text = std::str::from_utf8(&result).unwrap();
+        assert!(!text.to_ascii_lowercase().contains("bcc:"));
+        assert!(text.contains("From: a@example.com"));
+        assert!(text.contains("To: b@example.com"));
+        assert!(text.contains("Subject: hi"));
+        assert!(text.contains("\r\n\r\nbody"));
+    }
+
+    #[test]
+    fn strip_bcc_removes_case_insensitive_bcc() {
+        let data = b"From: a@example.com\r\nBCC: c@example.com\r\nbcc: d@example.com\r\nTo: b@example.com\r\n\r\nbody";
+        let result = strip_bcc_headers(data);
+        let text = std::str::from_utf8(&result).unwrap();
+        assert!(!text.to_ascii_lowercase().contains("bcc"));
+    }
+
+    #[test]
+    fn strip_bcc_removes_folded_continuation_lines() {
+        let data = b"From: a@example.com\r\nTo: b@example.com\r\nBcc: c@example.com,\r\n d@example.com\r\nSubject: hi\r\n\r\nbody";
+        let result = strip_bcc_headers(data);
+        let text = std::str::from_utf8(&result).unwrap();
+        assert!(!text.to_ascii_lowercase().contains("bcc"));
+        assert!(!text.contains("d@example.com"));
+        assert!(text.contains("Subject: hi"));
+        assert!(text.contains("\r\n\r\nbody"));
+    }
+
+    #[test]
+    fn strip_bcc_preserves_message_with_no_bcc() {
+        let data = b"From: a@example.com\r\nTo: b@example.com\r\nSubject: hi\r\n\r\nbody";
+        let result = strip_bcc_headers(data);
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn strip_bcc_preserves_body_intact() {
+        let data = b"From: a@example.com\r\nTo: b@example.com\r\nBcc: c@example.com\r\n\r\nLine one.\r\nBcc: should not be stripped in body\r\nLine three.";
+        let result = strip_bcc_headers(data);
+        let text = std::str::from_utf8(&result).unwrap();
+        assert!(
+            !text[..text.find("\r\n\r\n").unwrap()]
+                .to_ascii_lowercase()
+                .contains("bcc")
+        );
+        assert!(text.contains("Bcc: should not be stripped in body"));
+    }
+
+    #[test]
+    fn fake_smtp_capture_envelope_has_bcc_data_does_not() {
+        let data = b"From: sender@example.com\r\nTo: to@example.com\r\nCc: cc@example.com\r\nBcc: secret@example.com\r\nSubject: test\r\n\r\nbody";
+
+        // Envelope must include all recipients (To + Cc + Bcc).
+        let envelope = envelope_from_raw(data).unwrap();
+        let recipients = envelope
+            .to()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        assert!(recipients.contains(&"secret@example.com".into()));
+
+        // Captured DATA must not contain any Bcc header.
+        let captured = strip_bcc_headers(data);
+        let captured_text = std::str::from_utf8(&captured).unwrap();
+        let header_block = captured_text
+            .split_once("\r\n\r\n")
+            .map(|(h, _)| h)
+            .unwrap_or(captured_text);
+        assert!(
+            !header_block.to_ascii_lowercase().contains("bcc"),
+            "DATA header block must not contain Bcc: {header_block}"
+        );
+
+        // Captured DATA still has To and Cc for transparency.
+        assert!(captured_text.contains("To: to@example.com"));
+        assert!(captured_text.contains("Cc: cc@example.com"));
     }
 
     fn test_account() -> Account {
