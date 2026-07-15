@@ -54,16 +54,44 @@ pub async fn sync_account(
 ) -> Result<SyncResult, VivariumError> {
     let store = MailStore::new(&account.mail_path(config));
     store.ensure_folders()?;
-
+    let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
     let mut result = if limit == Some(0) {
         SyncResult::default()
     } else if matches!(account.provider, Provider::ProtonApi) {
         crate::proton_sync::sync_messages(account, &store, limit, window).await?
     } else {
-        let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
         crate::imap::sync_messages(account, &store, reject_invalid_certs, limit, window, all)
             .await?
     };
+    finish_sync(account, &mut result)?;
+    Ok(result)
+}
+
+/// Sync only the account's inbound IMAP folder. This seam has no sent-folder,
+/// draft, outbox, or remote-mutation authority and is used by watch-inbox.
+pub async fn sync_inbox_account(
+    account: &Account,
+    config: &Config,
+    insecure: bool,
+    window: SyncWindow,
+) -> Result<SyncResult, VivariumError> {
+    if matches!(account.provider, Provider::ProtonApi) {
+        return Err(VivariumError::Config(format!(
+            "account '{}' uses provider = \"proton-api\"; inbound IMAP watch is unavailable",
+            account.name
+        )));
+    }
+    let store = MailStore::new(&account.mail_path(config));
+    store.ensure_folders()?;
+    let reject_invalid_certs = account.reject_invalid_certs(config) && !insecure;
+    let mut result =
+        crate::imap::sync_inbox_messages(account, &store, reject_invalid_certs, None, window)
+            .await?;
+    finish_sync(account, &mut result)?;
+    Ok(result)
+}
+
+fn finish_sync(account: &Account, result: &mut SyncResult) -> Result<(), VivariumError> {
     let (extracted, extraction_errors) =
         crate::extract::extract_catalog_entries(&result.cataloged_entries)?;
     result.cataloged = result.cataloged_entries.len();
@@ -79,7 +107,7 @@ pub async fn sync_account(
         decryption_errors = result.decryption_errors,
         "sync complete"
     );
-    Ok(result)
+    Ok(())
 }
 
 /// Reset (delete) the local account cache directory.

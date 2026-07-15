@@ -355,8 +355,9 @@ supports caller-owned event-id cursor files with `--cursor-file
 <path> --write-cursor`. `--once` performs one non-blocking scan. The aliases
 `mail watch`, `task watch`, `need watch`, and `want watch` narrow the kind
 filter. This is deliberately different from `vivi sync-events --watch` or the
-account-scoped `vivi watch`, which observe remote Proton/IMAP activity and do
-not wake a project Mind when local mailspace delivery arrives.
+account-scoped `vivi watch-inbox`, which observes inbound IMAP activity and
+emits stable JSON events after local sync. `watch-inbox` never wakes an LLM or
+executes outbound work; the Ops bridge owns wake delivery and debounce.
 
 For long local bodies, keep using `--body @path` or pass an explicit body file.
 `--body -` reads stdin:
@@ -436,6 +437,7 @@ vivi sync --account proton --json              # machine-readable sync summary
 vivi sync --account proton --since 3mo         # sync messages from the last 3 months
 vivi sync --account proton --since 2025-05-02 --before 2026-05-02
 vivi sync --account proton --reset             # delete local cache, then full resync
+vivi watch-inbox --account proton --json        # inbound-only IMAP event source
 vivi doctor --account proton                   # check config, IMAP, and SMTP connectivity
 vivi list                                      # list inbox (default)
 vivi list sent                                 # list sent folder

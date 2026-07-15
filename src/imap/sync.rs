@@ -32,6 +32,25 @@ enum DedupeScope {
 }
 
 /// Sync messages from the account's IMAP server into the local store.
+pub async fn sync_inbox_messages(
+    account: &Account,
+    store: &MailStore,
+    reject_invalid_certs: bool,
+    limit: Option<usize>,
+    window: SyncWindow,
+) -> Result<SyncResult, VivariumError> {
+    sync_plans(
+        account,
+        store,
+        reject_invalid_certs,
+        limit,
+        window,
+        vec![inbox_plan(account)],
+    )
+    .await
+}
+
+/// Sync inbound and sent mail using the historical full-sync behavior.
 pub async fn sync_messages(
     account: &Account,
     store: &MailStore,
@@ -39,6 +58,25 @@ pub async fn sync_messages(
     limit: Option<usize>,
     window: SyncWindow,
     all: bool,
+) -> Result<SyncResult, VivariumError> {
+    sync_plans(
+        account,
+        store,
+        reject_invalid_certs,
+        limit,
+        window,
+        sync_folders(account, all),
+    )
+    .await
+}
+
+async fn sync_plans(
+    account: &Account,
+    store: &MailStore,
+    reject_invalid_certs: bool,
+    limit: Option<usize>,
+    window: SyncWindow,
+    plans: Vec<FolderPlan>,
 ) -> Result<SyncResult, VivariumError> {
     if matches!(account.provider, Provider::ProtonApi) {
         return Err(VivariumError::Config(format!(
@@ -57,7 +95,7 @@ pub async fn sync_messages(
     let mut result = SyncResult::default();
     let mut remaining = limit;
 
-    for plan in sync_folders(account, all) {
+    for plan in plans {
         let r = sync_folder(SyncFolderRequest {
             account,
             store,
@@ -80,13 +118,17 @@ pub async fn sync_messages(
     Ok(result)
 }
 
+fn inbox_plan(account: &Account) -> FolderPlan {
+    FolderPlan {
+        remote_folder: account.inbox_folder(),
+        local_folder: "inbox",
+        dedupe_scope: DedupeScope::LocalFolder,
+    }
+}
+
 fn sync_folders(account: &Account, all: bool) -> Vec<FolderPlan> {
     let mut folders = vec![
-        FolderPlan {
-            remote_folder: account.inbox_folder(),
-            local_folder: "inbox",
-            dedupe_scope: DedupeScope::LocalFolder,
-        },
+        inbox_plan(account),
         FolderPlan {
             remote_folder: account.sent_folder(),
             local_folder: "sent",

@@ -142,8 +142,7 @@ impl Runtime {
             command @ Command::Search { .. } => self.run_search_command(command).await,
             Command::Index { command } => self.index(command).await,
             Command::Agent { .. } => unreachable!(),
-            #[cfg(feature = "outbox")]
-            Command::Watch { account } => self.watch(account).await,
+            Command::WatchInbox { account, json } => self.watch_inbox(account, json).await,
             Command::Reply(_) | Command::Compose(_) => unreachable!(),
             Command::Exec { .. } | Command::Enqueue { .. } | Command::Queue { .. } => {
                 unreachable!()
@@ -301,18 +300,17 @@ impl Runtime {
         }
     }
 
-    #[cfg(feature = "outbox")]
-    async fn watch(&self, account: Option<String>) -> Result<(), VivariumError> {
-        match self.selected_account_name(account) {
-            Some(name) => {
-                let acct = self.accounts.find_account(&name)?;
-                vivarium::watch::watch_account(acct, &self.config, self.insecure).await
-            }
-            None => {
-                vivarium::watch::watch_all(&self.accounts.accounts, &self.config, self.insecure)
-                    .await
-            }
+    async fn watch_inbox(&self, account: Option<String>, json: bool) -> Result<(), VivariumError> {
+        if !json {
+            return Err(VivariumError::Message(
+                "watch-inbox requires --json for the stable Ops event contract".into(),
+            ));
         }
+        let name = self
+            .selected_account_name(account)
+            .ok_or_else(|| VivariumError::Config("watch-inbox requires --account".into()))?;
+        let acct = self.accounts.find_account(&name)?;
+        vivarium::watch_inbox::watch_inbox(acct, &self.config, self.insecure).await
     }
 
     async fn search(&self, request: SearchRequest<'_>) -> Result<(), VivariumError> {

@@ -26,6 +26,7 @@ pub mod retrieve;
 pub mod search;
 pub mod storage;
 pub mod thread;
+pub mod watch_inbox;
 
 #[cfg(feature = "outbox")]
 pub mod outbox;
@@ -33,8 +34,5 @@ pub mod outbox;
 pub mod smtp;
 pub mod store;
 pub mod sync;
-
-#[cfg(feature = "outbox")]
-pub mod watch;
 
 pub use error::VivariumError;

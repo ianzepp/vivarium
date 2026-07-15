@@ -167,12 +167,15 @@ pub enum Command {
         command: ProtonCommand,
     },
 
-    /// Watch for new mail via IMAP IDLE and outbox changes
-    #[cfg(feature = "outbox")]
-    Watch {
+    /// Watch inbound IMAP mail and emit JSON events after local sync
+    WatchInbox {
         /// Account to watch (overrides --account)
         #[arg(long)]
         account: Option<String>,
+
+        /// Emit the stable structured event contract required by Ops
+        #[arg(long)]
+        json: bool,
     },
 
     /// List messages in a folder (inbox, archive, trash, sent, drafts)

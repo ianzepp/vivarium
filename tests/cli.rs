@@ -44,6 +44,24 @@ fn parses_sync_json() {
 }
 
 #[test]
+fn parses_watch_inbox_event_contract() {
+    let cli = Cli::try_parse_from(["vivi", "watch-inbox", "--account", "agent", "--json"]).unwrap();
+
+    match cli.command {
+        Command::WatchInbox { account, json } => {
+            assert_eq!(account.as_deref(), Some("agent"));
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn old_outbox_coupled_watch_surface_is_removed() {
+    assert!(Cli::try_parse_from(["vivi", "watch"]).is_err());
+}
+
+#[test]
 fn parses_sync_events_watch() {
     let cli = Cli::try_parse_from([
         "vivi",

@@ -2,6 +2,49 @@ use super::*;
 use crate::imap::identity::remote_identity_candidates;
 
 #[test]
+fn inbox_watch_plan_has_no_sent_or_outbound_folder() {
+    let account = test_account();
+    let plan = inbox_plan(&account);
+
+    assert_eq!(plan.remote_folder, "INBOX");
+    assert_eq!(plan.local_folder, "inbox");
+}
+
+fn test_account() -> Account {
+    Account {
+        name: "agent".into(),
+        email: "agent@example.com".into(),
+        imap_host: "localhost".into(),
+        imap_port: Some(993),
+        imap_security: None,
+        smtp_host: String::new(),
+        smtp_port: None,
+        smtp_security: None,
+        username: "agent".into(),
+        auth: Default::default(),
+        password: Some("secret".into()),
+        password_cmd: None,
+        token_cmd: None,
+        oauth_client_id: None,
+        oauth_client_secret: None,
+        mail_dir: None,
+        inbox_folder: None,
+        archive_folder: None,
+        trash_folder: None,
+        sent_folder: Some("Sent".into()),
+        drafts_folder: Some("Drafts".into()),
+        label_roots: None,
+        storage_mode: None,
+        provider: Default::default(),
+        oauth_authorization_url: None,
+        oauth_token_url: None,
+        oauth_scope: None,
+        reject_invalid_certs: None,
+        policy: Default::default(),
+    }
+}
+
+#[test]
 fn find_missing_skips_remote_uid_remap_when_message_id_matches() {
     let tmp = tempfile::tempdir().unwrap();
     let store = MailStore::new(tmp.path());
