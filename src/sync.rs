@@ -156,10 +156,10 @@ fn resolve_canonical(path: &std::path::Path) -> Result<std::path::PathBuf, Vivar
 ///
 /// - **Managed paths** must be a proper account child under the managed mail
 ///   root (not the root itself, not an ancestor).
-/// - **Custom paths** require `confirm_custom = true` AND must not be a
-///   system directory (root, home, cwd, repository root) or any ancestor of
-///   the managed mail root. Custom paths must be at least 2 path components
-///   deep from root to reject top-level shared directories.
+/// - **Custom paths** require `confirm_custom = true` AND must be outside
+///   home, cwd, repository root, and all their descendants. Must not be or
+///   contain the managed mail root. This is fail-closed: any path inside
+///   a system or repository tree is rejected regardless of confirmation.
 fn validate_reset(
     canonical: &std::path::Path,
     managed_root: &std::path::Path,
@@ -211,13 +211,16 @@ fn reject_dangerous_target(path: &std::path::Path) -> Result<(), VivariumError> 
         return Err(reset_refusal(path, "the filesystem root"));
     }
 
-    // Reject home, cwd, and repository/worktree root.
+    // Reject home, cwd, repository root, and all their descendants.
     let home = dirs::home_dir().unwrap_or_default();
     let cwd = std::env::current_dir().unwrap_or_default();
     let repo_root = find_repo_root(&cwd);
     for dangerous in [&home, &cwd].into_iter().chain(repo_root.iter()) {
-        if path == dangerous.as_path() {
-            return Err(reset_refusal(path, "a system or repository directory"));
+        if path == dangerous.as_path() || path.starts_with(dangerous) {
+            return Err(reset_refusal(
+                path,
+                "inside a system or repository directory",
+            ));
         }
     }
 
@@ -254,7 +257,7 @@ fn find_repo_root(cwd: &std::path::Path) -> Option<std::path::PathBuf> {
 }
 
 fn validate_custom_reset(
-    canonical: &std::path::Path,
+    _canonical: &std::path::Path,
     confirm_custom: bool,
 ) -> Result<(), VivariumError> {
     if !confirm_custom {
@@ -262,19 +265,10 @@ fn validate_custom_reset(
             "custom mail_dir requires --confirm-reset to proceed".into(),
         ));
     }
-
-    // Reject top-level shared directories (fewer than 2 components from root).
-    let depth = canonical
-        .components()
-        .filter(|c| matches!(c, std::path::Component::Normal(_)))
-        .count();
-    if depth < 2 {
-        return Err(VivariumError::Other(format!(
-            "custom reset target {} is too close to root; refusing",
-            canonical.display()
-        )));
-    }
-
+    // System-directory and repository-descendant rejection is handled by
+    // reject_dangerous_target in validate_reset before this function is
+    // called. The depth-based containment boundary has been replaced by
+    // the stricter rule: custom paths must be outside home/cwd/repo entirely.
     Ok(())
 }
 
@@ -629,6 +623,68 @@ mod tests {
         // Even with confirmation, home is a system directory.
         let err = reset_account_cache(&account, &config, true).unwrap_err();
         assert!(err.to_string().contains("refusing"));
+    }
+
+    #[test]
+    fn reset_rejects_home_descendant_even_with_confirmation() {
+        let home = dirs::home_dir().unwrap();
+        let docs = home.join("Documents");
+        let account = account_with_mail_dir(docs);
+        let config = Config::default();
+        let err = reset_account_cache(&account, &config, true).unwrap_err();
+        assert!(err.to_string().contains("refusing"));
+    }
+
+    #[test]
+    fn reset_rejects_cwd_descendant_even_with_confirmation() {
+        let cwd = std::env::current_dir().unwrap();
+        let subdir = cwd.join("subdir");
+        std::fs::create_dir_all(&subdir).unwrap();
+        let account = account_with_mail_dir(subdir);
+        let config = Config::default();
+        let err = reset_account_cache(&account, &config, true).unwrap_err();
+        assert!(err.to_string().contains("refusing"));
+    }
+
+    #[test]
+    fn reset_rejects_repo_descendant_even_with_confirmation() {
+        let cwd = std::env::current_dir().unwrap();
+        let repo = find_repo_root(&cwd).unwrap_or(cwd.clone());
+        let subdir = repo.join("src");
+        if !subdir.exists() {
+            std::fs::create_dir_all(&subdir).unwrap();
+        }
+        let account = account_with_mail_dir(subdir);
+        let config = Config::default();
+        let err = reset_account_cache(&account, &config, true).unwrap_err();
+        assert!(err.to_string().contains("refusing"));
+    }
+
+    #[test]
+    fn reset_rejects_nested_symlink_to_existing_outside_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mail_root = tmp.path().join("mailroot");
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&mail_root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.eml"), b"secret").unwrap();
+
+        // mailroot/acct is a symlink to outside (existing target).
+        std::os::unix::fs::symlink(&outside, mail_root.join("acct")).unwrap();
+
+        let config = Config {
+            defaults: crate::config::types::Defaults {
+                mail_root: Some(mail_root.to_string_lossy().to_string()),
+                ..Default::default()
+            },
+        };
+        // mail_path for "acct" = mailroot/acct, which is a symlink to outside.
+        // Canonicalizes to `outside`, which is outside the managed root.
+        let account = account_managed("acct");
+
+        let err = reset_account_cache(&account, &config, false).unwrap_err();
+        assert!(err.to_string().contains("refusing"));
+        assert!(outside.join("secret.eml").exists());
     }
 
     fn account_managed(name: &str) -> Account {
