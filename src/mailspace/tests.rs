@@ -262,3 +262,15 @@ fn sample_ms(mut op: impl FnMut()) -> f64 {
     }
     total / 3.0
 }
+
+#[test]
+fn deliver_raw_rejects_unresolved_recipients() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("ceo").unwrap();
+
+    // External address — resolve_identity rejects before delivery.
+    let eml = b"From: stranger@example.com\r\nTo: nobody@example.com\r\nSubject: hi\r\n\r\nbody";
+    let err = mailspace.deliver_raw(eml, "inbox").unwrap_err();
+    assert!(err.to_string().contains("not allowed"));
+}

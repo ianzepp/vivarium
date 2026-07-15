@@ -152,6 +152,11 @@ impl Mailspace {
             .iter()
             .map(|addr| self.resolve_identity(addr))
             .collect::<Result<Vec<_>, _>>()?;
+        if recipients.is_empty() {
+            return Err(VivariumError::Message(
+                "no recipient address resolves to a known local identity".into(),
+            ));
+        }
         let role = canonical_local_role(folder)?;
         let mut storage = self.storage()?;
         let mut delivered = Vec::new();
