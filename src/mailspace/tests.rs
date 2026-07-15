@@ -1,4 +1,6 @@
 use super::*;
+use crate::storage::MessageIngestRequest;
+use std::collections::BTreeSet;
 use std::time::Instant;
 
 #[test]
@@ -273,4 +275,160 @@ fn deliver_raw_rejects_unresolved_recipients() {
     let eml = b"From: stranger@example.com\r\nTo: nobody@example.com\r\nSubject: hi\r\n\r\nbody";
     let err = mailspace.deliver_raw(eml, "inbox").unwrap_err();
     assert!(err.to_string().contains("not allowed"));
+}
+
+#[test]
+fn deliver_raw_multi_recipient_is_atomic_on_success() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("alice").unwrap();
+    mailspace.add_identity("bob").unwrap();
+    mailspace.add_identity("carol").unwrap();
+
+    let to = mailspace.address_for("alice");
+    let cc1 = mailspace.address_for("bob");
+    let cc2 = mailspace.address_for("carol");
+    let eml = format!(
+        "From: sender@example.com\r\n\
+To: {to}\r\n\
+Cc: {cc1}, {cc2}\r\n\
+Subject: multi\r\n\r\nbody"
+    );
+    let delivered = mailspace.deliver_raw(eml.as_bytes(), "inbox").unwrap();
+    let delivered_names: BTreeSet<String> = delivered.iter().map(|d| d.identity.clone()).collect();
+    assert_eq!(
+        delivered_names,
+        ["alice", "bob", "carol"]
+            .into_iter()
+            .map(String::from)
+            .collect()
+    );
+
+    // Every recipient has a message row and at least one delivery event.
+    for identity in &["alice", "bob", "carol"] {
+        let inbox = mailspace.list(identity, "inbox").unwrap();
+        assert_eq!(inbox.len(), 1, "{identity} should have one inbox message");
+    }
+
+    // Verify events were logged atomically alongside message rows.
+    let storage = mailspace.storage().unwrap();
+    let events = storage.list_mailspace_events_after(0).unwrap();
+    let delivered_events: Vec<_> = events
+        .iter()
+        .filter(|e| e.command == "mail deliver")
+        .collect();
+    assert_eq!(
+        delivered_events.len(),
+        3,
+        "all three recipients should have delivery events"
+    );
+}
+
+#[test]
+fn deliver_raw_batch_rollback_leaves_no_partial_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("alice").unwrap();
+    mailspace.add_identity("bob").unwrap();
+    mailspace.add_identity("carol").unwrap();
+
+    let eml = b"From: sender@example.com\r\n\
+To: alice@vivarium.local\r\n\
+Cc: bob@vivarium.local, carol@vivarium.local\r\n\
+Subject: rollback\r\n\r\nbody";
+
+    let recipients = ["alice", "bob", "carol"];
+    let requests: Vec<_> = recipients
+        .iter()
+        .map(|r| MessageIngestRequest {
+            account: r.to_string(),
+            local_role: "inbox".into(),
+            read_state: false,
+            starred: false,
+            message_id_hint: None,
+            seed_hint: format!("raw-delivery\0{r}\0{}", eml.len()),
+            remote: None,
+        })
+        .collect();
+
+    let mut storage = mailspace.storage().unwrap();
+
+    // Inject failure after 2 message rows — proving the entire batch rolls back.
+    let err = storage
+        .deliver_raw_batch_fail_after(
+            &requests,
+            eml,
+            "mail deliver",
+            "delivered",
+            "inbox",
+            "rollback",
+            2,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("injected batch failure"));
+
+    // No partial message rows for ANY recipient (not even the first two).
+    let all_messages = storage.list_messages_by_role("inbox").unwrap();
+    assert!(
+        all_messages.is_empty(),
+        "no message rows should survive rollback, got {}",
+        all_messages.len()
+    );
+
+    // No partial delivery events for ANY recipient.
+    let events = storage.list_mailspace_events_after(0).unwrap();
+    assert!(
+        events.is_empty(),
+        "no events should survive rollback, got {}",
+        events.len()
+    );
+}
+
+#[test]
+fn deliver_raw_batch_success_then_list_has_events() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("alice").unwrap();
+    mailspace.add_identity("bob").unwrap();
+
+    let eml = b"From: sender@example.com\r\n\
+To: alice@vivarium.local\r\n\
+Cc: bob@vivarium.local\r\n\
+Subject: batch\r\n\r\nbody";
+
+    let recipients = ["alice", "bob"];
+    let requests: Vec<_> = recipients
+        .iter()
+        .map(|r| MessageIngestRequest {
+            account: r.to_string(),
+            local_role: "inbox".into(),
+            read_state: false,
+            starred: false,
+            message_id_hint: None,
+            seed_hint: format!("raw-delivery\0{r}\0{}", eml.len()),
+            remote: None,
+        })
+        .collect();
+
+    let mut storage = mailspace.storage().unwrap();
+    let stored = storage
+        .deliver_raw_batch(
+            &requests,
+            eml,
+            "mail deliver",
+            "delivered",
+            "inbox",
+            "batch",
+        )
+        .unwrap();
+    assert_eq!(stored.len(), 2);
+
+    // Messages present for both recipients.
+    let messages = storage.list_messages_by_role("inbox").unwrap();
+    assert_eq!(messages.len(), 2);
+
+    // Events present for both recipients.
+    let events = storage.list_mailspace_events_after(0).unwrap();
+    assert_eq!(events.len(), 2);
+    assert!(events.iter().all(|e| e.command == "mail deliver"));
 }

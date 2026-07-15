@@ -3,32 +3,6 @@ use super::delivery::DeliveredMessageId;
 use crate::error::VivariumError;
 use crate::storage::{MailspaceEventInput, Storage, StoredMessage, StoredMessageView};
 
-pub(super) fn log_raw_delivery_event(
-    storage: &Storage,
-    recipient: &str,
-    role: &str,
-    stored: &StoredMessage,
-    parsed: &mail_parser::Message<'_>,
-) -> Result<(), VivariumError> {
-    append_event(
-        storage,
-        EventDetails {
-            command: "mail deliver",
-            event_type: "delivered",
-            actor: None,
-            account: recipient,
-            message_id: &stored.message_id,
-            content_id: &stored.content_id,
-            from_role: None,
-            to_role: Some(role),
-            from_identity: None,
-            to_identity: Some(recipient),
-            subject: parsed.subject().unwrap_or_default(),
-            note: None,
-        },
-    )
-}
-
 pub(super) fn log_send_events(
     storage: &Storage,
     from: &str,

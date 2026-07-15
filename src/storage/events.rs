@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use rusqlite::Transaction;
+
 use super::*;
 
 impl Storage {
@@ -205,4 +207,38 @@ fn mailspace_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Mailspa
         subject: row.get(12)?,
         note: row.get(13)?,
     })
+}
+
+/// Insert a mailspace event within an existing transaction.
+/// Used by batch operations that need events committed atomically
+/// with message rows.
+pub(super) fn append_event_tx(
+    tx: &Transaction<'_>,
+    event: &MailspaceEventInput,
+    occurred_at: &str,
+) -> Result<(), VivariumError> {
+    tx.execute(
+        "INSERT INTO mailspace_events (
+           occurred_at, command, event_type, actor_identity, account,
+           message_id, content_id, from_role, to_role, from_identity,
+           to_identity, subject, note
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            occurred_at,
+            event.command,
+            event.event_type,
+            event.actor_identity,
+            event.account,
+            event.message_id,
+            event.content_id,
+            event.from_role,
+            event.to_role,
+            event.from_identity,
+            event.to_identity,
+            event.subject,
+            event.note,
+        ],
+    )
+    .map(|_| ())
+    .map_err(|e| VivariumError::Other(format!("failed to append mailspace event: {e}")))
 }

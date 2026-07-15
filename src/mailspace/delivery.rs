@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use chrono::Utc;
 
-use super::event_log::{log_move_event, log_raw_delivery_event, log_send_events};
+use super::event_log::{log_move_event, log_send_events};
 use super::kind::matches_kind;
 use super::reply::{add_reply_headers, resolve_reply_parent};
 use super::{DeliveredMessage, DeliveryResult, Mailspace, SendRequest, canonical_local_role};
@@ -158,28 +158,38 @@ impl Mailspace {
             ));
         }
         let role = canonical_local_role(folder)?;
+        let requests: Vec<MessageIngestRequest> = recipients
+            .iter()
+            .map(|recipient| MessageIngestRequest {
+                account: recipient.clone(),
+                local_role: role.clone(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: format!("raw-delivery\0{recipient}\0{}", data.len()),
+                remote: None,
+            })
+            .collect();
+        let subject = parsed.subject().unwrap_or_default().to_string();
         let mut storage = self.storage()?;
-        let mut delivered = Vec::new();
-        for recipient in recipients {
-            let stored = storage.ingest_message(
-                &MessageIngestRequest {
-                    account: recipient.clone(),
-                    local_role: role.clone(),
-                    read_state: false,
-                    starred: false,
-                    message_id_hint: None,
-                    seed_hint: format!("raw-delivery\0{recipient}\0{}", data.len()),
-                    remote: None,
-                },
-                data,
-            )?;
-            log_raw_delivery_event(&storage, &recipient, &role, &stored, &parsed)?;
-            delivered.push(DeliveredMessage {
-                identity: recipient,
-                handle: storage.display_handle(&stored.message_id)?,
-            });
-        }
-        Ok(delivered)
+        let stored = storage.deliver_raw_batch(
+            &requests,
+            data,
+            "mail deliver",
+            "delivered",
+            &role,
+            &subject,
+        )?;
+        stored
+            .into_iter()
+            .zip(requests.iter())
+            .map(|(msg, req)| {
+                Ok(DeliveredMessage {
+                    identity: req.account.clone(),
+                    handle: storage.display_handle(&msg.message_id)?,
+                })
+            })
+            .collect()
     }
 
     pub fn list(
