@@ -17,8 +17,7 @@ pub async fn send_raw(
     let secret = account.resolve_secret().await?;
     let transport = smtp_transport(account, secret, reject_invalid_certs)?;
 
-    let envelope = envelope_from_raw(data)?;
-    let sanitized = strip_bcc_headers(data);
+    let (envelope, sanitized) = prepare_for_send(data)?;
 
     transport
         .send_raw(&envelope, &sanitized)
@@ -34,6 +33,17 @@ pub async fn send_raw(
 
     tracing::info!("message sent");
     Ok(())
+}
+
+/// Build the SMTP envelope (including Bcc recipients for delivery) and
+/// sanitize the DATA bytes (stripping Bcc headers for privacy).
+///
+/// Both production `send_raw` and tests call this seam to exercise the
+/// same envelope-parsing and Bcc-sanitization code path.
+fn prepare_for_send(data: &[u8]) -> Result<(Envelope, Vec<u8>), VivariumError> {
+    let envelope = envelope_from_raw(data)?;
+    let sanitized = strip_bcc_headers(data);
+    Ok((envelope, sanitized))
 }
 
 /// Test SMTP connectivity, TLS, auth, and NOOP without sending mail.
@@ -307,6 +317,65 @@ mod tests {
         // Captured DATA still has To and Cc for transparency.
         assert!(captured_text.contains("To: to@example.com"));
         assert!(captured_text.contains("Cc: cc@example.com"));
+    }
+
+    #[tokio::test]
+    async fn send_seam_strips_bcc_from_captured_data() {
+        use lettre::transport::stub::AsyncStubTransport;
+
+        let data = b"From: sender@example.com\r\nTo: to@example.com\r\nCc: cc@example.com\r\nBcc: hidden@example.com\r\nSubject: private\r\n\r\nbody";
+
+        // Exercise the same prepare_for_send seam that send_raw uses.
+        let (envelope, sanitized) = prepare_for_send(data).unwrap();
+
+        // Feed the exact values to a fake transport that captures them.
+        let stub = AsyncStubTransport::new_ok();
+        stub.send_raw(&envelope, &sanitized).await.unwrap();
+
+        let messages = stub.messages().await;
+        assert_eq!(messages.len(), 1);
+        let (captured_envelope, captured_data) = &messages[0];
+
+        // Envelope must include Bcc recipient for delivery.
+        let recipients: Vec<String> = captured_envelope
+            .to()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert!(recipients.contains(&"hidden@example.com".into()));
+        assert!(recipients.contains(&"to@example.com".into()));
+        assert!(recipients.contains(&"cc@example.com".into()));
+
+        // Captured DATA must not contain any Bcc header.
+        let header_block = captured_data
+            .split_once("\r\n\r\n")
+            .map(|(h, _)| h)
+            .unwrap_or(captured_data);
+        assert!(
+            !header_block.to_ascii_lowercase().contains("bcc"),
+            "DATA must not contain Bcc: {header_block}"
+        );
+
+        // Original raw bytes retain Bcc for local reconciliation.
+        let original = std::str::from_utf8(data).unwrap();
+        assert!(original.contains("Bcc: hidden@example.com"));
+    }
+
+    #[tokio::test]
+    async fn send_seam_preserves_message_without_bcc() {
+        use lettre::transport::stub::AsyncStubTransport;
+
+        let data = b"From: sender@example.com\r\nTo: to@example.com\r\nSubject: clean\r\n\r\nbody";
+
+        let (envelope, sanitized) = prepare_for_send(data).unwrap();
+
+        let stub = AsyncStubTransport::new_ok();
+        stub.send_raw(&envelope, &sanitized).await.unwrap();
+
+        let messages = stub.messages().await;
+        assert_eq!(messages.len(), 1);
+        let (_, captured_data) = &messages[0];
+        assert_eq!(captured_data.as_bytes(), data);
     }
 
     fn test_account() -> Account {
