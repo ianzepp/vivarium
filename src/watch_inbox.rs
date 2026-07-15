@@ -34,6 +34,7 @@ pub struct InboxWatchEvent {
 pub struct InboxMessageIdentity {
     pub message_id: String,
     pub event_id: String,
+    pub sender: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -129,6 +130,7 @@ fn event_from_result(
             Some(InboxMessageIdentity {
                 message_id: entry.handle.clone(),
                 event_id,
+                sender: sender_metadata(&entry.from),
             })
         })
         .collect::<Vec<_>>();
@@ -154,6 +156,22 @@ fn event_from_result(
         messages,
         cursor,
     }
+}
+
+fn sender_metadata(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    let address = trimmed
+        .rsplit_once('<')
+        .and_then(|(_, address)| address.strip_suffix('>'))
+        .unwrap_or(trimmed);
+    if trimmed.is_empty()
+        || trimmed.contains(['\r', '\n', '\0'])
+        || address.chars().any(char::is_whitespace)
+        || !address.contains('@')
+    {
+        return None;
+    }
+    Some(value.to_string())
 }
 
 fn entry_event_id(entry: &crate::catalog::CatalogEntry) -> String {
@@ -212,6 +230,77 @@ mod tests {
             new: entries.len(),
             cataloged_entries: entries,
             ..SyncResult::default()
+        }
+    }
+
+    fn entry_with_sender(handle: &str, uid: u32, sender: &str) -> CatalogEntry {
+        let mut entry = entry(handle, uid);
+        entry.from = sender.into();
+        entry
+    }
+
+    #[test]
+    fn exact_sender_metadata_is_preserved() {
+        let event = event_from_result(
+            "agent",
+            &result(vec![entry_with_sender(
+                "one",
+                1,
+                "Alice Example <alice@example.com>",
+            )]),
+            InboxWatchSource::ImapIdle,
+        );
+        assert_eq!(
+            event.messages[0].sender.as_deref(),
+            Some("Alice Example <alice@example.com>")
+        );
+    }
+
+    #[test]
+    fn malformed_or_missing_sender_metadata_is_explicitly_absent() {
+        let event = event_from_result(
+            "agent",
+            &result(vec![
+                entry_with_sender("bad", 1, "not-an-address"),
+                entry_with_sender("missing", 2, ""),
+            ]),
+            InboxWatchSource::Poll,
+        );
+        assert_eq!(event.messages[0].sender, None);
+        assert_eq!(event.messages[1].sender, None);
+    }
+
+    #[test]
+    fn event_json_has_no_body_like_fields_or_content() {
+        let event = event_from_result(
+            "agent",
+            &result(vec![entry("one", 1)]),
+            InboxWatchSource::ImapIdle,
+        );
+        let value = serde_json::to_value(event).unwrap();
+        assert_no_body_fields(&value);
+        let encoded = value.to_string();
+        assert!(!encoded.contains("Subject:"));
+        assert!(!encoded.contains("body"));
+    }
+
+    fn assert_no_body_fields(value: &serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map {
+                    assert!(!matches!(
+                        key.as_str(),
+                        "body" | "text" | "html" | "raw" | "content" | "snippet"
+                    ));
+                    assert_no_body_fields(child);
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    assert_no_body_fields(value);
+                }
+            }
+            _ => {}
         }
     }
 
