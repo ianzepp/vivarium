@@ -58,7 +58,7 @@ pub struct Account {
     pub drafts_folder: Option<String>,
     pub label_roots: Option<Vec<String>>,
     pub storage_mode: Option<StorageMode>,
-    /// Provider hint: "gmail", "protonmail", or "standard"
+    /// Provider hint: "gmail", "proton-api", "protonmail", or "standard"
     #[serde(default)]
     pub provider: Provider,
     /// OAuth authorization endpoint (overrides provider defaults)
