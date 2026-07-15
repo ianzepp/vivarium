@@ -1,5 +1,6 @@
 use vivarium::VivariumError;
 use vivarium::cli::{Command, EnqueueCommand, ExecCommand, QueueCommand};
+use vivarium::policy;
 use vivarium::queue::{self, QueueItem, QueueStatus, QueuedCommand};
 
 use super::Runtime;
@@ -31,7 +32,9 @@ impl Runtime {
 
     fn enqueue(&self, command: EnqueueCommand) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.account.clone())?;
-        let item = QueueItem::new(acct.name.clone(), queued_from_enqueue(command)?);
+        let queued = queued_from_enqueue(command)?;
+        policy::authorize(&acct, &queued)?;
+        let item = QueueItem::new(acct.name.clone(), queued);
         let path = queue::enqueue(&acct.mail_path(&self.config), &item)?;
         println!("queued {} {}", item.id, path.display());
         Ok(())
@@ -140,6 +143,8 @@ impl Runtime {
         command: QueuedCommand,
         json: bool,
     ) -> Result<(), VivariumError> {
+        let acct = self.resolve_account(self.account.clone())?;
+        policy::authorize(&acct, &command)?;
         match command {
             QueuedCommand::Archive { .. }
             | QueuedCommand::Delete { .. }

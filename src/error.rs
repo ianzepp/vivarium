@@ -23,6 +23,9 @@ pub enum VivariumError {
     #[error("message error: {0}")]
     Message(String),
 
+    #[error("policy denied: {0}")]
+    Policy(String),
+
     #[error("{0}")]
     Other(String),
 }

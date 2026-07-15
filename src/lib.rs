@@ -14,6 +14,7 @@ pub mod mailspace;
 pub mod message;
 pub mod mutation_command;
 pub mod oauth;
+pub mod policy;
 pub mod proton_api;
 pub mod proton_decrypt;
 pub mod proton_encrypt;

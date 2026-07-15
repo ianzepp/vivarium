@@ -8,6 +8,7 @@ use super::{Runtime, VivariumError};
 struct DoctorReport {
     account: String,
     provider: String,
+    policy: String,
     imap: EndpointReport,
     smtp: EndpointReport,
     mail_root: String,
@@ -73,6 +74,7 @@ impl Runtime {
         let report = DoctorReport {
             account: acct.name.clone(),
             provider: acct.provider.to_string(),
+            policy: acct.policy.to_string(),
             imap: EndpointReport {
                 host: acct.resolved_imap_host(),
                 port: acct.resolved_imap_port(),
@@ -145,6 +147,7 @@ fn print_report(report: &DoctorReport) {
         style.heading(&format!("Vivi Doctor: {}", report.account))
     );
     println!("provider  {}", report.provider);
+    println!("policy    {}", report.policy);
     println!(
         "imap      {}:{} ({})",
         report.imap.host, report.imap.port, report.imap.security

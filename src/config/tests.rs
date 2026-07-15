@@ -356,6 +356,52 @@ fn standard_provider_uses_config_default_for_certs() {
     assert!(account.reject_invalid_certs(&config));
 }
 
+#[test]
+fn account_defaults_to_full_write_policy() {
+    let account = account_with_provider(types::Provider::Standard);
+    assert_eq!(account.policy, types::MutationPolicy::FullWrite);
+}
+
+#[test]
+fn account_parses_read_only_policy() {
+    let path = accounts_file(
+        r#"
+        [[accounts]]
+        name = "ro"
+        email = "ro@example.com"
+        imap_host = "imap.example.com"
+        smtp_host = "smtp.example.com"
+        username = "ro"
+        password = "secret"
+        policy = "read-only"
+    "#,
+        0o600,
+    );
+    let accounts = AccountsFile::load(&path).unwrap();
+    let account = accounts.find_account("ro").unwrap();
+    assert_eq!(account.policy, types::MutationPolicy::ReadOnly);
+}
+
+#[test]
+fn account_parses_archive_policy() {
+    let path = accounts_file(
+        r#"
+        [[accounts]]
+        name = "arc"
+        email = "arc@example.com"
+        imap_host = "imap.example.com"
+        smtp_host = "smtp.example.com"
+        username = "arc"
+        password = "secret"
+        policy = "archive"
+    "#,
+        0o600,
+    );
+    let accounts = AccountsFile::load(&path).unwrap();
+    let account = accounts.find_account("arc").unwrap();
+    assert_eq!(account.policy, types::MutationPolicy::Archive);
+}
+
 fn accounts_file(contents: &str, mode: u32) -> PathBuf {
     let path = tempfile::tempdir().unwrap().keep().join("accounts.toml");
     fs::write(&path, contents).unwrap();
@@ -393,5 +439,6 @@ fn account_with_provider(provider: types::Provider) -> types::Account {
         storage_mode: None,
         provider,
         reject_invalid_certs: None,
+        policy: types::MutationPolicy::FullWrite,
     }
 }

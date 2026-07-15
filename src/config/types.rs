@@ -68,6 +68,9 @@ pub struct Account {
     /// OAuth scope(s) (overrides provider defaults)
     pub oauth_scope: Option<String>,
     pub reject_invalid_certs: Option<bool>,
+    /// Account mutation policy: controls which remote side effects are authorized.
+    #[serde(default)]
+    pub policy: MutationPolicy,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
@@ -168,6 +171,32 @@ impl std::fmt::Display for StorageMode {
             StorageMode::Headers => write!(f, "headers"),
             StorageMode::Bodies => write!(f, "bodies"),
             StorageMode::Semantic => write!(f, "semantic"),
+        }
+    }
+}
+
+/// Account mutation policy. Controls which remote side effects the selected
+/// account is authorized to perform. Existing accounts default to `FullWrite`,
+/// preserving current behavior.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MutationPolicy {
+    /// All remote operations: archive, move, trash, delete, expunge, flag, send.
+    #[default]
+    FullWrite,
+    /// Sync/read/search/show only. Denies all remote mutations and send.
+    ReadOnly,
+    /// Read-mostly: archive, non-trash moves, flags. Denies move-to-trash,
+    /// delete/trash, expunge, and send.
+    Archive,
+}
+
+impl std::fmt::Display for MutationPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MutationPolicy::FullWrite => write!(f, "full-write"),
+            MutationPolicy::ReadOnly => write!(f, "read-only"),
+            MutationPolicy::Archive => write!(f, "archive"),
         }
     }
 }

@@ -484,6 +484,37 @@ named the caller rather than the effect.
 
 All commands accept `--account <name>` to target a specific account. Without it, account-scoped commands use the first account in `accounts.toml`; `sync` and `list` operate on all accounts.
 
+### Account Mutation Policy
+
+Each account can declare an explicit mutation `policy` in `accounts.toml`.
+This controls which remote side effects the selected account is authorized to
+perform, independent of command names or queue provenance.
+
+| Policy | `policy =` | Permitted remote operations |
+|---|---|---|
+| **Full-write** (default) | `full-write` | All: archive, move, trash, delete, expunge, flag, send |
+| **Read-only** | `read-only` | Sync, read, search, show only |
+| **Archive** | `archive` | Archive, non-trash moves, flags; denies trash, delete, expunge, send |
+
+```toml
+[[accounts]]
+name = "vault"
+email = "vault@proton.me"
+# ...
+policy = "read-only"
+```
+
+Policy is enforced at both enqueue admission and authoritatively during queue
+execution, so stale or manually constructed queued items cannot bypass it.
+Folder aliases are normalized before classification: `trash`, `deleted`, and
+provider-specific trash folder names all classify as a denied move-to-trash
+under read-only and archive policies.
+
+Local project mailspace operations (board, task, need, want, mail, memo) are
+separate from external account mutation policy and are never restricted by it.
+
+Check the effective policy with `vivi doctor --account <name>` (text or JSON).
+
 ### Not Yet Supported
 
 These surfaces are not available in the default CLI today:

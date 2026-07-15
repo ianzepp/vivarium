@@ -279,6 +279,7 @@ fn account_with_provider(provider: Provider) -> Account {
         oauth_token_url: None,
         oauth_scope: None,
         reject_invalid_certs: None,
+        policy: crate::config::MutationPolicy::FullWrite,
     }
 }
 

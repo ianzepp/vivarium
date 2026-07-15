@@ -116,5 +116,6 @@ fn test_account(storage_mode: StorageMode) -> crate::config::Account {
         oauth_token_url: None,
         oauth_scope: None,
         reject_invalid_certs: None,
+        policy: crate::config::MutationPolicy::FullWrite,
     }
 }
