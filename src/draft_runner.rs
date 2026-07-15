@@ -79,6 +79,8 @@ impl Runtime {
             html_body,
             html_body_auto,
             append_remote,
+            attachments,
+            attach_document,
         } = command;
         let acct = self.resolve_account(self.account.clone())?;
         let body = body.unwrap_or_default();
@@ -91,7 +93,13 @@ impl Runtime {
             html_body: resolve_html_body(&body, html_body, html_body_auto),
             body,
         };
-        let initial = message::build_compose_draft(&draft)?;
+        let attachments = vivarium::render::compose_attachments(
+            &attachments,
+            attach_document.as_deref(),
+            &self.config,
+            None,
+        )?;
+        let initial = message::build_compose_draft_with_attachments(&draft, &attachments)?;
         let Some(data) = edit_if_needed("compose", initial, draft.body.is_empty())? else {
             println!("compose cancelled");
             return Ok(());

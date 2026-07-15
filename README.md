@@ -437,6 +437,9 @@ vivi sync --account proton --json              # machine-readable sync summary
 vivi sync --account proton --since 3mo         # sync messages from the last 3 months
 vivi sync --account proton --since 2025-05-02 --before 2026-05-02
 vivi sync --account proton --reset             # delete local cache, then full resync
+vivi render --explain --format pdf              # explain installed render pipelines
+vivi render report.md --output report.pdf       # render local Markdown
+vivi compose --attach-document report.md ...    # draft with Markdown + PDF
 vivi watch-inbox --account proton --json        # inbound-only IMAP event source
 vivi doctor --account proton                   # check config, IMAP, and SMTP connectivity
 vivi list                                      # list inbox (default)

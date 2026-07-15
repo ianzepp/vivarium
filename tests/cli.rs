@@ -8,6 +8,56 @@ use vivarium::cli::{
 };
 
 #[test]
+fn parses_render_explain_and_engine() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "render",
+        "--explain",
+        "--format",
+        "pdf",
+        "--engine",
+        "pandoc-tectonic",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Render(command) => {
+            assert!(command.explain);
+            assert_eq!(command.engine.as_deref(), Some("pandoc-tectonic"));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_compose_document_attachments() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "compose",
+        "--to",
+        "a@example.com",
+        "--subject",
+        "report",
+        "--attach",
+        "notes.txt",
+        "--attach-document",
+        "report.md",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Compose(command) => {
+            assert_eq!(command.attachments, [std::path::PathBuf::from("notes.txt")]);
+            assert_eq!(
+                command.attach_document,
+                Some(std::path::PathBuf::from("report.md"))
+            );
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_sync_index_and_embed() {
     let cli = Cli::try_parse_from(["vivi", "sync", "--index", "--embed"]).unwrap();
 
@@ -785,6 +835,7 @@ fn parses_default_compose_command() {
             html_body,
             html_body_auto,
             append_remote,
+            ..
         }) => {
             assert_eq!(to, vec!["a@example.com"]);
             assert_eq!(cc, vec!["b@example.com"]);

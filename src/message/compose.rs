@@ -18,7 +18,21 @@ pub struct ReplyDraft {
     pub html_body: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileAttachment {
+    pub filename: String,
+    pub content_type: String,
+    pub data: Vec<u8>,
+}
+
 pub fn build_compose_draft(draft: &ComposeDraft) -> Result<String, VivariumError> {
+    build_compose_draft_with_attachments(draft, &[])
+}
+
+pub fn build_compose_draft_with_attachments(
+    draft: &ComposeDraft,
+    attachments: &[FileAttachment],
+) -> Result<String, VivariumError> {
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
         return Err(VivariumError::Message(
             "draft needs at least one To, Cc, or Bcc recipient".into(),
@@ -39,6 +53,13 @@ pub fn build_compose_draft(draft: &ComposeDraft) -> Result<String, VivariumError
     }
     if let Some(html_body) = &draft.html_body {
         builder = builder.html_body(html_body.clone());
+    }
+    for attachment in attachments {
+        builder = builder.attachment(
+            attachment.content_type.clone(),
+            attachment.filename.clone(),
+            attachment.data.as_slice(),
+        );
     }
     let eml = builder.write_to_string()?;
     validate_message_headers(eml.as_bytes())?;
@@ -216,6 +237,43 @@ fn reply_subject(subject: &str) -> String {
 mod tests {
     use super::*;
     use crate::message::message_id_from_bytes;
+    use mail_parser::MimeHeaders;
+
+    #[test]
+    fn compose_draft_supports_source_and_generated_pdf_attachments() {
+        let eml = build_compose_draft_with_attachments(
+            &ComposeDraft {
+                from: "me@example.com".into(),
+                to: vec!["a@example.com".into()],
+                cc: Vec::new(),
+                bcc: Vec::new(),
+                subject: "report".into(),
+                body: "see attachments".into(),
+                html_body: None,
+            },
+            &[
+                FileAttachment {
+                    filename: "report.md".into(),
+                    content_type: "text/markdown".into(),
+                    data: b"# Report".to_vec(),
+                },
+                FileAttachment {
+                    filename: "report.pdf".into(),
+                    content_type: "application/pdf".into(),
+                    data: b"%PDF-test".to_vec(),
+                },
+            ],
+        )
+        .unwrap();
+        let parsed = mail_parser::MessageParser::default()
+            .parse(eml.as_bytes())
+            .unwrap();
+        let names = parsed
+            .attachments()
+            .filter_map(|part| part.attachment_name().map(str::to_owned))
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["report.md", "report.pdf"]);
+    }
 
     #[test]
     fn compose_draft_includes_required_headers_and_recipients() {

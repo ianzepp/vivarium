@@ -6,7 +6,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 pub use types::{
-    Account, AccountsFile, Auth, Config, MutationPolicy, Provider, Security, StorageMode,
+    Account, AccountsFile, Auth, Config, MutationPolicy, Provider, RenderDefaults, Security,
+    StorageMode,
 };
 
 use crate::error::VivariumError;

@@ -20,6 +20,35 @@ pub struct Defaults {
     pub embedding_model: Option<String>,
     /// Optional embedding endpoint URL for semantic indexing/search.
     pub embedding_endpoint: Option<String>,
+    /// Local document-rendering policy.
+    #[serde(default)]
+    pub render: RenderDefaults,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RenderDefaults {
+    /// Pinned renderer name, such as `pandoc-tectonic` or `pandoc-html`.
+    pub engine: Option<String>,
+    /// Renderer names that auto-selection and pins must reject.
+    #[serde(default)]
+    pub deny_engines: Vec<String>,
+    /// Whether auto-selection may try the next safe installed pipeline.
+    #[serde(default = "default_true")]
+    pub allow_fallback: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for RenderDefaults {
+    fn default() -> Self {
+        Self {
+            engine: None,
+            deny_engines: Vec::new(),
+            allow_fallback: true,
+        }
+    }
 }
 
 /// Credential and connection details from `accounts.toml`.

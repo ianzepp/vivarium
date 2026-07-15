@@ -8,6 +8,7 @@ mod draft_command;
 mod index_command;
 mod mailspace_command;
 mod proton_command;
+mod render_command;
 mod write_command;
 pub use agent_command::AgentCommand;
 pub use board_command::BoardCommand;
@@ -20,6 +21,7 @@ pub use mailspace_command::{
     TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand, TaskStatus, WantCommand, WantStatus,
 };
 pub use proton_command::ProtonCommand;
+pub use render_command::{RenderCommand, RenderFormat};
 pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
 
 #[derive(Debug, Parser)]
@@ -166,6 +168,9 @@ pub enum Command {
         #[command(subcommand)]
         command: ProtonCommand,
     },
+
+    /// Render a local Markdown document to HTML or PDF
+    Render(RenderCommand),
 
     /// Watch inbound IMAP mail and emit JSON events after local sync
     WatchInbox {

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{ArgGroup, Args};
 
 #[derive(Debug, Args)]
@@ -73,4 +75,12 @@ pub struct ComposeCommand {
     /// Append the created draft to the remote Drafts folder
     #[arg(long)]
     pub append_remote: bool,
+
+    /// Attach an existing local file
+    #[arg(long = "attach")]
+    pub attachments: Vec<PathBuf>,
+
+    /// Attach this Markdown source and a locally generated PDF
+    #[arg(long)]
+    pub attach_document: Option<PathBuf>,
 }

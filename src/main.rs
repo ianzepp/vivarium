@@ -26,6 +26,7 @@ mod mutation_runner;
 mod proton_api_command;
 mod proton_fixture_command;
 mod queue_runner;
+mod render_command;
 mod sync_command;
 mod sync_events_command;
 
@@ -124,6 +125,7 @@ impl Runtime {
             Command::Folders { account, json } => self.folders(account, json).await,
             Command::Doctor { account, json } => self.doctor(account, json).await,
             Command::Proton { command } => self.proton_command(command).await,
+            Command::Render(command) => self.render(command),
             command @ Command::List { .. } => self.run_list_command(command),
             Command::Mailspace { .. }
             | Command::Mail { .. }
