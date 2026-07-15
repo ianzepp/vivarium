@@ -58,9 +58,9 @@ pub async fn process_entry(
         return Ok(());
     }
 
+    policy::authorize_mutation(account, RemoteMutation::Send)?;
     let claimed = claim_for_processing(path)?;
     let data = fs::read(&claimed)?;
-    policy::authorize_mutation(account, RemoteMutation::Send)?;
     match crate::smtp::send_raw(account, &data, reject_invalid_certs).await {
         Ok(()) => {
             let id = message_id_from_path(path)
@@ -208,12 +208,21 @@ mod tests {
         let path = outbox_new.join("msg.eml");
         fs::write(&path, b"Subject: hi\r\n\r\nbody").unwrap();
 
-        // The policy check must fire before any SMTP/network call.
+        // The policy check must fire before any claim or SMTP/network call.
         let err = process_entry(&acct, &store, &path, false)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("policy"));
         assert!(err.to_string().contains("send"));
+
+        // File must remain in new/ — not claimed to tmp/ — so the user can
+        // find and remove it rather than having it orphaned.
+        assert!(path.exists(), "denied send must leave file in new/");
+        let tmp_dir = tmp.path().join("outbox/tmp");
+        assert!(
+            !tmp_dir.exists() || fs::read_dir(&tmp_dir).unwrap().next().is_none(),
+            "no processing files should be orphaned in tmp/"
+        );
     }
 
     #[tokio::test]
@@ -231,5 +240,8 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("policy"));
+
+        // File must remain in new/ under denial.
+        assert!(path.exists());
     }
 }
