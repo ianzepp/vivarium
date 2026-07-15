@@ -332,6 +332,17 @@ fn validate_managed_root(managed_root: &std::path::Path) -> Result<(), VivariumE
         }
     }
 
+    // Reject managed roots that are ancestors of home/cwd/repo.
+    // E.g. /Users would contain home and must not be a managed root.
+    for dangerous in [&home, &cwd].into_iter().chain(repo_root.iter()) {
+        if dangerous.starts_with(managed_root) && managed_root != dangerous {
+            return Err(reset_refusal(
+                managed_root,
+                "an ancestor of a system or repository directory",
+            ));
+        }
+    }
+
     Ok(())
 }
 
@@ -558,7 +569,8 @@ mod tests {
     #[test]
     fn reset_rejects_managed_root_under_cwd() {
         let cwd = std::env::current_dir().unwrap();
-        let managed_root = cwd.join("mailroot-inside-cwd");
+        let fixture = tempfile::tempdir_in(&cwd).unwrap();
+        let managed_root = fixture.path().join("mailroot");
         std::fs::create_dir_all(&managed_root).unwrap();
         let config = Config {
             defaults: crate::config::types::Defaults {
@@ -571,7 +583,6 @@ mod tests {
 
         let err = reset_account_cache(&account, &config, false).unwrap_err();
         assert!(err.to_string().contains("refusing"));
-        std::fs::remove_dir_all(&managed_root).ok();
     }
 
     #[test]
@@ -581,7 +592,8 @@ mod tests {
         if repo == cwd {
             return;
         }
-        let managed_root = repo.join("mailroot-inside-repo");
+        let fixture = tempfile::tempdir_in(&repo).unwrap();
+        let managed_root = fixture.path().join("mailroot");
         std::fs::create_dir_all(&managed_root).unwrap();
         let config = Config {
             defaults: crate::config::types::Defaults {
@@ -594,7 +606,6 @@ mod tests {
 
         let err = reset_account_cache(&account, &config, false).unwrap_err();
         assert!(err.to_string().contains("refusing"));
-        std::fs::remove_dir_all(&managed_root).ok();
     }
 
     #[test]
@@ -603,6 +614,23 @@ mod tests {
         let config = Config {
             defaults: crate::config::types::Defaults {
                 mail_root: Some(home.to_string_lossy().to_string()),
+                ..Default::default()
+            },
+        };
+        let account = account_managed("acct");
+        let err = reset_account_cache(&account, &config, false).unwrap_err();
+        assert!(err.to_string().contains("refusing"));
+    }
+
+    #[test]
+    fn reset_rejects_managed_root_that_is_ancestor_of_home() {
+        // A managed root that is an ancestor of $HOME (e.g. /Users on macOS)
+        // must be rejected — it contains home and is dangerous.
+        let home = dirs::home_dir().unwrap();
+        let ancestor = home.parent().unwrap();
+        let config = Config {
+            defaults: crate::config::types::Defaults {
+                mail_root: Some(ancestor.to_string_lossy().to_string()),
                 ..Default::default()
             },
         };
