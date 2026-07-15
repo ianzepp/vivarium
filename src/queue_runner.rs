@@ -360,7 +360,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn execute_queued_rejects_append_under_read_only() {
+    async fn execute_queued_rejects_send_under_read_only() {
         let tmp = tempfile::tempdir().unwrap();
         let runtime = test_runtime(tmp.path(), MutationPolicy::ReadOnly);
 
@@ -370,5 +370,46 @@ mod tests {
         };
         let err = runtime.execute_queued(cmd, false).await.unwrap_err();
         assert!(matches!(err, VivariumError::Policy(_)));
+    }
+
+    #[test]
+    fn enqueue_admission_rejects_delete_under_read_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = test_runtime(tmp.path(), MutationPolicy::ReadOnly);
+
+        let err = runtime
+            .enqueue(EnqueueCommand::Delete {
+                handles: vec!["h1".into()],
+                trash: false,
+                expunge: false,
+                confirm: false,
+            })
+            .unwrap_err();
+        assert!(matches!(err, VivariumError::Policy(_)));
+
+        // Verify nothing was persisted to disk.
+        let mail_root = runtime
+            .resolve_account(runtime.account.clone())
+            .unwrap()
+            .mail_path(&runtime.config);
+        assert!(queue::pending_ids(&mail_root).unwrap().is_empty());
+    }
+
+    #[test]
+    fn enqueue_admission_allows_archive_under_full_write() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = test_runtime(tmp.path(), MutationPolicy::FullWrite);
+
+        runtime
+            .enqueue(EnqueueCommand::Archive {
+                handles: vec!["h1".into()],
+            })
+            .unwrap();
+
+        let mail_root = runtime
+            .resolve_account(runtime.account.clone())
+            .unwrap()
+            .mail_path(&runtime.config);
+        assert_eq!(queue::pending_ids(&mail_root).unwrap().len(), 1);
     }
 }
