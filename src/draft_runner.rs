@@ -398,6 +398,15 @@ mod tests {
         // but the error must NOT be Policy — proving authorization passed.
         let err = store_draft(&runtime, data, true).await.unwrap_err();
         assert!(!matches!(err, VivariumError::Policy(_)));
+
+        // The local draft must be stored before the remote append is attempted,
+        // preserving the local-first invariant even when the remote fails.
+        let mail_root = runtime
+            .resolve_account(runtime.account.clone())
+            .unwrap()
+            .mail_path(&runtime.config);
+        let drafts_dir = mail_root.join("Drafts");
+        assert!(drafts_dir.exists(), "local drafts directory must exist");
     }
 
     #[tokio::test]
