@@ -26,17 +26,28 @@ Each line is a bounded-schema JSON object:
   "batch_id": "agent-proton:imap:INBOX:7:42",
   "new_count": 1,
   "messages": [
-    {"message_id": "8f…", "event_id": "imap:INBOX:7:42"}
+    {
+      "message_id": "8f…",
+      "event_id": "imap:INBOX:7:42",
+      "sender": "Operator <operator@example.com>"
+    }
   ],
   "cursor": "imap:INBOX:7:42"
 }
 ```
 
 `event_id`, `batch_id`, and `cursor` are stable across reconnects and
-restarts. The bridge must checkpoint these identities/cursors and deduplicate
-before delivering a wake. Events are ordered as observed and message/event
-identities are deduplicated within each event. A reconnect may re-observe a
-stable identity, but must not cause a replay storm downstream.
+restarts. `messages[].sender` preserves the exact parsed sender metadata when
+it is valid; malformed or missing sender metadata is `null`. The bridge must
+exact-match a non-null sender against its operator/delegate allowlist before
+waking Pi. A null or non-matching sender is never a wake authorization.
+
+The bridge must checkpoint these identities/cursors and deduplicate before
+delivering a wake. Events are ordered as observed and message/event identities
+are deduplicated within each event. A reconnect may re-observe a stable
+identity, but must not cause a replay storm downstream. The bridge must not
+call `vivi show` or any body retrieval command to classify an event; the
+watcher event is the complete classification input.
 
 ## Ops wake bridge boundary
 
