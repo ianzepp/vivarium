@@ -163,6 +163,7 @@ mod tests {
             RemoteMutation::Expunge,
             RemoteMutation::Flag,
             RemoteMutation::Send,
+            RemoteMutation::AppendDraft,
         ];
         for m in mutations {
             assert!(policy_allows(acct.policy, m), "{m} should be allowed");
@@ -179,6 +180,7 @@ mod tests {
             RemoteMutation::Expunge,
             RemoteMutation::Flag,
             RemoteMutation::Send,
+            RemoteMutation::AppendDraft,
         ];
         for m in mutations {
             assert!(!policy_allows(acct.policy, m), "{m} should be denied");
@@ -194,6 +196,7 @@ mod tests {
         assert!(!policy_allows(acct.policy, RemoteMutation::MoveToTrash));
         assert!(!policy_allows(acct.policy, RemoteMutation::Expunge));
         assert!(!policy_allows(acct.policy, RemoteMutation::Send));
+        assert!(!policy_allows(acct.policy, RemoteMutation::AppendDraft));
     }
 
     #[test]
