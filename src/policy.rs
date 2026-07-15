@@ -18,6 +18,7 @@ pub enum RemoteMutation {
     Expunge,
     Flag,
     Send,
+    AppendDraft,
 }
 
 impl std::fmt::Display for RemoteMutation {
@@ -29,6 +30,7 @@ impl std::fmt::Display for RemoteMutation {
             RemoteMutation::Expunge => write!(f, "expunge"),
             RemoteMutation::Flag => write!(f, "flag"),
             RemoteMutation::Send => write!(f, "send"),
+            RemoteMutation::AppendDraft => write!(f, "append-draft"),
         }
     }
 }
@@ -40,7 +42,7 @@ impl std::fmt::Display for RemoteMutation {
 /// account's configured provider trash folder name all classify as trash.
 pub fn classifies_as_trash(account: &Account, folder: &str) -> bool {
     let lower = folder.to_ascii_lowercase();
-    lower == "trash" || lower == "deleted" || folder == account.trash_folder()
+    lower == "trash" || lower == "deleted" || lower == account.trash_folder().to_ascii_lowercase()
 }
 
 /// Classify a queued command into the remote mutation kind it represents.
@@ -74,6 +76,17 @@ pub fn authorize(account: &Account, command: &QueuedCommand) -> Result<(), Vivar
     let Some(mutation) = classify(account, command) else {
         return Ok(());
     };
+    authorize_mutation(account, mutation)
+}
+
+/// Authorize a raw remote mutation against the selected account's policy.
+///
+/// Use this for remote write paths that do not flow through `QueuedCommand`
+/// (e.g. `--append-remote` IMAP APPEND, outbox auto-send).
+pub fn authorize_mutation(
+    account: &Account,
+    mutation: RemoteMutation,
+) -> Result<(), VivariumError> {
     if policy_allows(account.policy, mutation) {
         Ok(())
     } else {
@@ -234,6 +247,23 @@ mod tests {
         assert!(classifies_as_trash(&acct, "[Gmail]/Trash"));
         // The account's resolved trash folder
         assert!(classifies_as_trash(&acct, &acct.trash_folder()));
+    }
+
+    #[test]
+    fn classifies_mixed_case_provider_trash_folder_as_trash() {
+        let mut acct = account_with_policy("ar", MutationPolicy::Archive);
+        acct.trash_folder = Some("My Trash Folder".into());
+        assert!(classifies_as_trash(&acct, "My Trash Folder"));
+        assert!(classifies_as_trash(&acct, "my trash folder"));
+        assert!(classifies_as_trash(&acct, "MY TRASH FOLDER"));
+    }
+
+    #[test]
+    fn classifies_gmail_trash_case_insensitively() {
+        let acct = gmail_account_with_policy(MutationPolicy::Archive);
+        // Gmail's default trash folder is "[Gmail]/Trash"
+        assert!(classifies_as_trash(&acct, "[gmail]/trash"));
+        assert!(classifies_as_trash(&acct, "[GMAIL]/TRASH"));
     }
 
     #[test]
@@ -400,5 +430,79 @@ mod tests {
         for cmd in commands {
             assert!(authorize(&acct, &cmd).is_ok(), "should allow {:?}", cmd);
         }
+    }
+
+    // --- AppendDraft authorization ---
+
+    #[test]
+    fn append_draft_denied_by_read_only_policy() {
+        let acct = account_with_policy("ro", MutationPolicy::ReadOnly);
+        let err = authorize_mutation(&acct, RemoteMutation::AppendDraft).unwrap_err();
+        assert!(err.to_string().contains("append-draft"));
+    }
+
+    #[test]
+    fn append_draft_denied_by_archive_policy() {
+        let acct = account_with_policy("ar", MutationPolicy::Archive);
+        assert!(authorize_mutation(&acct, RemoteMutation::AppendDraft).is_err());
+    }
+
+    #[test]
+    fn append_draft_allowed_by_full_write_policy() {
+        let acct = account_with_policy("fw", MutationPolicy::FullWrite);
+        assert!(authorize_mutation(&acct, RemoteMutation::AppendDraft).is_ok());
+    }
+
+    // --- End-to-end queue-run regression: persisted stale command rejected ---
+
+    #[test]
+    fn stale_queued_command_roundtrip_denied_at_execution_time() {
+        use crate::queue::{self, QueueItem, QueueStatus};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let acct = account_with_policy("ro", MutationPolicy::ReadOnly);
+
+        // Persist a denied command as if it were enqueued before policy was set.
+        let stale_cmd = QueuedCommand::Delete {
+            handles: vec!["old-handle".into()],
+            expunge: false,
+            confirm: true,
+        };
+        let item = QueueItem::new("ro".into(), stale_cmd);
+        queue::enqueue(tmp.path(), &item).unwrap();
+
+        // Simulate what queue_run does: load from disk, then authorize.
+        let loaded = queue::load(tmp.path(), &item.id).unwrap();
+        assert_eq!(loaded.status, QueueStatus::Pending);
+        assert_eq!(loaded.command, item.command);
+
+        // The execution-time authorization gate must reject this.
+        let err = authorize(&acct, &loaded.command).unwrap_err();
+        assert!(err.to_string().contains("read-only"));
+        assert!(err.to_string().contains("move-to-trash"));
+
+        // Verify no provider call would be made: the error fires before
+        // any dispatch in execute_queued.
+        assert!(matches!(err, VivariumError::Policy(_)));
+    }
+
+    #[test]
+    fn stale_queued_send_roundtrip_denied_at_execution_time() {
+        use crate::queue::{self, QueueItem};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let acct = account_with_policy("ar", MutationPolicy::Archive);
+
+        let stale_cmd = QueuedCommand::Send {
+            path: std::path::PathBuf::from("old-draft.eml"),
+            from: None,
+        };
+        let item = QueueItem::new("ar".into(), stale_cmd);
+        queue::enqueue(tmp.path(), &item).unwrap();
+
+        let loaded = queue::load(tmp.path(), &item.id).unwrap();
+        let err = authorize(&acct, &loaded.command).unwrap_err();
+        assert!(err.to_string().contains("send"));
+        assert!(matches!(err, VivariumError::Policy(_)));
     }
 }

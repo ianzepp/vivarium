@@ -5,6 +5,7 @@ use notify::{Event, EventKind, RecursiveMode, Watcher};
 
 use crate::config::Account;
 use crate::error::VivariumError;
+use crate::policy::{self, RemoteMutation};
 use crate::store::{MailStore, message_id_from_path};
 
 pub async fn watch_outbox(
@@ -59,6 +60,7 @@ pub async fn process_entry(
 
     let claimed = claim_for_processing(path)?;
     let data = fs::read(&claimed)?;
+    policy::authorize_mutation(account, RemoteMutation::Send)?;
     match crate::smtp::send_raw(account, &data, reject_invalid_certs).await {
         Ok(()) => {
             let id = message_id_from_path(path)
@@ -124,6 +126,41 @@ mod tests {
     use notify::event::{CreateKind, DataChange, ModifyKind};
 
     use super::*;
+    use crate::config::{Auth, MutationPolicy, Provider, Security};
+
+    fn test_account_with_policy(policy: MutationPolicy) -> Account {
+        Account {
+            name: "test".into(),
+            email: "test@example.com".into(),
+            imap_host: "localhost".into(),
+            imap_port: Some(1143),
+            imap_security: Some(Security::Starttls),
+            smtp_host: "localhost".into(),
+            smtp_port: Some(1025),
+            smtp_security: Some(Security::Starttls),
+            username: "test@example.com".into(),
+            auth: Auth::Password,
+            password: Some("secret".into()),
+            password_cmd: None,
+            token_cmd: None,
+            oauth_client_id: None,
+            oauth_client_secret: None,
+            mail_dir: None,
+            inbox_folder: None,
+            archive_folder: None,
+            trash_folder: None,
+            sent_folder: None,
+            drafts_folder: None,
+            label_roots: None,
+            storage_mode: None,
+            provider: Provider::Standard,
+            oauth_authorization_url: None,
+            oauth_token_url: None,
+            oauth_scope: None,
+            reject_invalid_certs: None,
+            policy,
+        }
+    }
 
     #[test]
     fn dispatchable_paths_filters_eml_creates_and_modifies() {
@@ -157,5 +194,42 @@ mod tests {
         );
         assert!(!path.exists());
         assert!(claimed.exists());
+    }
+
+    #[tokio::test]
+    async fn process_entry_denies_send_under_read_only_policy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        let acct = test_account_with_policy(MutationPolicy::ReadOnly);
+
+        // Create a valid .eml in the outbox.
+        let outbox_new = tmp.path().join("outbox/new");
+        fs::create_dir_all(&outbox_new).unwrap();
+        let path = outbox_new.join("msg.eml");
+        fs::write(&path, b"Subject: hi\r\n\r\nbody").unwrap();
+
+        // The policy check must fire before any SMTP/network call.
+        let err = process_entry(&acct, &store, &path, false)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("policy"));
+        assert!(err.to_string().contains("send"));
+    }
+
+    #[tokio::test]
+    async fn process_entry_denies_send_under_archive_policy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = MailStore::new(tmp.path());
+        let acct = test_account_with_policy(MutationPolicy::Archive);
+
+        let outbox_new = tmp.path().join("outbox/new");
+        fs::create_dir_all(&outbox_new).unwrap();
+        let path = outbox_new.join("msg.eml");
+        fs::write(&path, b"Subject: hi\r\n\r\nbody").unwrap();
+
+        let err = process_entry(&acct, &store, &path, false)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("policy"));
     }
 }

@@ -4,6 +4,7 @@ use vivarium::VivariumError;
 use vivarium::cli::{Command, ComposeCommand};
 use vivarium::config::Provider;
 use vivarium::message::{self, ComposeDraft, ReplyDraft};
+use vivarium::policy::{self, RemoteMutation};
 use vivarium::store::{MailStore, message_id_from_path};
 
 use super::Runtime;
@@ -173,6 +174,7 @@ async fn store_draft(
     let draft_id = draft_id();
     let path = store.store_message("drafts", &draft_id, data)?;
     if append_remote {
+        policy::authorize_mutation(&acct, RemoteMutation::AppendDraft)?;
         let reject_invalid_certs = acct.reject_invalid_certs(&runtime.config) && !runtime.insecure;
         vivarium::imap::append_message(&acct, &acct.drafts_folder(), data, reject_invalid_certs)
             .await?;
