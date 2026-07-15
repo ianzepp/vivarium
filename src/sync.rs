@@ -155,18 +155,22 @@ fn resolve_canonical(path: &std::path::Path) -> Result<std::path::PathBuf, Vivar
 /// # Containment rule
 ///
 /// - **Managed paths** must be a proper account child under the managed mail
-///   root (not the root itself, not an ancestor).
+///   root (not the root itself, not an ancestor). The default managed root
+///   lives under `$HOME`; managed account children under it are always safe.
 /// - **Custom paths** require `confirm_custom = true` AND must be outside
 ///   home, cwd, repository root, and all their descendants. Must not be or
-///   contain the managed mail root. This is fail-closed: any path inside
-///   a system or repository tree is rejected regardless of confirmation.
+///   contain the managed mail root. This is fail-closed: any custom path
+///   inside a system or repository tree is rejected regardless of confirmation.
 fn validate_reset(
     canonical: &std::path::Path,
     managed_root: &std::path::Path,
     is_custom: bool,
     confirm_custom: bool,
 ) -> Result<(), VivariumError> {
-    reject_dangerous_target(canonical)?;
+    // Reject root always.
+    if canonical == std::path::Path::new("/") {
+        return Err(reset_refusal(canonical, "the filesystem root"));
+    }
 
     // Reject mail root itself under any path type.
     if canonical == managed_root {
@@ -186,9 +190,14 @@ fn validate_reset(
     }
 
     if is_custom {
+        // Custom paths: reject system/repo descendants, require confirmation.
+        reject_dangerous_target(canonical)?;
         return validate_custom_reset(canonical, confirm_custom);
     }
 
+    // Managed paths: must be a proper child of the managed root.
+    // The managed root may live under $HOME; a proper account child under it
+    // is safe and must NOT be rejected by the home-descendant rule.
     validate_managed_reset(canonical, managed_root)
 }
 
@@ -485,6 +494,31 @@ mod tests {
         reset_account_cache(&account, &config, false).unwrap();
 
         assert!(!account.mail_path(&config).exists());
+    }
+
+    #[test]
+    fn reset_managed_path_under_home_succeeds_without_confirmation() {
+        // The default managed mail root is under $HOME (~/.vivarium).
+        // A managed account child under it must be reset-safe without
+        // triggering the home-descendant rejection.
+        let home = dirs::home_dir().unwrap();
+        let managed_root = home.join(".vivarium-test-managed");
+        std::fs::create_dir_all(&managed_root).unwrap();
+        let config = Config {
+            defaults: crate::config::types::Defaults {
+                mail_root: Some(managed_root.to_string_lossy().to_string()),
+                ..Default::default()
+            },
+        };
+        let account = account_managed("acct-under-home");
+        let cache = account.mail_path(&config).join("INBOX/new");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("msg.eml"), b"data").unwrap();
+
+        reset_account_cache(&account, &config, false).unwrap();
+
+        assert!(!account.mail_path(&config).exists());
+        std::fs::remove_dir_all(&managed_root).ok();
     }
 
     #[test]
