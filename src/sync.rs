@@ -190,14 +190,12 @@ fn validate_reset(
     }
 
     if is_custom {
-        // Custom paths: reject system/repo descendants, require confirmation.
         reject_dangerous_target(canonical)?;
         return validate_custom_reset(canonical, confirm_custom);
     }
 
-    // Managed paths: must be a proper child of the managed root.
-    // The managed root may live under $HOME; a proper account child under it
-    // is safe and must NOT be rejected by the home-descendant rule.
+    // Managed paths: validate the root is safe, then check the account child.
+    validate_managed_root(managed_root)?;
     validate_managed_reset(canonical, managed_root)
 }
 
@@ -298,6 +296,42 @@ fn validate_managed_reset(
             managed_root.display()
         )));
     }
+    Ok(())
+}
+
+/// Validate that the managed mail root itself is safe.
+///
+/// The default managed root lives under `$HOME` (e.g. `~/.vivarium`) and
+/// that is the canonical safe case. Reject roots that ARE root/home/cwd/repo,
+/// roots inside cwd/repo, and dangerous ancestors.
+fn validate_managed_root(managed_root: &std::path::Path) -> Result<(), VivariumError> {
+    // Root is always dangerous.
+    if managed_root == std::path::Path::new("/") {
+        return Err(reset_refusal(managed_root, "the filesystem root"));
+    }
+
+    let home = dirs::home_dir().unwrap_or_default();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let repo_root = find_repo_root(&cwd);
+
+    // Reject managed root that IS home, cwd, or repo.
+    for dangerous in [&home, &cwd].into_iter().chain(repo_root.iter()) {
+        if managed_root == dangerous.as_path() {
+            return Err(reset_refusal(
+                managed_root,
+                "a system or repository directory",
+            ));
+        }
+    }
+
+    // Reject managed roots inside cwd or repo (but allow under home,
+    // which is the default case).
+    for dangerous in [&cwd].into_iter().chain(repo_root.iter()) {
+        if managed_root.starts_with(dangerous) {
+            return Err(reset_refusal(managed_root, "inside cwd or a repository"));
+        }
+    }
+
     Ok(())
 }
 
@@ -502,7 +536,8 @@ mod tests {
         // A managed account child under it must be reset-safe without
         // triggering the home-descendant rejection.
         let home = dirs::home_dir().unwrap();
-        let managed_root = home.join(".vivarium-test-managed");
+        let fixture = tempfile::tempdir_in(&home).unwrap();
+        let managed_root = fixture.path().join(".vivarium-managed-test");
         std::fs::create_dir_all(&managed_root).unwrap();
         let config = Config {
             defaults: crate::config::types::Defaults {
@@ -518,7 +553,62 @@ mod tests {
         reset_account_cache(&account, &config, false).unwrap();
 
         assert!(!account.mail_path(&config).exists());
+    }
+
+    #[test]
+    fn reset_rejects_managed_root_under_cwd() {
+        let cwd = std::env::current_dir().unwrap();
+        let managed_root = cwd.join("mailroot-inside-cwd");
+        std::fs::create_dir_all(&managed_root).unwrap();
+        let config = Config {
+            defaults: crate::config::types::Defaults {
+                mail_root: Some(managed_root.to_string_lossy().to_string()),
+                ..Default::default()
+            },
+        };
+        let account = account_managed("acct");
+        std::fs::create_dir_all(managed_root.join("acct")).unwrap();
+
+        let err = reset_account_cache(&account, &config, false).unwrap_err();
+        assert!(err.to_string().contains("refusing"));
         std::fs::remove_dir_all(&managed_root).ok();
+    }
+
+    #[test]
+    fn reset_rejects_managed_root_under_repo() {
+        let cwd = std::env::current_dir().unwrap();
+        let repo = find_repo_root(&cwd).unwrap_or(cwd.clone());
+        if repo == cwd {
+            return;
+        }
+        let managed_root = repo.join("mailroot-inside-repo");
+        std::fs::create_dir_all(&managed_root).unwrap();
+        let config = Config {
+            defaults: crate::config::types::Defaults {
+                mail_root: Some(managed_root.to_string_lossy().to_string()),
+                ..Default::default()
+            },
+        };
+        let account = account_managed("acct");
+        std::fs::create_dir_all(managed_root.join("acct")).unwrap();
+
+        let err = reset_account_cache(&account, &config, false).unwrap_err();
+        assert!(err.to_string().contains("refusing"));
+        std::fs::remove_dir_all(&managed_root).ok();
+    }
+
+    #[test]
+    fn reset_rejects_managed_root_equal_to_home() {
+        let home = dirs::home_dir().unwrap();
+        let config = Config {
+            defaults: crate::config::types::Defaults {
+                mail_root: Some(home.to_string_lossy().to_string()),
+                ..Default::default()
+            },
+        };
+        let account = account_managed("acct");
+        let err = reset_account_cache(&account, &config, false).unwrap_err();
+        assert!(err.to_string().contains("refusing"));
     }
 
     #[test]
