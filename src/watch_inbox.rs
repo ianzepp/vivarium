@@ -34,7 +34,7 @@ pub struct InboxWatchEvent {
 pub struct InboxMessageIdentity {
     pub message_id: String,
     pub event_id: String,
-    pub sender: Option<String>,
+    pub sender_address: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -130,7 +130,7 @@ fn event_from_result(
             Some(InboxMessageIdentity {
                 message_id: entry.handle.clone(),
                 event_id,
-                sender: sender_metadata(&entry.from),
+                sender_address: sender_address(&entry.from),
             })
         })
         .collect::<Vec<_>>();
@@ -158,20 +158,17 @@ fn event_from_result(
     }
 }
 
-fn sender_metadata(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    let address = trimmed
-        .rsplit_once('<')
-        .and_then(|(_, address)| address.strip_suffix('>'))
-        .unwrap_or(trimmed);
-    if trimmed.is_empty()
-        || trimmed.contains(['\r', '\n', '\0'])
-        || address.chars().any(char::is_whitespace)
-        || !address.contains('@')
-    {
+fn sender_address(value: &str) -> Option<String> {
+    if value.len() > 512 || value.contains(['\r', '\n', '\0']) {
         return None;
     }
-    Some(value.to_string())
+    let envelope = format!("From: {value}\r\n\r\n");
+    let parsed = mail_parser::MessageParser::default().parse(envelope.as_bytes())?;
+    let address = parsed.from()?.first()?.address()?.trim();
+    if address.len() > 320 || address.chars().any(char::is_whitespace) || !address.contains('@') {
+        return None;
+    }
+    Some(address.to_ascii_lowercase())
 }
 
 fn entry_event_id(entry: &crate::catalog::CatalogEntry) -> String {
@@ -240,19 +237,19 @@ mod tests {
     }
 
     #[test]
-    fn exact_sender_metadata_is_preserved() {
+    fn exact_sender_address_is_normalized_from_catalog_metadata() {
         let event = event_from_result(
             "agent",
             &result(vec![entry_with_sender(
                 "one",
                 1,
-                "Alice Example <alice@example.com>",
+                "Alice Example <Alice@Example.COM>",
             )]),
             InboxWatchSource::ImapIdle,
         );
         assert_eq!(
-            event.messages[0].sender.as_deref(),
-            Some("Alice Example <alice@example.com>")
+            event.messages[0].sender_address.as_deref(),
+            Some("alice@example.com")
         );
     }
 
@@ -266,8 +263,8 @@ mod tests {
             ]),
             InboxWatchSource::Poll,
         );
-        assert_eq!(event.messages[0].sender, None);
-        assert_eq!(event.messages[1].sender, None);
+        assert_eq!(event.messages[0].sender_address, None);
+        assert_eq!(event.messages[1].sender_address, None);
     }
 
     #[test]

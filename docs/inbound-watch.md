@@ -29,7 +29,7 @@ Each line is a bounded-schema JSON object:
     {
       "message_id": "8f…",
       "event_id": "imap:INBOX:7:42",
-      "sender": "Operator <operator@example.com>"
+      "sender_address": "operator@example.com"
     }
   ],
   "cursor": "imap:INBOX:7:42"
@@ -37,10 +37,12 @@ Each line is a bounded-schema JSON object:
 ```
 
 `event_id`, `batch_id`, and `cursor` are stable across reconnects and
-restarts. `messages[].sender` preserves the exact parsed sender metadata when
-it is valid; malformed or missing sender metadata is `null`. The bridge must
-exact-match a non-null sender against its operator/delegate allowlist before
-waking Pi. A null or non-matching sender is never a wake authorization.
+restarts. `messages[].sender_address` is the bounded, normalized address
+parsed from the already-synced catalog/message envelope; malformed or missing
+sender metadata is `null`. Display names and arbitrary headers are not emitted.
+The bridge must exact-match a non-null address against its operator/delegate
+allowlist before waking Pi. A null or non-matching address is never a wake
+authorization.
 
 The bridge must checkpoint these identities/cursors and deduplicate before
 delivering a wake. Events are ordered as observed and message/event identities
@@ -51,11 +53,11 @@ watcher event is the complete classification input.
 
 ## Ops wake bridge boundary
 
-Vivi emits every trusted inbound event as soon as local sync succeeds. The Ops
-wake bridge owns delivery policy and persists its checkpoint/debounce state; it
-must not duplicate this policy in Vivi:
+Vivi emits inbound events as soon as local sync succeeds. The Ops wake bridge
+owns trust classification, delivery policy, and persists its
+checkpoint/debounce state; it must not duplicate this policy in Vivi:
 
-- the first trusted event is eligible for an immediate leading-edge wake;
+- the first trusted event, after Ops exact-match classification, is eligible for an immediate leading-edge wake;
 - later arrivals remain synced and observable immediately, while wake delivery
   is coalesced;
 - the trailing wake waits for a 60-second quiet window after the most recent
