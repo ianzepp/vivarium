@@ -82,16 +82,132 @@ pub async fn sync_account(
     Ok(result)
 }
 
-pub fn reset_account_cache(account: &Account, config: &Config) -> Result<(), VivariumError> {
+/// Reset (delete) the local account cache directory.
+///
+/// # Containment invariant
+///
+/// Reset may delete only a canonical account-owned cache directory. The path
+/// must be a proper child of the configured mail root (managed path) or an
+/// explicitly confirmed custom path. Root, home, cwd, repository roots, and
+/// symlink escapes are always rejected. Failed validation performs no deletion.
+///
+/// - `confirm_custom` must be `true` when the account uses a custom `mail_dir`.
+///   The CLI exposes this as `--confirm-reset`; callers cannot bypass it.
+pub fn reset_account_cache(
+    account: &Account,
+    config: &Config,
+    confirm_custom: bool,
+) -> Result<(), VivariumError> {
     let mail_path = account.mail_path(config);
+    validate_reset_path(account, config, &mail_path, confirm_custom)?;
     if mail_path.exists() {
-        fs::remove_dir_all(&mail_path)?;
+        validate_reset_symlink(&mail_path)?;
+        let canonical = mail_path.canonicalize().map_err(|e| {
+            VivariumError::Other(format!(
+                "cannot resolve reset path {}: {e}",
+                mail_path.display()
+            ))
+        })?;
+        fs::remove_dir_all(&canonical)?;
     }
     tracing::warn!(
         account = account.name,
         path = %mail_path.display(),
         "reset local account cache"
     );
+    Ok(())
+}
+
+/// Validate that a reset path is safe to delete.
+fn validate_reset_path(
+    account: &Account,
+    config: &Config,
+    path: &std::path::Path,
+    confirm_custom: bool,
+) -> Result<(), VivariumError> {
+    reject_system_directory(path)?;
+
+    let managed_root = config
+        .defaults
+        .mail_root
+        .as_deref()
+        .map(crate::config::expand_tilde)
+        .unwrap_or_else(Config::default_mail_root);
+    if path == &managed_root {
+        return Err(VivariumError::Other(format!(
+            "reset target {} is the mail root, not an account directory; refusing",
+            path.display()
+        )));
+    }
+
+    let is_custom = account.mail_dir.is_some();
+    if is_custom {
+        return validate_custom_reset(account, path, confirm_custom);
+    }
+
+    validate_managed_reset(path, &managed_root)
+}
+
+fn reject_system_directory(path: &std::path::Path) -> Result<(), VivariumError> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let lower = path.to_string_lossy().to_ascii_lowercase();
+    for d in ["/", &*home.to_string_lossy(), &*cwd.to_string_lossy()] {
+        if path == std::path::Path::new(d) || lower == d.to_ascii_lowercase() {
+            return Err(VivariumError::Other(format!(
+                "reset target {} is a system directory; refusing to delete",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_custom_reset(
+    account: &Account,
+    _path: &std::path::Path,
+    confirm_custom: bool,
+) -> Result<(), VivariumError> {
+    if !confirm_custom {
+        return Err(VivariumError::Other(format!(
+            "account '{}' uses a custom mail_dir; reset requires --confirm-reset to proceed",
+            account.name
+        )));
+    }
+    Ok(())
+}
+
+fn validate_managed_reset(
+    path: &std::path::Path,
+    managed_root: &std::path::Path,
+) -> Result<(), VivariumError> {
+    if !path.starts_with(managed_root) {
+        return Err(VivariumError::Other(format!(
+            "managed reset path {} is outside the mail root {}; refusing",
+            path.display(),
+            managed_root.display()
+        )));
+    }
+    if let Some(parent) = managed_root.parent() {
+        if path == parent {
+            return Err(VivariumError::Other(format!(
+                "reset target {} is an ancestor of the mail root; refusing",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Reject symlink escapes after canonicalization.
+fn validate_reset_symlink(canonical: &std::path::Path) -> Result<(), VivariumError> {
+    let metadata = std::fs::symlink_metadata(canonical)?;
+    if metadata.file_type().is_symlink() {
+        return Err(VivariumError::Other(format!(
+            "reset target {} is a symlink; refusing to follow",
+            canonical.display()
+        )));
+    }
     Ok(())
 }
 
@@ -207,9 +323,135 @@ mod tests {
         std::fs::create_dir_all(message_path.parent().unwrap()).unwrap();
         std::fs::write(&message_path, b"Subject: hi\r\n\r\n").unwrap();
 
-        reset_account_cache(&account, &config).unwrap();
+        reset_account_cache(&account, &config, true).unwrap();
 
         assert!(!account.mail_path(&config).exists());
+    }
+
+    #[test]
+    fn reset_rejects_root_path() {
+        let mut account = account_with_mail_dir(std::path::PathBuf::from("/"));
+        let config = Config::default();
+        let err = reset_account_cache(&account, &config, true).unwrap_err();
+        assert!(err.to_string().contains("system directory"));
+    }
+
+    #[test]
+    fn reset_rejects_home_directory() {
+        let home = dirs::home_dir().unwrap();
+        let account = account_with_mail_dir(home);
+        let config = Config::default();
+        let err = reset_account_cache(&account, &config, true).unwrap_err();
+        assert!(err.to_string().contains("system directory"));
+    }
+
+    #[test]
+    fn reset_rejects_cwd() {
+        let cwd = std::env::current_dir().unwrap();
+        let account = account_with_mail_dir(cwd);
+        let config = Config::default();
+        let err = reset_account_cache(&account, &config, true).unwrap_err();
+        assert!(err.to_string().contains("system directory"));
+    }
+
+    #[test]
+    fn reset_rejects_custom_path_without_confirmation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let account = account_with_mail_dir(tmp.path().join("custom"));
+        let config = Config::default();
+        let err = reset_account_cache(&account, &config, false).unwrap_err();
+        assert!(err.to_string().contains("--confirm-reset"));
+    }
+
+    #[test]
+    fn reset_allows_custom_path_with_confirmation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let account = account_with_mail_dir(tmp.path().join("custom"));
+        let config = Config::default();
+        let cache = account.mail_path(&config).join("INBOX/new");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("msg.eml"), b"data").unwrap();
+
+        reset_account_cache(&account, &config, true).unwrap();
+
+        assert!(!account.mail_path(&config).exists());
+    }
+
+    #[test]
+    fn reset_managed_path_works_without_confirmation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = Config {
+            defaults: crate::config::types::Defaults {
+                mail_root: Some(tmp.path().to_string_lossy().to_string()),
+                ..Default::default()
+            },
+        };
+        let account = account_managed("managed-acct");
+        let cache = account.mail_path(&config).join("INBOX/new");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("msg.eml"), b"data").unwrap();
+
+        reset_account_cache(&account, &config, false).unwrap();
+
+        assert!(!account.mail_path(&config).exists());
+    }
+
+    #[test]
+    fn reset_rejects_mail_root_itself() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = Config {
+            defaults: crate::config::types::Defaults {
+                mail_root: Some(tmp.path().to_string_lossy().to_string()),
+                ..Default::default()
+            },
+        };
+        // Simulate an account whose mail_dir is the mail root itself.
+        let account = account_with_mail_dir(tmp.path().to_path_buf());
+        let err = reset_account_cache(&account, &config, true).unwrap_err();
+        assert!(err.to_string().contains("mail root"));
+    }
+
+    #[test]
+    fn reset_failed_validation_does_not_delete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("data");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("important.eml"), b"keep me").unwrap();
+
+        let account = account_with_mail_dir(target.clone());
+        let config = Config::default();
+
+        // Rejected because confirm_custom is false.
+        let err = reset_account_cache(&account, &config, false).unwrap_err();
+        assert!(err.to_string().contains("--confirm-reset"));
+
+        // Data must still be there.
+        assert!(target.join("important.eml").exists());
+    }
+
+    #[test]
+    fn reset_rejects_symlink_escape() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("real");
+        let link = tmp.path().join("link");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("data.eml"), b"data").unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let account = account_with_mail_dir(link);
+        let config = Config::default();
+
+        let err = reset_account_cache(&account, &config, true).unwrap_err();
+        assert!(err.to_string().contains("symlink"));
+        // Target data must be intact.
+        assert!(real.join("data.eml").exists());
+    }
+
+    fn account_managed(name: &str) -> Account {
+        let mut account = account_with_mail_dir(std::path::PathBuf::from("/tmp"));
+        account.name = name.into();
+        account.mail_dir = None;
+        account
     }
 
     fn account_with_mail_dir(mail_dir: std::path::PathBuf) -> Account {

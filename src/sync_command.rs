@@ -12,6 +12,7 @@ pub(crate) struct SyncOptions {
     pub(crate) since: Option<String>,
     pub(crate) before: Option<String>,
     pub(crate) reset: bool,
+    pub(crate) confirm_reset: bool,
     pub(crate) index: bool,
     pub(crate) embed: bool,
     pub(crate) json: bool,
@@ -26,6 +27,7 @@ impl SyncOptions {
             since,
             before,
             reset,
+            confirm_reset,
             index,
             embed,
             json,
@@ -40,6 +42,7 @@ impl SyncOptions {
             since,
             before,
             reset,
+            confirm_reset,
             index,
             embed,
             json,
@@ -125,7 +128,7 @@ impl Runtime {
         window: vivarium::sync::SyncWindow,
     ) -> Result<SyncReport, VivariumError> {
         if options.reset {
-            vivarium::sync::reset_account_cache(acct, &self.config)?;
+            vivarium::sync::reset_account_cache(acct, &self.config, options.confirm_reset)?;
         }
         let result = vivarium::sync::sync_account(
             acct,
