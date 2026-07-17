@@ -278,6 +278,9 @@ fn dispatch_request(request: Request, sessions: &SessionRegistry) -> Response {
         "session.stop" => parse(request.params)
             .and_then(|params| sessions.stop(params).map_err(Into::into))
             .map(|session| json!(session)),
+        "session.remove" => parse(request.params)
+            .and_then(|params| sessions.remove(params).map_err(Into::into))
+            .map(|session| json!(session)),
         "session.diagnostic" => parse(request.params)
             .and_then(|params| sessions.diagnostic(params).map_err(Into::into))
             .map(|snapshot| json!(snapshot)),

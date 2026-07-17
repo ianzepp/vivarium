@@ -42,6 +42,7 @@ impl McpBridge {
                 tool("vivi_pty.session_start", "session.start", false, false),
                 tool("vivi_pty.session_inspect", "session.inspect", true, false),
                 tool("vivi_pty.session_stop", "session.stop", false, false),
+                tool("vivi_pty.session_remove", "session.remove", false, false),
                 tool(
                     "vivi_pty.session_diagnostic",
                     "session.diagnostic",

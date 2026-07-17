@@ -233,6 +233,32 @@ impl SessionRegistry {
         })
     }
 
+    /// Stop (if still running) and drop the session id so a new start with a
+    /// different command can reuse the same session_id. Unlike stop, this does
+    /// not leave an inspectable tombstone.
+    pub(super) fn remove(
+        &self,
+        selector: SessionSelector,
+    ) -> std::result::Result<SessionInfo, SessionError> {
+        let session_id = selector.session_id.clone();
+        self.with_session_gate(session_id, |session_id| {
+            let mut state = self.state.lock().expect("session registry poisoned");
+            let session = state.sessions.get_mut(&session_id).ok_or_else(|| {
+                SessionError::NotFound(format!("unknown session: {}", session_id))
+            })?;
+            // Best-effort stop so process groups do not leak.
+            let _ = session.stop();
+            let info = session.info.clone();
+            publish_lifecycle(&self.events, &info);
+            state.sessions.remove(&session_id);
+            state.tombstones.retain(|id| id != &session_id);
+            self.leases.release_session(&session_id);
+            self.events.remove_history(&session_id);
+            self.remove_gate(&session_id);
+            Ok(info)
+        })
+    }
+
     pub(super) fn write(&self, request: TerminalWrite) -> std::result::Result<usize, SessionError> {
         self.write_bytes(TerminalWriteBytes {
             session_id: request.session_id,

@@ -84,6 +84,30 @@ fn registry_stops_running_process_group() {
 }
 
 #[test]
+fn remove_drops_session_id_so_start_can_rebind_command() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    registry
+        .start(request("rebind-test", &["/bin/sh", "-c", "sleep 30"]))
+        .unwrap();
+    let first = registry.inspect(selector("rebind-test")).unwrap();
+    assert_eq!(first.command, vec!["/bin/sh", "-c", "sleep 30"]);
+
+    registry.remove(selector("rebind-test")).unwrap();
+    assert!(
+        registry.inspect(selector("rebind-test")).is_err(),
+        "removed session must not leave an inspectable tombstone"
+    );
+
+    registry
+        .start(request("rebind-test", &["/bin/sh", "-c", "sleep 5"]))
+        .unwrap();
+    let second = registry.inspect(selector("rebind-test")).unwrap();
+    assert_eq!(second.command, vec!["/bin/sh", "-c", "sleep 5"]);
+    registry.remove(selector("rebind-test")).unwrap();
+}
+
+#[test]
 fn stopping_a_session_removes_descendants_in_its_group() {
     let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
