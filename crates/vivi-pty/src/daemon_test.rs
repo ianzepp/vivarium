@@ -815,6 +815,38 @@ fn semantic_submit_requires_operation_id_and_codex_driver() {
 }
 
 #[test]
+fn semantic_interrupt_applies_driver_plan() {
+    let _lock = lock_pty_tests();
+    let registry = SessionRegistry::default();
+    registry
+        .start(request("interrupt-test", &["/bin/cat"]))
+        .unwrap();
+
+    let mut interrupt = Request::new(
+        1,
+        "session.interrupt",
+        serde_json::json!({ "session_id": "interrupt-test" }),
+    );
+    interrupt.operation_id = Some("interrupt-1".into());
+    let response = dispatch(interrupt, &registry);
+    assert!(response.error.is_none(), "{response:?}");
+    let outcome: SemanticOutcome = serde_json::from_value(response.result.unwrap()).unwrap();
+    assert_eq!(outcome.session_id, "interrupt-test");
+    assert_eq!(outcome.operation_id, "interrupt-1");
+
+    let missing_op = Request::new(
+        2,
+        "session.interrupt",
+        serde_json::json!({ "session_id": "interrupt-test" }),
+    );
+    let missing_response = dispatch(missing_op, &registry);
+    assert_eq!(
+        missing_response.error.as_ref().map(|error| error.code),
+        Some(error_codes::INVALID_PARAMS)
+    );
+}
+
+#[test]
 fn codex_submit_waits_for_receipt_before_enter() {
     let _lock = lock_pty_tests();
     let registry = SessionRegistry::default();
