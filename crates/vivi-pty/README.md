@@ -73,7 +73,10 @@ The built-in Codex driver adds evidence-backed state classification and an
 acknowledged submission workflow: it writes the composer literally, waits for
 the submitted text to appear on a newer screen revision, and only then plans
 the Codex submit key. Stale, contradictory, or unrecognized evidence becomes
-an explicit uncertain result.
+an explicit uncertain result. At the daemon, `session.submit` currently runs
+this acknowledged Codex flow only and rejects other drivers explicitly;
+`session.interrupt` and `session.restart` execute through whatever driver the
+session selected.
 
 Pi and OpenCode use independent Fleet-grounded marker sets for prompts,
 activity, approvals, completion, and failures; unfamiliar terminal chrome
