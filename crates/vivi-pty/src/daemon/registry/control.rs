@@ -125,7 +125,10 @@ impl SessionRegistry {
         &self,
         selector: SessionSelector,
     ) -> std::result::Result<DiagnosticSnapshot, SessionError> {
-        let mut state = self.state.lock().expect("session registry poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let (session, transitioned) = {
             let session = state
                 .sessions
@@ -177,7 +180,10 @@ impl SessionRegistry {
         &self,
         request: SessionSubscribe,
     ) -> std::result::Result<SubscriptionAck, SessionError> {
-        let state = self.state.lock().expect("session registry poisoned");
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if !state.sessions.contains_key(&request.session_id) {
             return Err(SessionError::NotFound(format!(
                 "unknown session: {}",

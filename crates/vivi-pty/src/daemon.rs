@@ -1,7 +1,7 @@
 use crate::lease::LeaseError;
 use crate::protocol::{
-    AttachmentAck, DaemonInfo, PROTOCOL_VERSION, Request, Response, ServerNotification,
-    SessionSelector, SubscriptionAck, error_codes, read_frame, write_frame,
+    AttachmentAck, DaemonInfo, PROTOCOL_VERSION, Request, Response, SemanticOutcome,
+    ServerNotification, SessionSelector, SubscriptionAck, error_codes, read_frame, write_frame,
 };
 use anyhow::{Context, Result, bail};
 use libc;
@@ -30,9 +30,9 @@ mod session;
 use crate::events::MAX_EVENT_HISTORY;
 #[cfg(test)]
 use crate::protocol::{
-    ControlLease, DiagnosticSnapshot, EventBatch, LeasedTerminalWrite, SemanticOutcome,
-    SessionEventKind, SessionLeaseRelease, SessionState, SessionWait, StartSession, TerminalResize,
-    TerminalWrite, TerminalWriteBytes,
+    ControlLease, DiagnosticSnapshot, EventBatch, LeasedTerminalWrite, SessionEventKind,
+    SessionLeaseRelease, SessionState, SessionWait, StartSession, TerminalResize, TerminalWrite,
+    TerminalWriteBytes,
 };
 use registry::{SessionError, SessionRegistry};
 #[cfg(test)]
@@ -327,30 +327,9 @@ fn dispatch_request(request: Request, sessions: &SessionRegistry) -> Response {
         "terminal.snapshot" => parse(request.params)
             .and_then(|params| sessions.snapshot(params).map_err(Into::into))
             .map(|snapshot| json!(snapshot)),
-        "session.submit" => require_operation_id(&request).and_then(|operation_id| {
-            parse(request.params).and_then(|params| {
-                sessions
-                    .submit(params, operation_id)
-                    .map_err(Into::into)
-                    .map(|outcome| json!(outcome))
-            })
-        }),
-        "session.interrupt" => require_operation_id(&request).and_then(|operation_id| {
-            parse(request.params).and_then(|params| {
-                sessions
-                    .interrupt(params, operation_id)
-                    .map_err(Into::into)
-                    .map(|outcome| json!(outcome))
-            })
-        }),
-        "session.restart" => require_operation_id(&request).and_then(|operation_id| {
-            parse(request.params).and_then(|params| {
-                sessions
-                    .restart(params, operation_id)
-                    .map_err(Into::into)
-                    .map(|outcome| json!(outcome))
-            })
-        }),
+        "session.submit" => dispatch_semantic(&request, sessions, SessionRegistry::submit),
+        "session.interrupt" => dispatch_semantic(&request, sessions, SessionRegistry::interrupt),
+        "session.restart" => dispatch_semantic(&request, sessions, SessionRegistry::restart),
         _ => {
             return Response::error(
                 request.id,
@@ -364,6 +343,27 @@ fn dispatch_request(request: Request, sessions: &SessionRegistry) -> Response {
         Ok(value) => Response::success(request.id, value),
         Err(error) => Response::error(request.id, error.code, error.message),
     }
+}
+
+fn dispatch_semantic<P>(
+    request: &Request,
+    sessions: &SessionRegistry,
+    operation: impl FnOnce(
+        &SessionRegistry,
+        P,
+        String,
+    ) -> std::result::Result<SemanticOutcome, SessionError>,
+) -> std::result::Result<Value, DispatchError>
+where
+    P: DeserializeOwned,
+{
+    require_operation_id(request).and_then(|operation_id| {
+        parse(request.params.clone()).and_then(|params| {
+            operation(sessions, params, operation_id)
+                .map_err(Into::into)
+                .map(|outcome| json!(outcome))
+        })
+    })
 }
 
 #[derive(Debug)]

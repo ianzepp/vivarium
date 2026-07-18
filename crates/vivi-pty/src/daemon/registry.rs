@@ -132,7 +132,10 @@ impl SessionRegistry {
     }
 
     pub(super) fn list(&self) -> std::result::Result<Vec<SessionInfo>, SessionError> {
-        let mut state = self.state.lock().expect("session registry poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         refresh_all(&mut state, &self.events, &self.leases)?;
         let mut result = state
             .sessions
@@ -148,7 +151,10 @@ impl SessionRegistry {
         request: StartSession,
     ) -> std::result::Result<SessionInfo, SessionError> {
         validate_start(&request).map_err(SessionError::InvalidInput)?;
-        let mut state = self.state.lock().expect("session registry poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if self.is_shutting_down() {
             return Err(SessionError::InvalidState("daemon is shutting down".into()));
         }
@@ -190,7 +196,10 @@ impl SessionRegistry {
         &self,
         selector: SessionSelector,
     ) -> std::result::Result<SessionInfo, SessionError> {
-        let mut state = self.state.lock().expect("session registry poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let (info, transitioned) = {
             let session = state
                 .sessions
@@ -215,7 +224,10 @@ impl SessionRegistry {
     ) -> std::result::Result<SessionInfo, SessionError> {
         let session_id = selector.session_id.clone();
         self.with_session_gate(session_id, |session_id| {
-            let mut state = self.state.lock().expect("session registry poisoned");
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let (info, transitioned) = {
                 let session = state.sessions.get_mut(&session_id).ok_or_else(|| {
                     SessionError::NotFound(format!("unknown session: {}", session_id))
@@ -242,7 +254,10 @@ impl SessionRegistry {
     ) -> std::result::Result<SessionInfo, SessionError> {
         let session_id = selector.session_id.clone();
         self.with_session_gate(session_id, |session_id| {
-            let mut state = self.state.lock().expect("session registry poisoned");
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let session = state.sessions.get_mut(&session_id).ok_or_else(|| {
                 SessionError::NotFound(format!("unknown session: {}", session_id))
             })?;
@@ -272,7 +287,10 @@ impl SessionRegistry {
     ) -> std::result::Result<usize, SessionError> {
         let session_id = request.session_id.clone();
         self.with_session_gate(session_id, |_session_id| {
-            let mut state = self.state.lock().expect("session registry poisoned");
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let session = state.sessions.get_mut(&request.session_id).ok_or_else(|| {
                 SessionError::NotFound(format!("unknown session: {}", request.session_id))
             })?;
@@ -304,7 +322,10 @@ impl SessionRegistry {
         validate_dimensions(request.columns, request.rows).map_err(SessionError::InvalidInput)?;
         let session_id = request.session_id.clone();
         self.with_session_gate(session_id, |session_id| {
-            let mut state = self.state.lock().expect("session registry poisoned");
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let session = state.sessions.get_mut(&session_id).ok_or_else(|| {
                 SessionError::NotFound(format!("unknown session: {}", session_id))
             })?;
@@ -322,7 +343,10 @@ impl SessionRegistry {
 
     pub(super) fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
-        let mut state = self.state.lock().expect("session registry poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         for session in state.sessions.values_mut() {
             if let Err(error) = session.stop() {
                 eprintln!(
@@ -338,7 +362,10 @@ impl SessionRegistry {
 impl Drop for SessionRegistry {
     fn drop(&mut self) {
         self.shutting_down.store(true, Ordering::Release);
-        let mut state = self.state.lock().expect("session registry poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         for session in state.sessions.values_mut() {
             if let Err(error) = session.stop() {
                 eprintln!(
