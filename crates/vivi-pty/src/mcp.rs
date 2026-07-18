@@ -115,6 +115,7 @@ impl McpBridge {
             drivers: vec![
                 "generic".into(),
                 "grok".into(),
+                "kimi".into(),
                 "codex".into(),
                 "pi".into(),
                 "opencode".into(),

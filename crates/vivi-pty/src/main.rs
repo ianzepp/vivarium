@@ -198,9 +198,11 @@ fn run_session(socket: &std::path::Path, command: SessionCommand) -> Result<()> 
         SessionCommand::Stop { session_id } => {
             client::call(socket, "session.stop", json!({ "session_id": session_id }))?
         }
-        SessionCommand::Remove { session_id } => {
-            client::call(socket, "session.remove", json!({ "session_id": session_id }))?
-        }
+        SessionCommand::Remove { session_id } => client::call(
+            socket,
+            "session.remove",
+            json!({ "session_id": session_id }),
+        )?,
         SessionCommand::Restart { session_id } => {
             let operation_id = format!(
                 "restart-{}",

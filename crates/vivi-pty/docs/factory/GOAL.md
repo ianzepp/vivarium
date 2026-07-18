@@ -14,7 +14,8 @@ events/waits phase, generic driver framework, Codex acknowledged submission
 state machine, read-only attachment, exclusive control leases, the thin MCP
 facade and capability negotiation, and the canonical Fleet runtime-binding
 contract are complete. Pi and OpenCode driver conformance, semantic daemon
-actions (submit, interrupt, restart), and a Grok driver are also complete.
+actions (submit, interrupt, restart), and Grok and Kimi Code drivers are also
+complete.
 Active work continues in this Vivarium workspace with live canary execution as
 the next useful milestone.
 
@@ -290,7 +291,9 @@ reaps the daemon-owned process group, then respawns under the same session
 identity. Per-session semantic busy guards reject concurrent actions, and
 outcomes carry normalized state and evidence. A Grok driver with submit,
 interrupt, and raw-input capabilities is also implemented and shares the
-conformance suite.
+conformance suite. A Kimi Code driver adds approve and reject on top of the
+same surface, with markers grounded in live TUI captures (composer box,
+moon-phase turn spinner, numbered approval panel, Escape interruption).
 
 ### Following milestones
 

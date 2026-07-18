@@ -65,8 +65,9 @@ The driver layer now classifies terminal evidence into normalized harness
 states and turns guarded submit, interrupt, and raw-input requests into
 deterministic terminal-action plans. The generic driver is deliberately
 conservative: it recognizes explicit shell prompts and otherwise reports
-visible output as running. The built-in Codex, Pi, and OpenCode drivers share
-the same normalized state, evidence, capability, and guarded-action boundary.
+visible output as running. The built-in Codex, Pi, OpenCode, Grok, and Kimi
+Code drivers share the same normalized state, evidence, capability, and
+guarded-action boundary.
 
 The built-in Codex driver adds evidence-backed state classification and an
 acknowledged submission workflow: it writes the composer literally, waits for
@@ -77,6 +78,12 @@ an explicit uncertain result.
 Pi and OpenCode use independent Fleet-grounded marker sets for prompts,
 activity, approvals, completion, and failures; unfamiliar terminal chrome
 remains unknown rather than borrowing Codex or shell assumptions.
+
+The Kimi Code driver's markers are grounded in live TUI captures: the boxed
+`>` composer, the moon-phase turn spinner, and the numbered approval panel.
+Because Ctrl-C is also Kimi Code's exit gesture when idle, interruption sends
+Escape; approval confirms with Enter and rejection sends Escape, matching the
+panel's documented keys.
 
 `session.attach` provides a read-only ordered event stream. Human interaction
 uses a short-lived exclusive lease acquired with `session.lease.acquire`; the

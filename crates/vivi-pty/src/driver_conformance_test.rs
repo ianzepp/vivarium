@@ -48,6 +48,7 @@ fn built_in_drivers_share_the_normalized_conformance_surface() {
         Box::new(crate::driver::GenericDriver),
         Box::new(crate::codex::CodexDriver),
         Box::new(crate::grok::GrokDriver),
+        Box::new(crate::kimi::KimiDriver),
         Box::new(crate::pi::PiDriver),
         Box::new(crate::opencode::OpenCodeDriver),
     ];

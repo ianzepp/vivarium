@@ -232,6 +232,7 @@ impl DriverRegistry {
         let mut registry = Self::with_generic();
         registry.register(Arc::new(crate::codex::CodexDriver));
         registry.register(Arc::new(crate::grok::GrokDriver));
+        registry.register(Arc::new(crate::kimi::KimiDriver));
         registry.register(Arc::new(crate::opencode::OpenCodeDriver));
         registry.register(Arc::new(crate::pi::PiDriver));
         registry
