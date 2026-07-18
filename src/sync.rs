@@ -151,9 +151,9 @@ pub fn reset_account_cache(
 /// by walking up to the nearest existing ancestor and rejoining.
 fn resolve_canonical(path: &std::path::Path) -> Result<std::path::PathBuf, VivariumError> {
     if path.exists() {
-        return Ok(path.canonicalize().map_err(|e| {
+        return path.canonicalize().map_err(|e| {
             VivariumError::Other(format!("cannot resolve reset path {}: {e}", path.display()))
-        })?);
+        });
     }
     // Walk up to the nearest existing ancestor.
     let mut existing = path.to_path_buf();
@@ -261,10 +261,10 @@ fn reject_dangerous_target(path: &std::path::Path) -> Result<(), VivariumError> 
 
     // Reject direct parents of home/cwd/repo (dangerous ancestors).
     for dangerous in [&home, &cwd].into_iter().chain(repo_root.iter()) {
-        if let Some(parent) = dangerous.parent() {
-            if path == parent {
-                return Err(reset_refusal(path, "a parent of a system directory"));
-            }
+        if let Some(parent) = dangerous.parent()
+            && path == parent
+        {
+            return Err(reset_refusal(path, "a parent of a system directory"));
         }
     }
 

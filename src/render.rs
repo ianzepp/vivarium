@@ -126,7 +126,7 @@ pub fn render_document(
     let (output, temp) = prepare_output(output)?;
     let temp_output = temp.path().join(output.file_name().unwrap_or_default());
     run_pipeline(
-        &pipeline,
+        pipeline,
         &source,
         source.parent().unwrap_or(Path::new(".")),
         &temp_output,
@@ -481,7 +481,6 @@ fn validate_images(text: &str, resource_root: &Path) -> Result<(), VivariumError
             .split(')')
             .next()
             .unwrap_or_default()
-            .trim()
             .split_whitespace()
             .next()
             .unwrap_or_default()
@@ -525,7 +524,7 @@ fn validate_image_target(target: &str, resource_root: &Path) -> Result<u64, Viva
             "local image is not a regular file: {target}"
         )));
     }
-    if !full.canonicalize()?.starts_with(&resource_root) {
+    if !full.canonicalize()?.starts_with(resource_root) {
         return Err(VivariumError::Message(
             "image path escapes the Markdown resource root".into(),
         ));
@@ -613,12 +612,12 @@ fn executable_version(name: &str) -> Option<String> {
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .next()
-        .map(|line| scrub_tool_output(line))
+        .map(scrub_tool_output)
 }
 
 fn scrub_tool_output(value: &str) -> String {
     let home = dirs::home_dir().map(|path| path.to_string_lossy().into_owned());
-    let mut value = value.replace('\n', " ").replace('\r', " ");
+    let mut value = value.replace(['\n', '\r'], " ");
     if let Some(home) = home {
         value = value.replace(&home, "~");
     }
