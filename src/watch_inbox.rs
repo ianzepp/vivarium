@@ -11,7 +11,7 @@ use crate::imap::InboxWaitMode;
 use crate::sync::{SyncResult, SyncWindow};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(30);
-const MAX_BACKOFF: Duration = Duration::from_secs(300);
+const MAX_BACKOFF: Duration = Duration::from_mins(5);
 
 /// Structured, inbound-only notification emitted after mail is synced locally.
 ///
@@ -44,6 +44,11 @@ pub enum InboxWatchSource {
     Poll,
 }
 
+/// Watch for new mail in an account's inbox, syncing and emitting events.
+///
+/// # Errors
+/// Returns an error if the account uses the Proton API (which requires IMAP
+/// for watch-inbox) or if I/O errors occur during event emission.
 pub async fn watch_inbox(
     account: &Account,
     config: &Config,
@@ -174,14 +179,12 @@ fn sender_address(value: &str) -> Option<String> {
 fn entry_event_id(entry: &crate::catalog::CatalogEntry) -> String {
     entry
         .remote
-        .as_ref()
-        .map(|remote| {
+        .as_ref().map_or_else(|| format!("message:{}:{}", entry.account, entry.handle), |remote| {
             format!(
                 "imap:{}:{}:{}",
                 remote.remote_mailbox, remote.uidvalidity, remote.uid
             )
         })
-        .unwrap_or_else(|| format!("message:{}:{}", entry.account, entry.handle))
 }
 
 #[cfg(test)]

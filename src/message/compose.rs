@@ -25,10 +25,20 @@ pub struct FileAttachment {
     pub data: Vec<u8>,
 }
 
+/// Build an email message from a compose draft.
+///
+/// # Errors
+/// Returns an error if the draft has no recipients, or if the generated
+/// message fails header validation.
 pub fn build_compose_draft(draft: &ComposeDraft) -> Result<String, VivariumError> {
     build_compose_draft_with_attachments(draft, &[])
 }
 
+/// Build an email message from a compose draft with file attachments.
+///
+/// # Errors
+/// Returns an error if the draft has no recipients, or if the generated
+/// message fails header validation.
 pub fn build_compose_draft_with_attachments(
     draft: &ComposeDraft,
     attachments: &[FileAttachment],
@@ -66,6 +76,11 @@ pub fn build_compose_draft_with_attachments(
     Ok(eml)
 }
 
+/// Build a reply email from an original message and reply draft.
+///
+/// # Errors
+/// Returns an error if the original message cannot be parsed, has no From
+/// address, or the generated reply fails header validation.
 pub fn build_reply(original: &[u8], draft: &ReplyDraft) -> Result<String, VivariumError> {
     let parsed = mail_parser::MessageParser::default()
         .parse(original)
@@ -95,6 +110,11 @@ pub fn build_reply(original: &[u8], draft: &ReplyDraft) -> Result<String, Vivari
     Ok(eml)
 }
 
+/// Build a reply template (empty body) from an original message.
+///
+/// # Errors
+/// Returns an error if the original message cannot be parsed or has no From
+/// address.
 pub fn build_reply_template(original: &[u8], from: &str) -> Result<String, VivariumError> {
     build_reply(
         original,
@@ -106,6 +126,12 @@ pub fn build_reply_template(original: &[u8], from: &str) -> Result<String, Vivar
     )
 }
 
+/// Validate that a raw message has required headers (From and at least one
+/// recipient).
+///
+/// # Errors
+/// Returns an error if the message cannot be parsed, has no From header, or
+/// has no To, Cc, or Bcc recipient.
 pub fn validate_message_headers(data: &[u8]) -> Result<(), VivariumError> {
     let parsed = mail_parser::MessageParser::default()
         .parse(data)
@@ -124,6 +150,11 @@ pub fn validate_message_headers(data: &[u8]) -> Result<(), VivariumError> {
     Ok(())
 }
 
+/// Replace the From header in a raw message with a new address.
+///
+/// # Errors
+/// Returns an error if `from` is empty or not a valid email address, the
+/// message is not UTF-8, has no header/body separator, or has no From header.
 pub fn replace_from_header(data: &[u8], from: &str) -> Result<Vec<u8>, VivariumError> {
     let from = from.trim();
     if from.is_empty() {
@@ -202,6 +233,7 @@ fn reply_html_body(html_body: &str, parsed: &mail_parser::Message<'_>) -> String
     html
 }
 
+#[must_use] 
 pub fn auto_html_body(body: &str) -> String {
     format!("<div dir=\"ltr\">{}</div>\n", plain_text_to_html(body))
 }

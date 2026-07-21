@@ -52,6 +52,12 @@ struct WatchFilters {
     content_id: Option<String>,
 }
 
+/// Watch for mailspace events matching the given request filters.
+///
+/// # Errors
+/// Returns an error if filter preparation, event scanning, or cursor I/O
+/// fails. Also returns an error on timeout if no matching event arrives.
+#[allow(clippy::needless_pass_by_value)]
 pub fn run_watch(
     mailspace: &Mailspace,
     request: MailspaceWatchRequest,
@@ -191,7 +197,7 @@ fn prepare_filters(
         match_from: request
             .match_from
             .as_deref()
-            .map(|value| value.to_ascii_lowercase()),
+            .map(str::to_ascii_lowercase),
         subject_prefix: request.match_subject_prefix.clone(),
         content_id,
     })

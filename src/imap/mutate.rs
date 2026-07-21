@@ -72,6 +72,14 @@ impl From<&CapabilityReport> for MutationCapabilities {
     }
 }
 
+/// Plan a move operation based on server capabilities.
+///
+/// Returns a [`MutationPlan`] using UID MOVE when supported, falling back
+/// to COPY+STORE+EXPUNGE, or an error if the server lacks both MOVE and
+/// UIDPLUS.
+///
+/// # Errors
+/// Returns an error if the server does not support MOVE or UIDPLUS.
 pub fn plan_move(
     target: MutationTarget,
     capabilities: &MutationCapabilities,
@@ -94,6 +102,7 @@ pub fn plan_move(
     ))
 }
 
+#[must_use] 
 pub fn plan_flag(mutation: FlagMutation) -> MutationPlan {
     let store_query = match mutation {
         FlagMutation::Read => "+FLAGS.SILENT (\\Seen)",
@@ -107,6 +116,10 @@ pub fn plan_flag(mutation: FlagMutation) -> MutationPlan {
     }
 }
 
+/// Move a message to the given target folder on the IMAP server.
+///
+/// # Errors
+/// Returns an error if the IMAP connection, move plan, or execution fails.
 pub async fn move_message(
     account: &Account,
     remote: &RemoteIdentity,
@@ -118,6 +131,10 @@ pub async fn move_message(
     execute_plan(account, remote, plan, reject_invalid_certs).await
 }
 
+/// Apply a flag mutation (read/unread/starred/unstarred) on the IMAP server.
+///
+/// # Errors
+/// Returns an error if the IMAP connection or UID STORE command fails.
 pub async fn mutate_flag(
     account: &Account,
     remote: &RemoteIdentity,
@@ -127,6 +144,11 @@ pub async fn mutate_flag(
     execute_plan(account, remote, plan_flag(mutation), reject_invalid_certs).await
 }
 
+/// Permanently remove a message using UID EXPUNGE.
+///
+/// # Errors
+/// Returns an error if the server does not support UIDPLUS, or if the
+/// IMAP connection or expunge command fails.
 pub async fn hard_expunge(
     account: &Account,
     remote: &RemoteIdentity,

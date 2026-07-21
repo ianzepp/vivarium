@@ -118,7 +118,8 @@ impl Runtime {
             } else if let Some(error) = &report.key_material_error {
                 println!("keys      unavailable ({error})");
             }
-        })
+        });
+        Ok(())
     }
 
     pub(crate) async fn proton_decrypt_fixture(
@@ -170,7 +171,8 @@ impl Runtime {
             if let Some(output) = &report.output {
                 println!("output    {output}");
             }
-        })
+        });
+        Ok(())
     }
 }
 

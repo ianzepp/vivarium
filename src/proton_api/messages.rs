@@ -60,10 +60,12 @@ pub struct ProtonFullMessage {
 }
 
 impl ProtonMessage {
+    #[must_use] 
     pub fn datetime(&self) -> Option<DateTime<Utc>> {
         DateTime::from_timestamp(self.time, 0)
     }
 
+    #[must_use] 
     pub fn rfc_message_id(&self) -> String {
         if self.external_id.contains('@') {
             self.external_id.clone()
@@ -84,6 +86,7 @@ pub struct ProtonAddress {
 }
 
 impl ProtonAddress {
+    #[must_use] 
     pub fn as_header_value(&self) -> String {
         if self.name.is_empty() {
             self.address.clone()

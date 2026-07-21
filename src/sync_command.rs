@@ -6,6 +6,7 @@ use vivarium::cli::Command;
 
 use super::{Runtime, VivariumError, print_sync_result};
 
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct SyncOptions {
     pub(crate) account: Option<String>,
     pub(crate) limit: Option<usize>,

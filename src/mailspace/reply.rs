@@ -10,6 +10,12 @@ pub(super) struct NoteReply {
 }
 
 impl Mailspace {
+    /// Reply to an existing message. Resolves recipients from the parent
+    /// message if none are specified.
+    ///
+    /// # Errors
+    /// Returns an error if the parent handle cannot be resolved, the from
+    /// identity is unknown, message composition fails, or delivery fails.
     pub fn reply(
         &self,
         handle: &str,

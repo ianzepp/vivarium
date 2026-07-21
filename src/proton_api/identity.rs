@@ -66,6 +66,7 @@ pub struct ProtonAddressSummary {
 }
 
 #[derive(Debug, Default, Serialize)]
+#[allow(clippy::struct_field_names)]
 pub struct ProtonKeySummary {
     pub key_count: usize,
     pub active_key_count: usize,
@@ -78,6 +79,7 @@ pub struct ProtonKeySummary {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(clippy::struct_field_names)]
 pub struct ProtonIdentityKeyState {
     pub user_key_count: usize,
     pub address_key_count: usize,
@@ -227,11 +229,11 @@ fn present(value: Option<&str>) -> bool {
     value.is_some_and(|value| !value.is_empty())
 }
 
+#[allow(clippy::cast_possible_truncation)]
 fn value_as_u8(value: &Value) -> u8 {
     match value {
         Value::Bool(true) => 1,
-        Value::Bool(false) | Value::Null => 0,
-        Value::Number(number) => number.as_u64().unwrap_or_default().min(u8::MAX as u64) as u8,
+        Value::Number(number) => number.as_u64().unwrap_or_default().min(u64::from(u8::MAX)) as u8,
         Value::String(value) => value.parse().unwrap_or_default(),
         _ => 0,
     }

@@ -5,6 +5,10 @@ use super::{
 use crate::error::VivariumError;
 
 impl ProtonApiClient {
+    /// Fetches public keys for a given address.
+    ///
+    /// # Errors
+    /// Returns an error if the API call fails or the session cannot be refreshed.
     pub async fn public_keys(
         &self,
         session: &ProtonSession,

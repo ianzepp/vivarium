@@ -76,6 +76,12 @@ pub struct CycleIntake {
 }
 
 impl Mailspace {
+    /// Absorb an inbox message. Marks it as read and records an absorption
+    /// event.
+    ///
+    /// # Errors
+    /// Returns an error if the identity or message cannot be resolved, if the
+    /// message is not in the inbox, or if a storage operation fails.
     pub fn absorb_mail(
         &self,
         identity: &str,
@@ -112,6 +118,11 @@ impl Mailspace {
         storage.display_handle(&message.message_id)
     }
 
+    /// Create a task from a source message (currently only wants).
+    ///
+    /// # Errors
+    /// Returns an error if the source message is not a want, if sending the
+    /// task message fails, or if a storage operation fails.
     pub fn task_from_source(
         &self,
         request: SourceTaskRequest,
@@ -144,6 +155,12 @@ impl Mailspace {
         })
     }
 
+    /// Set metadata fields (priority, rank, repo, lane, etc.) on a want
+    /// message.
+    ///
+    /// # Errors
+    /// Returns an error if the identity or message cannot be resolved, if the
+    /// message is not a want, or if a storage operation fails.
     pub fn set_want_metadata(
         &self,
         identity: &str,
@@ -179,11 +196,17 @@ impl Mailspace {
             from_identity: None,
             to_identity: Some(want.account),
             subject: want.subject,
-            note: metadata_note(&metadata),
+            note: Some(metadata_note(&metadata)),
         })?;
         storage.display_handle(&want.message_id)
     }
 
+    /// List wants with their metadata, filtered by roles and options.
+    ///
+    /// # Errors
+    /// Returns an error if the identity cannot be resolved or a storage
+    /// operation fails.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn list_wants_with_metadata(
         &self,
         identity: &str,
@@ -221,6 +244,12 @@ impl Mailspace {
         Ok(records)
     }
 
+    /// Run a full intake cycle: collect new events, unabsorbed mail, open needs
+    /// and wants.
+    ///
+    /// # Errors
+    /// Returns an error if the identity cannot be resolved, dump queries fail,
+    /// or a storage operation fails.
     pub fn cycle_intake(
         &self,
         identity: &str,
@@ -369,14 +398,12 @@ fn insert_optional(map: &mut BTreeMap<String, String>, key: &str, value: Option<
     }
 }
 
-fn metadata_note(metadata: &BTreeMap<String, String>) -> Option<String> {
-    Some(
-        metadata
-            .iter()
-            .map(|(key, value)| format!("{key}={value}"))
-            .collect::<Vec<_>>()
-            .join("; "),
-    )
+fn metadata_note(metadata: &BTreeMap<String, String>) -> String {
+    metadata
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn metadata_matches(metadata: &BTreeMap<String, String>, options: &WantListOptions) -> bool {

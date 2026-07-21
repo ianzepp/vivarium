@@ -87,11 +87,21 @@ struct DumpWindow {
 }
 
 impl Mailspace {
+    /// Dump mail records matching the given folder and filters.
+    ///
+    /// # Errors
+    /// Returns an error if the folder is invalid, filter resolution fails, or a
+    /// storage operation fails.
     pub fn dump_mail(&self, request: MailDumpRequest) -> Result<Vec<DumpRecord>, VivariumError> {
         let roles = mail_roles(&request.folder)?;
         self.dump_records(&roles, None, request.kind.as_deref(), request.filters)
     }
 
+    /// Dump task records matching the given status and filters.
+    ///
+    /// # Errors
+    /// Returns an error if the role is invalid, filter resolution fails, or a
+    /// storage operation fails.
     pub fn dump_tasks(&self, request: TaskDumpRequest) -> Result<Vec<DumpRecord>, VivariumError> {
         let roles = status_roles(&request.open_role, request.status);
         self.dump_records(
@@ -253,7 +263,7 @@ impl Mailspace {
             .map(|identity| self.identity_names(&identity));
 
         // If --participant resolves to a known identity, use it for SQL filtering too
-        let participant_filter = self.participant_filter(filters.participant.as_deref())?;
+        let participant_filter = self.participant_filter(filters.participant.as_deref());
         let account_from_participant = participant_filter
             .as_ref()
             .and_then(|pf| pf.identity.clone());
@@ -273,23 +283,16 @@ impl Mailspace {
         })
     }
 
-    fn participant_filter(
-        &self,
-        participant: Option<&str>,
-    ) -> Result<Option<ParticipantFilter>, VivariumError> {
-        let Some(value) = participant else {
-            return Ok(None);
-        };
+    fn participant_filter(&self, participant: Option<&str>) -> Option<ParticipantFilter> {
+        let value = participant?;
         let resolved = self.resolve_identity(value).ok();
         let text = resolved
-            .as_deref()
-            .map(|identity| self.address_for(identity))
-            .unwrap_or_else(|| value.to_string());
+            .as_deref().map_or_else(|| value.to_string(), |identity| self.address_for(identity));
         let identity = resolved.map(|identity| self.identity_names(&identity));
-        Ok(Some(ParticipantFilter {
+        Some(ParticipantFilter {
             identity,
             text: normalize_filter(text),
-        }))
+        })
     }
 }
 
@@ -407,6 +410,14 @@ impl DumpWindow {
     }
 }
 
+/// Parse a time bound string into a `DateTime<Utc>`. Accepts RFC3339,
+/// `YYYY-MM-DD`, or relative forms (`Nh`, `Nd`, `Nw`).
+///
+/// # Errors
+/// Returns an error if the value cannot be parsed as a recognised time format.
+///
+/// # Panics
+/// Never panics. The `0, 0, 0` arguments to `and_hms_opt` are always valid.
 pub fn parse_time_bound(value: &str) -> Result<DateTime<Utc>, VivariumError> {
     if let Some(date) = relative_time_bound(value)? {
         return Ok(date);
@@ -419,8 +430,12 @@ pub fn parse_time_bound(value: &str) -> Result<DateTime<Utc>, VivariumError> {
             "invalid time '{value}', expected RFC3339, YYYY-MM-DD, Nh, Nd, or Nw"
         ))
     })?;
+    // 0, 0, 0 is always a valid time for and_hms_opt.
+    let Some(dt) = date.and_hms_opt(0, 0, 0) else {
+        return Err(VivariumError::Config(format!("invalid date '{value}'")));
+    };
     Local
-        .from_local_datetime(&date.and_hms_opt(0, 0, 0).unwrap())
+        .from_local_datetime(&dt)
         .single()
         .map(|date| date.with_timezone(&Utc))
         .ok_or_else(|| VivariumError::Config(format!("ambiguous local date '{value}'")))

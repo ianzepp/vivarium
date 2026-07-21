@@ -9,6 +9,14 @@ use super::{
     EmbeddingOptions, OllamaEmbeddingProvider, SUPPORTED_PROVIDER, SemanticMatch, chunk, store,
 };
 
+/// Search messages by semantic similarity to the query text.
+///
+/// Returns a vector of [`SemanticMatch`] values and the total number of
+/// scored embeddings.
+///
+/// # Errors
+/// Returns an error if the embedding provider call, database lookup, or
+/// file I/O fails.
 pub async fn semantic_search(
     mail_root: &Path,
     account: &str,
@@ -32,7 +40,7 @@ pub async fn semantic_search(
     let store = store::EmbeddingStore::open(mail_root, provider.provider(), provider.model())?;
     let scored = score_embeddings(&store.embeddings(account)?, query_vector);
     let total = scored.len();
-    let matches = hydrate_matches(index, account, scored, limit, offset)?;
+    let matches = hydrate_matches(&index, account, scored, limit, offset)?;
     Ok((matches, total))
 }
 
@@ -52,7 +60,7 @@ fn score_embeddings(
 }
 
 fn hydrate_matches(
-    index: EmailIndex,
+    index: &EmailIndex,
     account: &str,
     scored: Vec<(store::StoredEmbedding, f64)>,
     limit: usize,

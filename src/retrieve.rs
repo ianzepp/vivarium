@@ -5,6 +5,10 @@ use crate::extract;
 use crate::message;
 use crate::store::{MailStore, MessageLocation};
 
+/// Print JSON representations of one or more messages to stdout.
+///
+/// # Errors
+/// Returns an error if resolving a message, reading data, or parsing fails.
 pub fn print_json_messages(
     store: &MailStore,
     account: &str,
@@ -21,12 +25,21 @@ pub fn print_json_messages(
     Ok(())
 }
 
+/// Export a raw message to stdout.
+///
+/// # Errors
+/// Returns an error if reading the message or writing to stdout fails.
 pub fn export_raw_message(store: &MailStore, message_id: &str) -> Result<(), VivariumError> {
     let data = store.read_message(message_id)?;
     io::stdout().write_all(&data)?;
     Ok(())
 }
 
+/// Export a message's extracted text to stdout.
+///
+/// # Errors
+/// Returns an error if reading the message, extracting text, or writing to
+/// stdout fails.
 pub fn export_text_message(store: &MailStore, message_id: &str) -> Result<(), VivariumError> {
     let data = store.read_message(message_id)?;
     let extracted = extract::extract_text(&data)?;
@@ -34,6 +47,11 @@ pub fn export_text_message(store: &MailStore, message_id: &str) -> Result<(), Vi
     Ok(())
 }
 
+/// Fetch a message as a JSON value with citation metadata.
+///
+/// # Errors
+/// Returns an error if resolving the message ID, reading the message data,
+/// or parsing the email fails.
 pub fn json_message(
     store: &MailStore,
     account: &str,
@@ -48,6 +66,7 @@ pub fn json_message(
     Ok(value)
 }
 
+#[must_use] 
 pub fn citation_json(handle: &str, account: &str, location: &MessageLocation) -> serde_json::Value {
     let mut citation = serde_json::json!({
         "handle": handle,

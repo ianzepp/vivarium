@@ -34,8 +34,7 @@ fn vivi_home_dir_from(vivi_home: Option<std::ffi::OsString>, home: Option<PathBu
         return path;
     }
 
-    home.map(|path| path.join(DEFAULT_VIVI_HOME))
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_VIVI_HOME))
+    home.map_or_else(|| PathBuf::from(DEFAULT_VIVI_HOME), |path| path.join(DEFAULT_VIVI_HOME))
 }
 
 fn config_dir() -> PathBuf {
@@ -93,6 +92,10 @@ fn legacy_path(home: Option<&Path>, parts: &[&str]) -> Option<PathBuf> {
 }
 
 impl Config {
+    /// Load a config.toml from the given path.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or parsed.
     pub fn load(path: &Path) -> Result<Self, VivariumError> {
         if !path.exists() {
             tracing::debug!(path = %path.display(), "config file not found, using defaults");
@@ -105,14 +108,17 @@ impl Config {
             .map_err(|e| VivariumError::Config(format!("failed to parse config: {e}")))
     }
 
+    #[must_use] 
     pub fn default_path() -> PathBuf {
         config_dir().join("config.toml")
     }
 
+    #[must_use] 
     pub fn default_dir() -> PathBuf {
         config_dir()
     }
 
+    #[must_use] 
     pub fn default_mail_root() -> PathBuf {
         let home = dirs::home_dir();
         default_mail_root_from(
@@ -124,10 +130,19 @@ impl Config {
 }
 
 impl AccountsFile {
+    /// Load accounts from the given path with default permissions checking.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read, parsed, or has insecure permissions.
     pub fn load(path: &Path) -> Result<Self, VivariumError> {
         Self::load_with_options(path, false)
     }
 
+    /// Load accounts from the given path with optional permissions checking.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read, parsed, or has insecure permissions
+    /// and `ignore_permissions` is `false`.
     pub fn load_with_options(path: &Path, ignore_permissions: bool) -> Result<Self, VivariumError> {
         if !path.exists() {
             return Err(VivariumError::Config(format!(
@@ -143,10 +158,15 @@ impl AccountsFile {
             .map_err(|e| VivariumError::Config(format!("failed to parse accounts: {e}")))
     }
 
+    #[must_use] 
     pub fn default_path() -> PathBuf {
         config_dir().join("accounts.toml")
     }
 
+    /// Find an account by name.
+    ///
+    /// # Errors
+    /// Returns an error if the account is not found.
     pub fn find_account(&self, name: &str) -> Result<&Account, VivariumError> {
         self.accounts
             .iter()
@@ -176,6 +196,7 @@ fn check_permissions(path: &Path, ignore_permissions: bool) -> Result<(), Vivari
     Ok(())
 }
 
+#[must_use] 
 pub fn expand_tilde(path: &str) -> PathBuf {
     expand_tilde_with_home(path, dirs::home_dir().as_deref())
 }

@@ -14,6 +14,7 @@ pub struct ProtonEvent {
 }
 
 impl ProtonEvent {
+    #[must_use] 
     pub fn requires_mail_refresh(&self) -> bool {
         self.refresh & REFRESH_MAIL != 0 || self.refresh == REFRESH_ALL
     }
@@ -37,7 +38,6 @@ where
     Ok(match value {
         0 => ProtonEventAction::Delete,
         1 => ProtonEventAction::Create,
-        2 => ProtonEventAction::Update,
         3 => ProtonEventAction::UpdateFlags,
         _ => ProtonEventAction::Update,
     })
@@ -74,6 +74,10 @@ const REFRESH_MAIL: u8 = 1;
 const REFRESH_ALL: u8 = 255;
 
 impl ProtonApiClient {
+    /// Fetches the latest event ID from the Proton API.
+    ///
+    /// # Errors
+    /// Returns an error if the API call fails or the session cannot be refreshed.
     pub async fn latest_event_id(
         &self,
         session: &ProtonSession,
@@ -96,6 +100,12 @@ impl ProtonApiClient {
         }
     }
 
+    /// Fetches events from the Proton API starting from the given event ID.
+    ///
+    /// Returns the (possibly refreshed) session, the event, and whether more events are available.
+    ///
+    /// # Errors
+    /// Returns an error if the API call fails or the session cannot be refreshed.
     pub async fn event(
         &self,
         session: &ProtonSession,

@@ -12,6 +12,10 @@ pub enum InboxWaitMode {
 
 /// Wait for inbound mailbox activity without issuing any mutating command.
 /// Servers without IDLE use bounded polling rather than attempting IDLE.
+///
+/// # Errors
+/// Returns an error if the IMAP connection, capability check, or IDLE
+/// command fails.
 pub async fn wait_for_inbox_change(
     account: &Account,
     reject_invalid_certs: bool,
@@ -39,7 +43,7 @@ pub async fn wait_for_inbox_change(
         .await
         .map_err(|e| VivariumError::Imap(format!("IDLE init failed: {e}")))?;
 
-    let (wait, _interrupt) = handle.wait_with_timeout(Duration::from_secs(29 * 60));
+    let (wait, _interrupt) = handle.wait_with_timeout(Duration::from_mins(29));
     wait.await
         .map_err(|e| VivariumError::Imap(format!("IDLE wait failed: {e}")))?;
 

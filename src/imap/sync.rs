@@ -32,6 +32,11 @@ enum DedupeScope {
 }
 
 /// Sync messages from the account's IMAP server into the local store.
+///
+/// # Errors
+/// Returns an error if the IMAP connection, folder listing, or message
+/// download fails, or if the account uses an unsupported provider or
+/// storage mode.
 pub async fn sync_inbox_messages(
     account: &Account,
     store: &MailStore,
@@ -51,6 +56,11 @@ pub async fn sync_inbox_messages(
 }
 
 /// Sync inbound and sent mail using the historical full-sync behavior.
+///
+/// # Errors
+/// Returns an error if the IMAP connection, folder listing, or message
+/// download fails, or if the account uses an unsupported provider or
+/// storage mode.
 pub async fn sync_messages(
     account: &Account,
     store: &MailStore,
@@ -315,7 +325,7 @@ fn store_message(
 
 fn uid_set_string(uids: &[u32]) -> String {
     uids.iter()
-        .map(|u| u.to_string())
+        .map(std::string::ToString::to_string)
         .collect::<Vec<_>>()
         .join(",")
 }

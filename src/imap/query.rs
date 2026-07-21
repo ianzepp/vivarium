@@ -132,7 +132,7 @@ fn imap_date(date: NaiveDate) -> String {
 
 fn uid_set_string(uids: &[u32]) -> String {
     uids.iter()
-        .map(|u| u.to_string())
+        .map(std::string::ToString::to_string)
         .collect::<Vec<_>>()
         .join(",")
 }

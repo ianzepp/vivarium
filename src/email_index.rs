@@ -44,6 +44,7 @@ pub struct IndexedMessage {
 }
 
 impl IndexedMessage {
+    #[must_use] 
     pub fn location(&self) -> MessageLocation {
         MessageLocation {
             message_id: Some(self.message_id.clone()),
@@ -60,6 +61,8 @@ pub struct EmailIndex {
 }
 
 impl EmailIndex {
+    /// # Errors
+    /// Returns an error if the storage cannot be opened or the legacy index file cannot be removed.
     pub fn open(mail_root: &Path) -> Result<Self, VivariumError> {
         Storage::open(mail_root)?;
         let legacy_path = mail_root.join(".vivarium").join("index.sqlite");
@@ -82,10 +85,14 @@ impl EmailIndex {
         Ok(index)
     }
 
+    /// # Errors
+    /// Returns an error if the rebuild process fails.
     pub fn rebuild(mail_root: &Path, account: &str) -> Result<IndexStats, VivariumError> {
         rebuild::rebuild(mail_root, account)
     }
 
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn message(
         &self,
         account: &str,
@@ -106,6 +113,8 @@ impl EmailIndex {
         Ok(message)
     }
 
+    /// # Errors
+    /// Returns an error if the database query fails or the seed message is not found.
     pub fn thread_messages(
         &self,
         account: &str,
@@ -121,6 +130,8 @@ impl EmailIndex {
         self.messages_for_message_ids(account, message_ids)
     }
 
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn count_messages(&self, account: &str) -> Result<usize, VivariumError> {
         self.conn
             .query_row(
@@ -131,6 +142,8 @@ impl EmailIndex {
             .map_err(|e| VivariumError::Other(format!("failed to count index rows: {e}")))
     }
 
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn list_messages(&self, account: &str) -> Result<Vec<IndexedMessage>, VivariumError> {
         let mut stmt = self
             .conn
@@ -350,10 +363,14 @@ fn indexed_search_query() -> &'static str {
      JOIN message_metadata md ON md.content_id = m.content_id"
 }
 
+/// # Errors
+/// Returns an error if the rebuild process fails.
 pub fn rebuild(mail_root: &Path, account: &str) -> Result<IndexStats, VivariumError> {
     EmailIndex::rebuild(mail_root, account)
 }
 
+/// # Errors
+/// Returns an error if the index cannot be opened or rebuilt.
 pub fn ensure_for_thread(
     mail_root: &Path,
     account: &str,

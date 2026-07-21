@@ -52,7 +52,7 @@ pub struct CatalogEntry {
     pub remote: Option<RemoteIdentity>,
 }
 
-/// The mail catalog backed by SQLite.
+/// The mail catalog backed by `SQLite`.
 pub struct Catalog {
     mail_root: PathBuf,
     conn: Connection,
@@ -60,6 +60,9 @@ pub struct Catalog {
 
 impl Catalog {
     /// Open or create the catalog at the given mail root.
+    ///
+    /// # Errors
+    /// Returns an error if the storage or catalog database cannot be opened or created.
     pub fn open(mail_root: &Path) -> Result<Self, VivariumError> {
         Storage::open(mail_root)?;
         let catalog_dir = mail_root.join(CATALOG_DIR);
@@ -84,14 +87,15 @@ impl Catalog {
         })
     }
 
-    /// SQLite autocommit persists writes; this keeps the old internal API shape.
-    fn flush(&self) -> Result<(), VivariumError> {
-        Ok(())
-    }
+    /// `SQLite` autocommit persists writes; this keeps the old internal API shape.
+    fn flush() {}
 
     /// Insert or update a single message in the catalog.
+    ///
+    /// # Errors
+    /// Returns an error if the underlying storage operation fails.
     pub fn upsert(&mut self, entry: &CatalogEntry) -> Result<(), VivariumError> {
-        let data = self.entry_bytes(entry)?;
+        let data = self.entry_bytes(entry);
         let request = MessageIngestRequest {
             account: entry.account.clone(),
             local_role: entry.local_role.clone(),
@@ -102,11 +106,14 @@ impl Catalog {
             remote: entry.remote.as_ref().map(remote_binding_input),
         };
         Storage::open(&self.mail_root)?.ingest_message(&request, &data)?;
-        self.flush()?;
+        Self::flush();
         Ok(())
     }
 
     /// List all catalog entries for an account.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn list_messages(&self, account: &str) -> Result<Vec<CatalogEntry>, VivariumError> {
         let mut stmt = self
             .conn
@@ -126,15 +133,21 @@ impl Catalog {
     }
 
     /// Remove all entries for an account from the catalog.
+    ///
+    /// # Errors
+    /// Returns an error if the database operation fails.
     pub fn remove_account(&mut self, account: &str) -> Result<(), VivariumError> {
         self.conn
             .execute("DELETE FROM messages WHERE account = ?1", params![account])
             .map_err(|e| VivariumError::Other(format!("failed to remove catalog account: {e}")))?;
-        self.flush()?;
+        Self::flush();
         Ok(())
     }
 
     /// Count entries for an account.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn count_messages(&self, account: &str) -> Result<usize, VivariumError> {
         self.conn
             .query_row(
@@ -163,7 +176,7 @@ impl Catalog {
             uid: row.get(18).unwrap_or_default(),
             uidvalidity: row.get(19).unwrap_or_default(),
             rfc_message_id: normalized_message_id.clone().unwrap_or_default(),
-            size: row.get::<_, i64>(4).unwrap_or_default() as u64,
+            size: row.get::<_, i64>(4).unwrap_or_default().unsigned_abs(),
             content_fingerprint: content_id.clone(),
         });
 
@@ -192,12 +205,14 @@ impl Catalog {
 }
 
 /// Build a stable handle from raw message bytes.
+#[must_use] 
 pub fn handle_from_bytes(data: &[u8]) -> String {
     let hash = Sha256::digest(data);
-    hex::encode(&hash[..HANDLE_LENGTH / 2]).to_string()
+    hex::encode(&hash[..HANDLE_LENGTH / 2]).clone()
 }
 
 /// Compute SHA-256 fingerprint of raw bytes.
+#[must_use] 
 pub fn fingerprint(data: &[u8]) -> String {
     let hash = Sha256::digest(data);
     hex::encode(hash)
@@ -205,7 +220,6 @@ pub fn fingerprint(data: &[u8]) -> String {
 
 fn canonical_folder(folder: &str) -> &'static str {
     match folder.to_ascii_lowercase().as_str() {
-        "inbox" | "new" => "INBOX",
         "archive" | "archives" | "all" => "Archive",
         "trash" | "deleted" => "Trash",
         "sent" => "Sent",
@@ -244,17 +258,17 @@ fn catalog_select_sql() -> &'static str {
 }
 
 impl Catalog {
-    fn entry_bytes(&self, entry: &CatalogEntry) -> Result<Vec<u8>, VivariumError> {
+    fn entry_bytes(&self, entry: &CatalogEntry) -> Vec<u8> {
         if let Ok(data) = fs::read(&entry.blob_path) {
-            return Ok(data);
+            return data;
         }
         let path = Path::new(&entry.blob_path);
         if path.is_relative()
             && let Ok(data) = fs::read(self.mail_root.join(path))
         {
-            return Ok(data);
+            return data;
         }
-        Ok(synthesized_entry_bytes(entry))
+        synthesized_entry_bytes(entry)
     }
 }
 

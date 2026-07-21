@@ -15,6 +15,10 @@ pub struct AuthInfo {
 }
 
 impl AuthInfo {
+    /// Computes the SRP proof for authentication.
+    ///
+    /// # Errors
+    /// Returns an error if the SRP version is unsupported, proof setup fails, or proof generation fails.
     pub fn proof(&self, username: &str, password: &str) -> Result<SRPProofB64, VivariumError> {
         let version = SrpHashVersion::try_from(self.version).map_err(|e| {
             VivariumError::Other(format!(
@@ -36,6 +40,7 @@ impl AuthInfo {
             .map_err(|e| VivariumError::Other(format!("Proton SRP proof generation failed: {e}")))
     }
 
+    #[must_use] 
     pub fn summary(&self) -> AuthInfoSummary {
         AuthInfoSummary {
             version: self.version,
@@ -55,6 +60,7 @@ pub struct TwoFaInfo {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct AuthInfoSummary {
     pub version: u8,
     pub srp_session_present: bool,

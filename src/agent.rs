@@ -40,14 +40,19 @@ enum PollOutcome {
     Processed(AgentBatch),
 }
 
+/// Poll the agent mailbox for new instructions and process them.
+///
+/// # Errors
+/// Returns an error if the agent ledger cannot be opened, the batch
+/// cannot be claimed, or the Codex command fails.
+#[allow(clippy::needless_pass_by_value)]
 pub fn poll(
     store: &MailStore,
     account: &str,
     options: AgentPollOptions,
 ) -> Result<(), VivariumError> {
-    let _lock = match AgentLock::try_acquire(store.root())? {
-        Some(lock) => lock,
-        None => return print_outcome(PollOutcome::Locked, options.json),
+    let Some(_lock) = AgentLock::try_acquire(store.root())? else {
+        return print_outcome(PollOutcome::Locked, options.json);
     };
 
     let ledger = AgentLedger::open(store.root())?;

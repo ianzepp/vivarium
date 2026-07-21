@@ -1,9 +1,17 @@
 use super::events::append_event_tx;
 use super::metadata::ParsedMetadata;
-use super::*;
+use super::{params, Storage, MessageIngestRequest, StoredMessage, VivariumError, sha256_hex, blob_relpath, write_blob_if_absent, parse_metadata, Utc, MailspaceEventInput, remote_bound_message_id, fallback_message_id, RemoteBindingInput};
+#[cfg(test)]
+use super::{CatalogEntry, request_from_catalog_entry};
 use rusqlite::Transaction;
 
 impl Storage {
+    /// Ingest a single message, inserting or updating blob, metadata, message,
+    /// and remote binding rows atomically.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database transaction, blob write,
+    /// or metadata parsing fails.
     pub fn ingest_message(
         &mut self,
         request: &MessageIngestRequest,
@@ -36,13 +44,17 @@ impl Storage {
     }
 
     /// Atomically ingest a single blob for multiple recipients and log a
-    /// delivery event for each, all within one SQLite transaction. If any
+    /// delivery event for each, all within one `SQLite` transaction. If any
     /// message row or event insert fails, the entire batch rolls back — no
     /// partial recipient-visible state survives.
     ///
     /// The blob file is content-addressed: on rollback it may persist as an
     /// orphan, but dedup by content hash means it is harmless and will be
     /// reused on the next successful delivery of the same content.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database transaction, blob write,
+    /// metadata parsing, or event logging fails.
     #[allow(clippy::too_many_arguments)]
     pub fn deliver_raw_batch(
         &mut self,
@@ -67,6 +79,9 @@ impl Storage {
     /// Test-only variant that injects a failure after `fail_after` message
     /// rows are processed within the transaction, proving that the batch
     /// rolls back completely (no partial rows or events).
+    ///
+    /// # Errors
+    /// Returns an error if the database transaction fails.
     #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn deliver_raw_batch_fail_after(
@@ -165,11 +180,9 @@ pub(super) fn ingest_message_id(request: &MessageIngestRequest, content_id: &str
     request.message_id_hint.clone().unwrap_or_else(|| {
         request
             .remote
-            .as_ref()
-            .map(|remote| {
+            .as_ref().map_or_else(|| fallback_message_id(request, content_id), |remote| {
                 remote_bound_message_id(&request.account, &request.local_role, content_id, remote)
             })
-            .unwrap_or_else(|| fallback_message_id(request, content_id))
     })
 }
 
@@ -256,8 +269,8 @@ pub(super) fn upsert_message_row(
             request.account,
             content_id,
             request.local_role,
-            if request.read_state { 1 } else { 0 },
-            if request.starred { 1 } else { 0 },
+            i32::from(request.read_state),
+            i32::from(request.starred),
             now,
             now,
         ],

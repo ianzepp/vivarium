@@ -31,6 +31,10 @@ impl Catalog {
             })
     }
 
+    /// Update the local state and remote binding for a message.
+    ///
+    /// # Errors
+    /// Returns an error if the database update or the remote binding update fails.
     pub fn update_message_state(
         &mut self,
         account: &str,
@@ -42,7 +46,8 @@ impl Catalog {
     ) -> Result<(), VivariumError> {
         self.update_local_state(account, handle, local_role, read_state, starred)?;
         self.update_remote_binding(handle, remote)?;
-        self.flush()
+        Self::flush();
+        Ok(())
     }
 
     fn update_local_state(
@@ -66,8 +71,8 @@ impl Catalog {
                     account,
                     handle,
                     local_role,
-                    if read_state { 1 } else { 0 },
-                    if starred { 1 } else { 0 }
+                    i32::from(read_state),
+                    i32::from(starred)
                 ],
             )
             .map_err(|e| {
@@ -134,6 +139,10 @@ impl Catalog {
             .map_err(|e| VivariumError::Other(format!("failed to clear remote binding: {e}")))
     }
 
+    /// Remove a single entry from the catalog.
+    ///
+    /// # Errors
+    /// Returns an error if the message is not found or the database operation fails.
     pub fn remove_entry(&mut self, account: &str, handle: &str) -> Result<(), VivariumError> {
         let changes = self
             .conn
@@ -147,6 +156,7 @@ impl Catalog {
                 "message not found in catalog for account '{account}': {handle}"
             )));
         }
-        self.flush()
+        Self::flush();
+        Ok(())
     }
 }

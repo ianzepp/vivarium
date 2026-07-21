@@ -20,6 +20,7 @@ pub enum LabelOperation {
     Remove,
 }
 
+#[must_use] 
 pub fn support(account: &Account) -> LabelSupport {
     let label_roots = account.label_roots();
     let (mode, reason) = match account.provider {
@@ -52,10 +53,11 @@ pub fn support(account: &Account) -> LabelSupport {
     }
 }
 
+#[must_use] 
 pub fn plan_json(
     account: &Account,
     handle: &str,
-    operation: LabelOperation,
+    operation: &LabelOperation,
     label: &str,
     dry_run: bool,
 ) -> serde_json::Value {
@@ -66,12 +68,13 @@ pub fn plan_json(
         "account": account.name,
         "provider": account.provider.to_string(),
         "handle": handle,
-        "operation": operation_name(&operation),
+        "operation": operation_name(operation),
         "label": label,
         "support": support,
     })
 }
 
+#[must_use] 
 pub fn unsupported_error(account: &Account, label: &str) -> VivariumError {
     let support = support(account);
     VivariumError::Message(format!(
@@ -80,6 +83,7 @@ pub fn unsupported_error(account: &Account, label: &str) -> VivariumError {
     ))
 }
 
+#[must_use] 
 pub fn operation_name(operation: &LabelOperation) -> &'static str {
     match operation {
         LabelOperation::Add => "label_add",
@@ -113,7 +117,7 @@ mod tests {
     #[test]
     fn unsupported_plan_names_operation_and_label() {
         let account = account(Provider::Standard);
-        let json = plan_json(&account, "handle-1", LabelOperation::Add, "Work", true);
+        let json = plan_json(&account, "handle-1", &LabelOperation::Add, "Work", true);
 
         assert_eq!(json["status"], "unsupported");
         assert_eq!(json["operation"], "label_add");

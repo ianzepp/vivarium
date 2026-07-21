@@ -11,11 +11,14 @@ fn embedding_options_require_config_without_cli_values() {
 
 #[test]
 fn embedding_options_allow_explicit_cli_values_without_config_defaults() {
+    let provider = "ollama".to_string();
+    let model = "model".to_string();
+    let endpoint = "http://example.test/api/embed".to_string();
     let options = EmbeddingOptions::from_values(
         &Config::default(),
-        Some("ollama".into()),
-        Some("model".into()),
-        Some("http://example.test/api/embed".into()),
+        Some(&provider),
+        Some(&model),
+        Some(&endpoint),
     )
     .unwrap();
 

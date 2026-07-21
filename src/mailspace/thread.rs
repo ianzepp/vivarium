@@ -32,6 +32,11 @@ struct ThreadCandidate {
     kind: Option<String>,
 }
 
+/// Print a thread of messages by handle.
+///
+/// # Errors
+/// Returns an error if the handle cannot be resolved, thread assembly fails,
+/// or JSON serialization fails when `--json` is used.
 pub fn print_thread(
     mailspace: &Mailspace,
     handle: &str,
@@ -54,6 +59,11 @@ pub fn print_thread(
 }
 
 impl Mailspace {
+    /// Assemble a thread of messages connected by content links.
+    ///
+    /// # Errors
+    /// Returns an error if the handle cannot be resolved, the link map cannot
+    /// be loaded, or a storage operation fails.
     pub fn thread(
         &self,
         handle: &str,
@@ -159,9 +169,9 @@ fn connected_content_ids(
             .push(link.child_content_id.clone());
     }
     let mut queue = VecDeque::from([(seed.to_string(), 0usize)]);
-    let mut seen = BTreeSet::new();
+    let mut visited = BTreeSet::new();
     while let Some((content_id, depth)) = queue.pop_front() {
-        if !seen.insert(content_id.clone()) || seen.len() >= limit {
+        if !visited.insert(content_id.clone()) || visited.len() >= limit {
             continue;
         }
         if depth < max_depth {
@@ -173,7 +183,7 @@ fn connected_content_ids(
             }
         }
     }
-    seen
+    visited
 }
 
 fn add_inferred_links(candidates: &[ThreadCandidate], links: &mut BTreeMap<String, MailspaceLink>) {

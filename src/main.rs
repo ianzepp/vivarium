@@ -1,3 +1,5 @@
+#![deny(clippy::pedantic)]
+
 use std::process;
 
 use clap::Parser;
@@ -37,6 +39,7 @@ use label_runner::LabelDispatch;
 use local_mailspace_command::run_mailspace_command;
 use queue_runner::QueueDispatch;
 
+#[allow(clippy::struct_excessive_bools)]
 struct SearchRequest<'a> {
     query: &'a str,
     folder: Option<&'a str>,
@@ -163,7 +166,7 @@ impl Runtime {
             QueueDispatch::Handled => return Ok(None),
             QueueDispatch::Unhandled(command) => *command,
         };
-        let command = match self.run_label_command(command).await? {
+        let command = match self.run_label_command(command)? {
             LabelDispatch::Handled => return Ok(None),
             LabelDispatch::Unhandled(command) => *command,
         };
@@ -187,16 +190,15 @@ impl Runtime {
     }
 
     fn resolve_account(&self, name: Option<String>) -> Result<Account, VivariumError> {
-        match name {
-            Some(n) => Ok(self.accounts.find_account(&n)?.clone()),
-            None => {
-                let first = self
-                    .accounts
-                    .accounts
-                    .first()
-                    .ok_or_else(|| VivariumError::Config("no accounts configured".into()))?;
-                Ok(first.clone())
-            }
+        if let Some(n) = name {
+            Ok(self.accounts.find_account(&n)?.clone())
+        } else {
+            let first = self
+                .accounts
+                .accounts
+                .first()
+                .ok_or_else(|| VivariumError::Config("no accounts configured".into()))?;
+            Ok(first.clone())
         }
     }
 

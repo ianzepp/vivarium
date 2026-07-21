@@ -2,9 +2,13 @@ use std::collections::HashMap;
 
 use rusqlite::Transaction;
 
-use super::*;
+use super::{params, Storage, MailspaceEventInput, VivariumError, Utc, MailspaceEvent};
 
 impl Storage {
+    /// Append a mailspace event with the current timestamp.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database insert fails.
     pub fn append_mailspace_event(
         &self,
         event: &MailspaceEventInput,
@@ -13,6 +17,10 @@ impl Storage {
         self.append_mailspace_event_at(event, &occurred_at)
     }
 
+    /// Append a mailspace event at a specific timestamp.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database insert fails.
     pub fn append_mailspace_event_at(
         &self,
         event: &MailspaceEventInput,
@@ -45,6 +53,10 @@ impl Storage {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Check whether an identical event already exists at the given timestamp.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn mailspace_event_exists(
         &self,
         event: &MailspaceEventInput,
@@ -87,6 +99,11 @@ impl Storage {
             .map_err(|e| VivariumError::Other(format!("failed to check mailspace event: {e}")))
     }
 
+    /// List events for a specific message.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query or token
+    /// resolution fails.
     pub fn list_mailspace_events(
         &self,
         message_id: &str,
@@ -113,6 +130,9 @@ impl Storage {
     }
 
     /// Batch-load events for multiple message IDs in a single query.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn list_mailspace_events_for_messages(
         &self,
         message_ids: &[String],
@@ -154,6 +174,10 @@ impl Storage {
         Ok(map)
     }
 
+    /// List events that occurred after a given event ID.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn list_mailspace_events_after(
         &self,
         event_id: i64,
@@ -178,6 +202,10 @@ impl Storage {
         .collect()
     }
 
+    /// Get the largest event ID that occurred before the given timestamp.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn event_cursor_before(&self, occurred_at: &str) -> Result<i64, VivariumError> {
         self.conn
             .query_row(

@@ -26,6 +26,11 @@ pub struct SyncWindow {
 }
 
 impl SyncWindow {
+    /// Parse a sync window from optional date strings.
+    ///
+    /// # Errors
+    /// Returns an error if an absolute date is not in YYYY-MM-DD format or
+    /// a relative date is unrecognized.
     pub fn parse(since: Option<&str>, before: Option<&str>) -> Result<Self, VivariumError> {
         Ok(Self {
             since: since.map(parse_since).transpose()?,
@@ -33,10 +38,12 @@ impl SyncWindow {
         })
     }
 
+    #[must_use] 
     pub fn is_empty(&self) -> bool {
         self.since.is_none() && self.before.is_none()
     }
 
+    #[must_use] 
     pub fn contains_datetime(&self, date: DateTime<Utc>) -> bool {
         let date = date.date_naive();
         self.since.is_none_or(|since| date >= since)
@@ -44,6 +51,11 @@ impl SyncWindow {
     }
 }
 
+/// Sync all folders for an account (IMAP or Proton API).
+///
+/// # Errors
+/// Returns an error if the store cannot be initialized, IMAP/API sync fails,
+/// or extraction fails.
 pub async fn sync_account(
     account: &Account,
     config: &Config,
@@ -69,6 +81,10 @@ pub async fn sync_account(
 
 /// Sync only the account's inbound IMAP folder. This seam has no sent-folder,
 /// draft, outbox, or remote-mutation authority and is used by watch-inbox.
+///
+/// # Errors
+/// Returns an error if the account uses the Proton API (IMAP-only operation),
+/// store initialization fails, IMAP sync fails, or extraction fails.
 pub async fn sync_inbox_account(
     account: &Account,
     config: &Config,
@@ -111,6 +127,10 @@ fn finish_sync(account: &Account, result: &mut SyncResult) -> Result<(), Vivariu
 }
 
 /// Reset (delete) the local account cache directory.
+///
+/// # Errors
+/// Returns an error if the path validation fails, the path cannot be resolved,
+/// or the directory cannot be removed.
 ///
 /// # Containment invariant
 ///
@@ -231,9 +251,7 @@ fn resolved_managed_root(config: &Config) -> std::path::PathBuf {
     let root = config
         .defaults
         .mail_root
-        .as_deref()
-        .map(crate::config::expand_tilde)
-        .unwrap_or_else(Config::default_mail_root);
+        .as_deref().map_or_else(Config::default_mail_root, crate::config::expand_tilde);
     root.canonicalize().unwrap_or(root)
 }
 
@@ -874,6 +892,7 @@ mod tests {
         account
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn account_with_mail_dir(mail_dir: std::path::PathBuf) -> Account {
         Account {
             name: "test".into(),

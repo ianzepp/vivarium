@@ -82,6 +82,10 @@ const PANDOC_TYPST: Pipeline = Pipeline {
     pdf_options: &["--ignore-system-fonts"],
 };
 
+/// Produce a JSON explanation of available render pipelines.
+///
+/// # Errors
+/// Returns an error if serializing the explanation to JSON fails.
 pub fn explain(
     config: &Config,
     format: RenderFormat,
@@ -99,13 +103,21 @@ pub fn explain(
         fallback_enabled: policy.allow_fallback,
         pinned_engine: requested,
         denied_engines: policy.deny_engines.clone(),
-        candidates: candidates.iter().map(explain_pipeline).collect(),
+        candidates: candidates.iter().copied().map(explain_pipeline).collect(),
     };
     serde_json::to_string_pretty(&explanation).map_err(|error| {
         VivariumError::Other(format!("failed to encode render explanation: {error}"))
     })
 }
 
+/// Render a markdown document to the specified format using a selectable
+/// pipeline.
+///
+/// The output path must not already exist (atomic install).
+///
+/// # Errors
+/// Returns an error if the source is invalid, the pipeline selection fails,
+/// or the render command fails.
 pub fn render_document(
     input: &Path,
     output: &Path,
@@ -205,6 +217,11 @@ fn receipt(
     }
 }
 
+/// Compose file attachments with an optional rendered PDF document.
+///
+/// # Errors
+/// Returns an error if reading attachments, validating the document source,
+/// or rendering the PDF fails.
 pub fn compose_attachments(
     files: &[PathBuf],
     document: Option<&Path>,
@@ -337,7 +354,7 @@ fn missing_prerequisites(pipeline: &Pipeline) -> VivariumError {
     ))
 }
 
-fn explain_pipeline(pipeline: &&'static Pipeline) -> PipelineExplanation {
+fn explain_pipeline(pipeline: &'static Pipeline) -> PipelineExplanation {
     PipelineExplanation {
         name: pipeline.name.into(),
         available: pipeline_available(pipeline),

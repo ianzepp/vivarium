@@ -20,6 +20,14 @@ pub(super) struct DeliveredMessageId {
 }
 
 impl Mailspace {
+    /// Send a message to identities in the mailspace. `request` specifies the
+    /// sender, recipients, subject, body, and optional role. Sent and delivered
+    /// copies are created in the store.
+    ///
+    /// # Errors
+    /// Returns an error if the sender or any recipient identity cannot be
+    /// resolved, if message composition fails, or if a storage operation fails.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn send(&self, request: SendRequest) -> Result<DeliveryResult, VivariumError> {
         if !request.bcc.is_empty() {
             return Err(VivariumError::Message(
@@ -62,6 +70,10 @@ impl Mailspace {
     /// Save a self-addressed memo into the identity's `memos` folder.
     /// Unlike `send`, this creates no sent copy and no recipient delivery —
     /// it is a single-actor persistence operation.
+    ///
+    /// # Errors
+    /// Returns an error if the identity cannot be resolved, message composition
+    /// fails, or the storage operation fails.
     pub fn save_memo(
         &self,
         identity: &str,
@@ -131,6 +143,12 @@ impl Mailspace {
             .collect()
     }
 
+    /// Deliver a raw `.eml` message into the mailspace for each recipient that
+    /// resolves to a known local identity.
+    ///
+    /// # Errors
+    /// Returns an error if the message cannot be parsed, recipient resolution
+    /// fails, or the storage operation fails.
     pub fn deliver_raw(
         &self,
         data: &[u8],
@@ -192,6 +210,11 @@ impl Mailspace {
             .collect()
     }
 
+    /// List messages for a given identity and canonical role.
+    ///
+    /// # Errors
+    /// Returns an error if the identity cannot be resolved or the storage
+    /// operation fails.
     pub fn list(
         &self,
         identity: &str,
@@ -208,6 +231,11 @@ impl Mailspace {
             .collect())
     }
 
+    /// List messages for a given identity, role, and kind (e.g. `task`, `need`).
+    ///
+    /// # Errors
+    /// Returns an error if the identity cannot be resolved, the role is invalid,
+    /// or the storage operation fails.
     pub fn list_kind(
         &self,
         identity: &str,
@@ -234,6 +262,12 @@ impl Mailspace {
         Ok(messages)
     }
 
+    /// Move a task message to a new role (e.g. `done`, `tasks`). If `note` is
+    /// provided, a reply message is also created.
+    ///
+    /// # Errors
+    /// Returns an error if the identity or message cannot be resolved, the role
+    /// is invalid, or the storage operation fails.
     pub fn move_task(
         &self,
         identity: &str,
@@ -244,6 +278,11 @@ impl Mailspace {
         self.move_item(identity, handle, role, note, move_command("task", role))
     }
 
+    /// Move a message to a new role with an optional note reply.
+    ///
+    /// # Errors
+    /// Returns an error if the identity or message cannot be resolved, the role
+    /// is invalid, note reply composition fails, or the storage operation fails.
     pub fn move_item(
         &self,
         identity: &str,
@@ -287,7 +326,7 @@ impl Mailspace {
                 subject: before.subject.clone(),
                 note: Some(note.into()),
             };
-            storage.move_message_with_reply(MailspaceMoveWithReply {
+            storage.move_message_with_reply(&MailspaceMoveWithReply {
                 account: &account,
                 message_id: &resolved,
                 local_role: &role,

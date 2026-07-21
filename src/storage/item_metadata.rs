@@ -1,8 +1,13 @@
 use std::collections::BTreeMap;
 
-use super::*;
+use super::{params, Storage, VivariumError, Utc};
 
 impl Storage {
+    /// Set metadata key-value pairs for a message.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the token resolution or database
+    /// insert/update fails.
     pub fn set_item_metadata(
         &self,
         message_id: &str,
@@ -26,6 +31,11 @@ impl Storage {
         Ok(())
     }
 
+    /// Retrieve all metadata key-value pairs for a message.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the token resolution or database
+    /// query fails.
     pub fn item_metadata(
         &self,
         message_id: &str,

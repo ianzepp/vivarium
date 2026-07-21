@@ -36,7 +36,7 @@ pub(super) async fn download_missing(
     missing: Vec<RemoteMessage>,
     reject_invalid_certs: bool,
 ) -> Result<SyncResult, VivariumError> {
-    let chunks = Arc::new(message_chunks(missing));
+    let chunks = Arc::new(message_chunks(&missing));
     let cursor = Arc::new(Mutex::new(0usize));
     let result = Arc::new(Mutex::new(SyncResult::default()));
     let store = Arc::new(store.clone());
@@ -73,10 +73,10 @@ pub(super) async fn download_missing(
     Ok(Arc::try_unwrap(result).unwrap().into_inner())
 }
 
-fn message_chunks(missing: Vec<RemoteMessage>) -> Vec<Vec<RemoteMessage>> {
+fn message_chunks(missing: &[RemoteMessage]) -> Vec<Vec<RemoteMessage>> {
     missing
         .chunks(CHUNK_SIZE as usize)
-        .map(|chunk| chunk.to_vec())
+        .map(<[RemoteMessage]>::to_vec)
         .collect()
 }
 

@@ -4,6 +4,13 @@ use crate::search::SearchFilters;
 use crate::storage::Storage;
 
 impl EmailIndex {
+    /// Search indexed messages by full-text query.
+    ///
+    /// Returns a vector of `(IndexedMessage, score)` pairs and the total
+    /// number of matching messages.
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
     pub fn search_messages(
         &self,
         account: &str,
@@ -138,7 +145,7 @@ fn search_filter_sql(filters: Option<SearchFilters<'_>>) -> (String, Vec<String>
             clauses.push(format!("m.local_role = ?{}", values.len() + 2));
         }
         if let Some(from_addr) = filters.from_addr {
-            values.push(format!("%{}%", escape_like(from_addr.to_ascii_lowercase())));
+            values.push(format!("%{}%", escape_like(&from_addr.to_ascii_lowercase())));
             clauses.push(format!(
                 "LOWER(md.from_addr) LIKE ?{} ESCAPE '\\'",
                 values.len() + 2
@@ -147,7 +154,7 @@ fn search_filter_sql(filters: Option<SearchFilters<'_>>) -> (String, Vec<String>
         if let Some(domain) = filters.from_domain {
             values.push(format!(
                 "%@{}%",
-                escape_like(domain.trim_start_matches('@').to_ascii_lowercase())
+                escape_like(&domain.trim_start_matches('@').to_ascii_lowercase())
             ));
             clauses.push(format!(
                 "LOWER(md.from_addr) LIKE ?{} ESCAPE '\\'",
@@ -158,7 +165,7 @@ fn search_filter_sql(filters: Option<SearchFilters<'_>>) -> (String, Vec<String>
     (format!(" WHERE {}", clauses.join(" AND ")), values)
 }
 
-fn escape_like(value: String) -> String {
+fn escape_like(value: &str) -> String {
     value
         .replace('\\', "\\\\")
         .replace('%', "\\%")

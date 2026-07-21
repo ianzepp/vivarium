@@ -100,7 +100,7 @@ pub enum Command {
         #[arg(long)]
         reset: bool,
 
-        /// Confirm reset for accounts with a custom mail_dir
+        /// Confirm reset for accounts with a custom `mail_dir`
         #[arg(long)]
         confirm_reset: bool,
 

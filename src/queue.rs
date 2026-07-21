@@ -64,6 +64,7 @@ pub enum QueuedCommand {
 }
 
 impl QueueItem {
+    #[must_use] 
     pub fn new(account: String, command: QueuedCommand) -> Self {
         let now = Utc::now();
         let timestamp = now.to_rfc3339();
@@ -85,6 +86,10 @@ impl QueueItem {
     }
 }
 
+/// Enqueue a queue item to disk.
+///
+/// # Errors
+/// Returns an error if creating the queue directory or writing the item fails.
 pub fn enqueue(mail_root: &Path, item: &QueueItem) -> Result<PathBuf, VivariumError> {
     let path = item_path(mail_root, &item.id);
     if let Some(parent) = path.parent() {
@@ -94,6 +99,10 @@ pub fn enqueue(mail_root: &Path, item: &QueueItem) -> Result<PathBuf, VivariumEr
     Ok(path)
 }
 
+/// Load a queue item from disk by ID.
+///
+/// # Errors
+/// Returns an error if the item file cannot be read or parsed.
 pub fn load(mail_root: &Path, id: &str) -> Result<QueueItem, VivariumError> {
     let path = item_path(mail_root, id);
     let data = fs::read_to_string(&path)
@@ -102,10 +111,18 @@ pub fn load(mail_root: &Path, id: &str) -> Result<QueueItem, VivariumError> {
         .map_err(|e| VivariumError::Parse(format!("queued item '{id}' is invalid: {e}")))
 }
 
+/// Save an updated queue item to disk.
+///
+/// # Errors
+/// Returns an error if writing the item file fails.
 pub fn save(mail_root: &Path, item: &QueueItem) -> Result<(), VivariumError> {
     write_item(&item_path(mail_root, &item.id), item)
 }
 
+/// List queue items, optionally including non-pending items.
+///
+/// # Errors
+/// Returns an error if reading the queue directory or parsing an item fails.
 pub fn list(mail_root: &Path, include_all: bool) -> Result<Vec<QueueItem>, VivariumError> {
     let dir = queue_dir(mail_root);
     if !dir.exists() {
@@ -132,6 +149,10 @@ pub fn list(mail_root: &Path, include_all: bool) -> Result<Vec<QueueItem>, Vivar
     Ok(items)
 }
 
+/// List all pending queue item IDs.
+///
+/// # Errors
+/// Returns an error if listing queue items fails.
 pub fn pending_ids(mail_root: &Path) -> Result<Vec<String>, VivariumError> {
     Ok(list(mail_root, false)?
         .into_iter()

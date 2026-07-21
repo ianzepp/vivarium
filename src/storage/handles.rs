@@ -1,6 +1,12 @@
-use super::*;
+use super::{params, Storage, VivariumError, short_handle_map, HashMap, StoredMessageView, OptionalExtension};
 
 impl Storage {
+    /// Resolve a message token (full ID, short handle, or ID prefix) to a
+    /// canonical message ID.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the token is ambiguous or no message
+    /// matches.
     pub fn resolve_message_token(&self, token: &str) -> Result<String, VivariumError> {
         if self.message_by_id_exact(token)?.is_some() {
             return Ok(token.to_string());
@@ -15,8 +21,7 @@ impl Storage {
             1 => return Ok(handle_matches[0].clone()),
             n if n > 1 => {
                 return Err(VivariumError::Message(format!(
-                    "ambiguous handle '{token}'; matches {} messages",
-                    n
+                    "ambiguous handle '{token}'; matches {n} messages"
                 )));
             }
             _ => {}
@@ -30,8 +35,7 @@ impl Storage {
             1 => return Ok(id_prefix_matches[0].clone()),
             n if n > 1 => {
                 return Err(VivariumError::Message(format!(
-                    "ambiguous message_id prefix '{token}'; matches {} messages",
-                    n
+                    "ambiguous message_id prefix '{token}'; matches {n} messages"
                 )));
             }
             _ => {}
@@ -40,8 +44,7 @@ impl Storage {
         match content_matches.len() {
             1 => Ok(content_matches[0].clone()),
             n if n > 1 => Err(VivariumError::Message(format!(
-                "ambiguous content_id prefix '{token}'; matches {} messages",
-                n
+                "ambiguous content_id prefix '{token}'; matches {n} messages"
             ))),
             _ => Err(VivariumError::Message(format!(
                 "message not found: {token}"
@@ -54,6 +57,13 @@ impl Storage {
     /// Results are cached on `Storage` to avoid repeated full table scans of
     /// all active message IDs. The cache is invalidated on any write that
     /// affects messages (ingest, move, flag update, delete).
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the active-message-ids query fails.
+    ///
+    /// # Panics
+    /// Panics if the internal handle cache is in an inconsistent state
+    /// (unreachable in normal operation).
     pub fn display_handle(&self, message_id: &str) -> Result<String, VivariumError> {
         let mut cache = self.handle_cache.borrow_mut();
         if cache.is_none() {
@@ -68,11 +78,19 @@ impl Storage {
             .unwrap_or_else(|| message_id.to_string()))
     }
 
+    /// Build the full short-handle map from the database (uncached).
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the active-message-ids query fails.
     pub fn handle_map(&self) -> Result<HashMap<String, String>, VivariumError> {
         let message_ids = self.active_message_ids()?;
         Ok(short_handle_map(&message_ids))
     }
 
+    /// Build handle maps keyed by account.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn display_handles_for_accounts(
         &self,
         accounts: &[String],
@@ -81,6 +99,10 @@ impl Storage {
         Ok(short_handle_map(&message_ids))
     }
 
+    /// Build handle maps grouped by scope.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn display_handles_for_account_scopes(
         &self,
         scopes: &[(String, Vec<String>)],
@@ -104,6 +126,11 @@ impl Storage {
         Ok(handles_by_scope)
     }
 
+    /// Resolve a message token, scoped to specific accounts.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the token is ambiguous or no message
+    /// matches within the given accounts.
     pub fn resolve_message_token_for_accounts(
         &self,
         token: &str,
@@ -118,8 +145,7 @@ impl Storage {
             1 => return Ok(handle_matches[0].clone()),
             n if n > 1 => {
                 return Err(VivariumError::Message(format!(
-                    "ambiguous handle '{token}' for identity; matches {} messages",
-                    n
+                    "ambiguous handle '{token}' for identity; matches {n} messages"
                 )));
             }
             _ => {}
@@ -128,8 +154,7 @@ impl Storage {
         match content_matches.len() {
             1 => Ok(content_matches[0].clone()),
             n if n > 1 => Err(VivariumError::Message(format!(
-                "ambiguous content_id prefix '{token}' for identity; matches {} messages",
-                n
+                "ambiguous content_id prefix '{token}' for identity; matches {n} messages"
             ))),
             _ => Err(VivariumError::Message(format!(
                 "message not found for identity: {token}"

@@ -24,6 +24,7 @@ pub struct ProtonSession {
 }
 
 impl ProtonSession {
+    #[must_use] 
     pub fn check(&self) -> LoginCheck {
         LoginCheck {
             uid_present: !self.uid.is_empty(),
@@ -57,16 +58,23 @@ pub struct ProtonSessionStore {
 }
 
 impl ProtonSessionStore {
+    #[must_use] 
     pub fn new(mail_root: &Path) -> Self {
         Self {
             path: mail_root.join(".vivarium").join("proton-session.json"),
         }
     }
 
+    #[must_use] 
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Saves the session to disk.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be written, serialization fails, or
+    /// the parent directory cannot be created.
     pub fn save(&self, session: &ProtonSession) -> Result<(), VivariumError> {
         let Some(parent) = self.path.parent() else {
             return Err(VivariumError::Other(
@@ -90,6 +98,11 @@ impl ProtonSessionStore {
         Ok(())
     }
 
+    /// Loads the session from disk.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read, does not exist, or
+    /// the JSON content cannot be parsed.
     pub fn load(&self) -> Result<ProtonSession, VivariumError> {
         let data = fs::read_to_string(&self.path).map_err(|e| {
             VivariumError::Config(format!(

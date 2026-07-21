@@ -56,6 +56,11 @@ pub struct PreparedMutation {
     pub plan: MutationPlan,
 }
 
+/// Prepares a mutation by resolving the input to a catalog entry and building a mutation plan.
+///
+/// # Errors
+/// Returns an error if the catalog cannot be opened, the message is not found in the catalog,
+/// the message has no remote identity, or the mutation action is not supported by the account.
 pub fn prepare_mutation(
     account: &Account,
     mail_root: &Path,
@@ -104,6 +109,10 @@ pub fn prepare_mutation(
     })
 }
 
+/// Reconciles a successful mutation by updating the local catalog entry's folder.
+///
+/// # Errors
+/// Returns an error if the store or catalog cannot be opened, or if the catalog operation fails.
 pub fn reconcile_success(
     mail_root: &Path,
     prepared: &PreparedMutation,
@@ -121,6 +130,7 @@ pub fn reconcile_success(
     }
 }
 
+#[must_use] 
 pub fn output_json(
     preview: &MutationPreview,
     status: &str,

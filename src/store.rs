@@ -45,17 +45,22 @@ pub struct MessageLocation {
 }
 
 impl MailStore {
+    #[must_use] 
     pub fn new(root: &Path) -> Self {
         Self {
             root: root.to_path_buf(),
         }
     }
 
+    #[must_use] 
     pub fn root(&self) -> &Path {
         &self.root
     }
 
     /// Create all local Maildir folders if they don't exist.
+    ///
+    /// # Errors
+    /// Returns an error if creating the directory structure fails.
     pub fn ensure_folders(&self) -> Result<(), VivariumError> {
         for folder in FOLDERS {
             self.ensure_folder(folder)?;
@@ -71,11 +76,16 @@ impl MailStore {
     }
 
     /// Path to a specific folder.
+    #[must_use] 
     pub fn folder_path(&self, folder: &str) -> PathBuf {
         self.root.join(canonical_folder(folder).unwrap_or(folder))
     }
 
     /// List message entries in a folder.
+    ///
+    /// # Errors
+    /// Returns an error if reading the storage index or the outbox directory
+    /// fails.
     pub fn list_messages(&self, folder: &str) -> Result<Vec<MessageEntry>, VivariumError> {
         let folder = resolve_folder(folder)?;
         if folder != "outbox" {
@@ -106,6 +116,10 @@ impl MailStore {
     }
 
     /// Read raw message bytes by message ID (looks across all folders).
+    ///
+    /// # Errors
+    /// Returns an error if the message ID cannot be resolved or the file
+    /// cannot be read.
     pub fn read_message(&self, message_id: &str) -> Result<Vec<u8>, VivariumError> {
         let storage = Storage::open(&self.root)?;
         let resolved = storage.resolve_message_token(message_id)?;
@@ -113,6 +127,10 @@ impl MailStore {
     }
 
     /// Locate a message by handle across all user-facing folders.
+    ///
+    /// # Errors
+    /// Returns an error if the message ID cannot be resolved or the message
+    /// is not found.
     pub fn locate_message(&self, message_id: &str) -> Result<MessageLocation, VivariumError> {
         let storage = Storage::open(&self.root)?;
         let resolved = storage.resolve_message_token(message_id)?;
@@ -129,10 +147,19 @@ impl MailStore {
         )))
     }
 
+    /// Resolve a message token (handle or ID) to a canonical message ID.
+    ///
+    /// # Errors
+    /// Returns an error if the token cannot be resolved in storage.
     pub fn resolve_message_id(&self, token: &str) -> Result<String, VivariumError> {
         Storage::open(&self.root)?.resolve_message_token(token)
     }
 
+    /// Display a human-readable handle for a message token.
+    ///
+    /// # Errors
+    /// Returns an error if storage cannot be opened or the token cannot be
+    /// resolved.
     pub fn display_handle(&self, token: &str) -> Result<String, VivariumError> {
         if let Ok(storage) = Storage::open(&self.root)
             && let Ok(message_id) = storage.resolve_message_token(token)
@@ -143,6 +170,9 @@ impl MailStore {
     }
 
     /// Store a message in `new/`.
+    ///
+    /// # Errors
+    /// Returns an error if the folder is invalid or the file cannot be written.
     pub fn store_message(
         &self,
         folder: &str,
@@ -153,6 +183,10 @@ impl MailStore {
     }
 
     /// Store a message in a specific Maildir subdirectory.
+    ///
+    /// # Errors
+    /// Returns an error if the folder or subdirectory is invalid, or the file
+    /// cannot be written.
     pub fn store_message_in(
         &self,
         folder: &str,
@@ -182,7 +216,10 @@ impl MailStore {
         Ok(final_path)
     }
 
-    /// Build a map of message_id -> file_size for all message files in a folder.
+    /// Build a map of `message_id` -> `file_size` for all message files in a folder.
+    ///
+    /// # Errors
+    /// Returns an error if reading the storage index or outbox directory fails.
     pub fn local_sizes(&self, folder: &str) -> Result<HashMap<String, u64>, VivariumError> {
         let folder = resolve_folder(folder)?;
         if folder != "outbox" {
@@ -192,7 +229,7 @@ impl MailStore {
         let mut map = HashMap::new();
         for file_path in self.outbox_message_paths()? {
             if let Some(id) = message_id_from_path(&file_path) {
-                let size = fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
+                let size = fs::metadata(&file_path).map_or(0, |m| m.len());
                 map.insert(id, size);
             }
         }
@@ -201,6 +238,9 @@ impl MailStore {
 
     /// Build an in-memory map of RFC 5322 Message-ID → (uid, size) for a folder.
     /// Scans every .eml file in new/ and cur/ once.
+    ///
+    /// # Errors
+    /// Returns an error if reading the storage index or scanning files fails.
     pub fn build_rfc_index(
         &self,
         folder: &str,
@@ -225,6 +265,7 @@ impl MailStore {
     }
 
     /// Check if an RFC 5322 Message-ID exists in the index with a matching size.
+    #[must_use] 
     pub fn rfc_index_lookup(
         &self,
         index: &HashMap<String, (u32, u64)>,
@@ -237,6 +278,7 @@ impl MailStore {
     }
 
     /// Check if an RFC 5322 Message-ID exists in the index.
+    #[must_use] 
     pub fn rfc_index_contains(
         &self,
         index: &HashMap<String, (u32, u64)>,
@@ -245,6 +287,11 @@ impl MailStore {
         index.contains_key(rfc_message_id)
     }
 
+    /// Write an RFC message ID index entry to disk.
+    ///
+    /// # Errors
+    /// Returns an error if creating the index directory or writing the file
+    /// fails.
     pub fn write_message_index(
         &self,
         folder: &str,

@@ -29,6 +29,13 @@ pub struct MailspaceImportReport {
     pub conflicts: Vec<String>,
 }
 
+/// Import messages, events, and links from a source mailspace into the
+/// target mailspace.
+///
+/// # Errors
+/// Returns an error if the source path is not a valid mailspace, if source
+/// and target are the same path, or if any storage operation fails.
+#[allow(clippy::needless_pass_by_value)]
 pub fn import_mailspace(
     target: &Mailspace,
     source: &Path,

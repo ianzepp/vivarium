@@ -317,7 +317,7 @@ impl MockProvider {
 
 #[async_trait]
 impl EmbeddingProvider for MockProvider {
-    fn provider(&self) -> &str {
+    fn provider(&self) -> &'static str {
         "mock"
     }
 
@@ -332,11 +332,11 @@ impl EmbeddingProvider for MockProvider {
 struct FailingProvider;
 #[async_trait]
 impl EmbeddingProvider for FailingProvider {
-    fn provider(&self) -> &str {
+    fn provider(&self) -> &'static str {
         "mock"
     }
 
-    fn model(&self) -> &str {
+    fn model(&self) -> &'static str {
         "model"
     }
 
@@ -352,11 +352,11 @@ struct FailingAfterFirstProvider {
 
 #[async_trait]
 impl EmbeddingProvider for FailingAfterFirstProvider {
-    fn provider(&self) -> &str {
+    fn provider(&self) -> &'static str {
         "mock"
     }
 
-    fn model(&self) -> &str {
+    fn model(&self) -> &'static str {
         "model"
     }
 

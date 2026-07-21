@@ -39,6 +39,10 @@ fn xoauth2_initial_response(user: &str, access_token: &str) -> String {
 }
 
 /// Connect and authenticate to the account's IMAP server.
+///
+/// # Errors
+/// Returns an error if the TCP connection, TLS handshake, or IMAP
+/// authentication fails.
 pub async fn connect(
     account: &Account,
     reject_invalid_certs: bool,

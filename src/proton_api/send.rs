@@ -95,6 +95,10 @@ pub(super) struct SendDraftResponse {
 }
 
 impl ProtonApiClient {
+    /// Creates a draft message via the Proton API.
+    ///
+    /// # Errors
+    /// Returns an error if the API call fails or the session cannot be refreshed.
     pub async fn create_draft(
         &self,
         session: &ProtonSession,
@@ -117,6 +121,10 @@ impl ProtonApiClient {
         }
     }
 
+    /// Sends a draft message via the Proton API.
+    ///
+    /// # Errors
+    /// Returns an error if the API call fails or the session cannot be refreshed.
     pub async fn send_draft(
         &self,
         session: &ProtonSession,

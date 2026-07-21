@@ -1,5 +1,5 @@
 use super::ingest::{ingest_message_id, upsert_blob_row, upsert_message_row, upsert_metadata_row};
-use super::*;
+use super::{params, MailspaceEventInput, MessageIngestRequest, Storage, StoredMessage, VivariumError, Utc, metadata, Path, sha256_hex, blob_relpath, write_blob_if_absent, parse_metadata};
 
 pub struct MailspaceMoveWithReply<'a> {
     pub account: &'a str,
@@ -12,9 +12,15 @@ pub struct MailspaceMoveWithReply<'a> {
 }
 
 impl Storage {
+    /// Move a message to a new role and ingest reply messages in a single
+    /// transaction.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the token resolution, database
+    /// update, blob write, or event logging fails.
     pub fn move_message_with_reply(
         &mut self,
-        request: MailspaceMoveWithReply<'_>,
+        request: &MailspaceMoveWithReply<'_>,
     ) -> Result<Vec<StoredMessage>, VivariumError> {
         let reply = prepare_reply_blob(&self.mail_root, request.reply_data)?;
         let resolved = self.resolve_message_token(request.message_id)?;
@@ -44,6 +50,11 @@ impl Storage {
         Ok(replies)
     }
 
+    /// Move a message to a different local role.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the token resolution fails, the
+    /// message is not found, or the database update fails.
     pub fn move_message_to_role(
         &mut self,
         account: &str,
@@ -70,6 +81,11 @@ impl Storage {
         Ok(())
     }
 
+    /// Update read and starred flags for a message identified by remote
+    /// binding.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database update fails.
     pub fn update_remote_flags(
         &mut self,
         account: &str,
@@ -98,8 +114,8 @@ impl Storage {
                     remote_mailbox,
                     remote_uidvalidity,
                     remote_uid,
-                    if read_state { 1 } else { 0 },
-                    if starred { 1 } else { 0 },
+                    i32::from(read_state),
+                    i32::from(starred),
                     now
                 ],
             )
@@ -114,6 +130,9 @@ impl Storage {
     /// `starred`. `mail absorb` uses this: absorb means "read, processed, loaded
     /// into context", so the message is marked read and `unread` counts stay
     /// honest for boards and sensors that read on `read_state`.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database update fails.
     pub fn set_local_read_state(
         &mut self,
         account: &str,
@@ -127,7 +146,7 @@ impl Storage {
                 "UPDATE messages
                  SET read_state = ?3, updated_at = ?4
                  WHERE account = ?1 AND message_id = ?2 AND deleted_at IS NULL",
-                params![account, message_id, if read_state { 1 } else { 0 }, now],
+                params![account, message_id, i32::from(read_state), now],
             )
             .map_err(|e| VivariumError::Other(format!("failed to set local read state: {e}")))?;
         if changed > 0 {
@@ -136,6 +155,10 @@ impl Storage {
         Ok(changed > 0)
     }
 
+    /// Mark a message as deleted (soft delete via `deleted_at` timestamp).
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database update fails.
     pub fn mark_message_deleted(
         &mut self,
         account: &str,

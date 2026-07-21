@@ -25,6 +25,10 @@ pub struct ProtonEncryptedBody {
     pub algorithm: String,
 }
 
+/// Encrypts a session key with the given armored public key.
+///
+/// # Errors
+/// Returns an error if the public key cannot be parsed or the session key cannot be encrypted.
 pub fn encrypt_session_key_packet(
     armored_public_key: &str,
     session_key: &[u8],
@@ -43,7 +47,7 @@ pub fn encrypt_session_key_packet(
             SymmetricKeyAlgorithm::AES256,
             subkey,
         ) {
-            Ok(packet) => return serialize_key_packet(packet),
+            Ok(packet) => return serialize_key_packet(&packet),
             Err(err) => last_error = Some(err.to_string()),
         }
     }
@@ -59,10 +63,14 @@ pub fn encrypt_session_key_packet(
             last_error.unwrap_or_else(|| e.to_string())
         ))
     })?;
-    serialize_key_packet(packet)
+    serialize_key_packet(&packet)
 }
 
 impl ProtonBodyEncryptor {
+    /// Creates a new body encryptor from the login password and key material.
+    ///
+    /// # Errors
+    /// Returns an error if the key material cannot unlock any address keys.
     pub fn new(
         login_password: &str,
         key_material: &ProtonKeyMaterial,
@@ -79,10 +87,18 @@ impl ProtonBodyEncryptor {
         })
     }
 
+    /// Encrypts a message body.
+    ///
+    /// # Errors
+    /// Returns an error if encryption fails or the armored output cannot be serialized.
     pub fn encrypt_body(&self, body: &str) -> Result<ProtonEncryptedBody, VivariumError> {
         self.encrypt(body, false)
     }
 
+    /// Encrypts and signs a message body.
+    ///
+    /// # Errors
+    /// Returns an error if encryption or signing fails.
     pub fn encrypt_signed_body(&self, body: &str) -> Result<ProtonEncryptedBody, VivariumError> {
         self.encrypt(body, true)
     }
@@ -136,7 +152,7 @@ fn is_encryption_key(params: &PublicParams) -> bool {
     )
 }
 
-fn serialize_key_packet(packet: PublicKeyEncryptedSessionKey) -> Result<Vec<u8>, VivariumError> {
+fn serialize_key_packet(packet: &PublicKeyEncryptedSessionKey) -> Result<Vec<u8>, VivariumError> {
     let mut out = Vec::new();
     packet.to_writer_with_header(&mut out).map_err(|e| {
         VivariumError::Other(format!(

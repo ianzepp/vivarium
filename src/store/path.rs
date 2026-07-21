@@ -25,12 +25,12 @@ pub(super) fn canonical_folder(folder: &str) -> Option<&'static str> {
 pub(super) fn is_message_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|n| n.to_str())
-        .map(|name| {
+        .is_some_and(|name| {
             name.split_once(":2,")
                 .map_or(name, |(id, _)| id)
+                .to_ascii_lowercase()
                 .ends_with(".eml")
         })
-        .unwrap_or(false)
 }
 
 pub(super) fn maildir_filename(message_id: &str, subdir: &str) -> String {
@@ -58,7 +58,7 @@ pub(super) fn display_message_id(message_id: &str) -> String {
 }
 
 pub(super) fn stable_hash(value: &str) -> u64 {
-    value.bytes().fold(0xcbf29ce484222325, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    value.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
     })
 }

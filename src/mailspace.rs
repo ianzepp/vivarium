@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -114,6 +115,12 @@ pub struct DeliveredMessage {
 }
 
 impl Mailspace {
+    /// Initialise a new mailspace at the given project path, or the current
+    /// directory. Creates the `.vivi` directory, config, and store.
+    ///
+    /// # Errors
+    /// Returns an error if directory creation, config writing, or store
+    /// initialisation fails.
     pub fn init(project: Option<&Path>) -> Result<Self, VivariumError> {
         let root = project_root(project)?;
         let dir = root.join(MAILSPACE_DIR);
@@ -132,6 +139,12 @@ impl Mailspace {
         Self::open_root(root)
     }
 
+    /// Discover a mailspace by searching ancestors from the given project
+    /// path, or the current directory.
+    ///
+    /// # Errors
+    /// Returns an error if no mailspace config is found in the ancestor chain,
+    /// or if reading the config file fails.
     pub fn discover(project: Option<&Path>) -> Result<Self, VivariumError> {
         if let Some(project) = project {
             return Self::open_root(project.to_path_buf());
@@ -143,6 +156,10 @@ impl Mailspace {
         Self::open_root(root)
     }
 
+    /// Open a mailspace at an explicit root path.
+    ///
+    /// # Errors
+    /// Returns an error if the config file cannot be read or parsed.
     pub fn open_root(root: PathBuf) -> Result<Self, VivariumError> {
         let dir = root.join(MAILSPACE_DIR);
         let path = dir.join(MAILSPACE_CONFIG);
@@ -161,14 +178,23 @@ impl Mailspace {
         Ok(Self { root, dir, config })
     }
 
+    #[must_use] 
     pub fn store_path(&self) -> PathBuf {
         self.dir.join("mail.sqlite")
     }
 
+    /// Open the `SQLite` storage for this mailspace.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be opened or migrations fail.
     pub fn storage(&self) -> Result<Storage, VivariumError> {
         Storage::open_mailspace(&self.dir)
     }
 
+    /// Return a status summary for the mailspace and all identities.
+    ///
+    /// # Errors
+    /// Returns an error if the storage cannot be opened or queries fail.
     pub fn status(&self) -> Result<MailspaceStatus, VivariumError> {
         let storage = self.storage()?;
         let mut identities = Vec::new();
@@ -254,6 +280,10 @@ pub fn print_status(status: &MailspaceStatus) {
     println!("total open memos: {}", status.totals.memos_open);
 }
 
+/// Canonicalise a local folder/role name (e.g. `inbox`, `tasks`, `done`).
+///
+/// # Errors
+/// Returns an error if the role name is not recognised.
 pub fn canonical_local_role(role: &str) -> Result<String, VivariumError> {
     match role.to_ascii_lowercase().as_str() {
         "inbox" => Ok("inbox".into()),
@@ -289,11 +319,12 @@ fn find_root(start: &Path) -> Option<PathBuf> {
 fn missing_mailspace_error(cwd: &Path) -> VivariumError {
     let mut message = format!("No Vivi mailspace found.\ncwd: {}", cwd.display());
     if let Some(git) = nearest_git_root(cwd) {
-        message.push_str(&format!(
+        let _ = write!(
+            message,
             "\nnearest git root: {}\ninit: vivi mailspace init --project {}",
             git.display(),
             git.display()
-        ));
+        );
     } else {
         message.push_str("\ninit: vivi mailspace init");
     }

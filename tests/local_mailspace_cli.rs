@@ -5,6 +5,7 @@ use serde_json::Value;
 use vivarium::storage::Storage;
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn local_mail_send_creates_readable_inbox_and_sent_copy() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());
@@ -117,11 +118,11 @@ fn local_mail_send_creates_readable_inbox_and_sent_copy() {
         "sent",
     ]);
     assert_success(&sent_list);
-    let sent_stdout = stdout(&sent_list);
-    assert!(sent_stdout.contains(&sent), "{sent_stdout}");
+    let sent_list_stdout = stdout(&sent_list);
+    assert!(sent_list_stdout.contains(&sent), "{sent_list_stdout}");
     assert!(
-        sent_stdout.contains("review: local delivery"),
-        "{sent_stdout}"
+        sent_list_stdout.contains("review: local delivery"),
+        "{sent_list_stdout}"
     );
 
     let storage = Storage::open_mailspace(&project.path().join(".vivi")).unwrap();
@@ -135,6 +136,7 @@ fn local_mail_send_creates_readable_inbox_and_sent_copy() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn task_send_show_done_and_reopen_reads_expected_task() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());
@@ -272,6 +274,7 @@ fn task_send_show_done_and_reopen_reads_expected_task() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn dump_commands_filter_mail_and_tasks_for_board_review() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());
@@ -518,6 +521,7 @@ fn local_send_reads_body_file_and_stdin() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn board_and_status_report_actionable_work() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());
@@ -735,6 +739,7 @@ fn want_done_drop_and_status_lists_closed_wants() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn want_promotes_to_need_and_done_without_polluting_task_done() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());
@@ -883,6 +888,7 @@ fn want_promotes_to_need_and_done_without_polluting_task_done() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn replies_and_lifecycle_notes_assemble_cross_kind_threads() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());
@@ -1384,6 +1390,7 @@ fn mail_absorb_marks_inbox_read_and_clears_unread() {
     );
 }
 
+#[allow(clippy::cast_possible_truncation)]
 fn inbox_unread(project: &std::path::Path, identity: &str) -> usize {
     let output = vivi([
         "mailspace",
@@ -1405,6 +1412,7 @@ fn inbox_unread(project: &std::path::Path, identity: &str) -> usize {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn role_add_set_charter_show_and_rename() {
     let project = tempfile::tempdir().unwrap();
     assert_success(&vivi([

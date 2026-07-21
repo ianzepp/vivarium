@@ -175,6 +175,7 @@ fn options(dry_run: bool, json: bool) -> MutationRunOptions {
     }
 }
 
+#[allow(clippy::fn_params_excessive_bools)]
 fn flag_mutation(
     read: bool,
     unread: bool,

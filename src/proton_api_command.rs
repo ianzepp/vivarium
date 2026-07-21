@@ -103,7 +103,8 @@ impl Runtime {
             println!("srp       v{}", report.auth_info.version);
             println!("session   {}", yes_no(report.auth_info.srp_session_present));
             println!("2fa       {}", report.auth_info.two_fa.enabled);
-        })
+        });
+        Ok(())
     }
 
     async fn proton_login_check(
@@ -139,7 +140,8 @@ impl Runtime {
             println!("scope     {}", report.login.scope);
             println!("2fa       {}", report.login.two_fa.enabled);
             println!("version   {}", report.login.app_version);
-        })
+        });
+        Ok(())
     }
 
     async fn proton_login(
@@ -168,7 +170,8 @@ impl Runtime {
             session_path: store.path().display().to_string(),
             session: session.check(),
         };
-        print_session_report("Vivi Proton API login", &report, as_json)
+        print_session_report("Vivi Proton API login", &report, as_json);
+        Ok(())
     }
 
     async fn proton_session_check(
@@ -195,7 +198,8 @@ impl Runtime {
             session_path: store.path().display().to_string(),
             session: refreshed.check(),
         };
-        print_session_report("Vivi Proton API session-check", &report, as_json)
+        print_session_report("Vivi Proton API session-check", &report, as_json);
+        Ok(())
     }
 
     async fn proton_identity(
@@ -222,7 +226,8 @@ impl Runtime {
             session_path: store.path().display().to_string(),
             identity,
         };
-        print_identity_report(&report, as_json)
+        print_identity_report(&report, as_json);
+        Ok(())
     }
 
     pub(crate) fn resolve_proton_api_account(
@@ -240,7 +245,7 @@ impl Runtime {
     }
 }
 
-fn print_identity_report(report: &IdentityReport, as_json: bool) -> Result<(), VivariumError> {
+fn print_identity_report(report: &IdentityReport, as_json: bool) {
     print_report(report, as_json, |report| {
         println!("Vivi Proton API identity: {}", report.account);
         println!("provider  {}", report.provider);
@@ -261,14 +266,14 @@ fn print_identity_report(report: &IdentityReport, as_json: bool) -> Result<(), V
             report.identity.key_state.locked_key_hint_count,
             report.identity.key_state.token_key_hint_count
         );
-    })
+    });
 }
 
 pub(super) fn print_report<T: Serialize>(
     report: &T,
     as_json: bool,
     print_text: impl FnOnce(&T),
-) -> Result<(), VivariumError> {
+) {
     if as_json {
         println!(
             "{}",
@@ -277,14 +282,13 @@ pub(super) fn print_report<T: Serialize>(
     } else {
         print_text(report);
     }
-    Ok(())
 }
 
 fn print_session_report(
     title: &str,
     report: &SessionReport,
     as_json: bool,
-) -> Result<(), VivariumError> {
+) {
     print_report(report, as_json, |report| {
         println!("{title}: {}", report.account);
         println!("provider  {}", report.provider);
@@ -296,7 +300,7 @@ fn print_session_report(
         println!("2fa       {}", report.session.two_fa.enabled);
         println!("version   {}", report.session.app_version);
         println!("updated   {}", report.session.updated_at);
-    })
+    });
 }
 
 fn yes_no(value: bool) -> &'static str {

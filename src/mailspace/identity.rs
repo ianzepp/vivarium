@@ -99,11 +99,20 @@ impl LocalIdentity {
 }
 
 impl Mailspace {
+    /// Add a new identity (role) with default values.
+    ///
+    /// # Errors
+    /// Returns an error if the identity name is invalid or config persistence
+    /// fails.
     pub fn add_identity(&mut self, identity: &str) -> Result<String, VivariumError> {
         self.add_role(identity, None, &[])
     }
 
     /// Add a role seat. Idempotent on name: existing name is left unchanged.
+    ///
+    /// # Errors
+    /// Returns an error if the name, kind, or any label is invalid, or if
+    /// config persistence fails.
     pub fn add_role(
         &mut self,
         name: &str,
@@ -130,6 +139,11 @@ impl Mailspace {
         Ok(self.address_for(&name))
     }
 
+    /// Update a role's metadata fields from a `RoleUpdate`.
+    ///
+    /// # Errors
+    /// Returns an error if the role name is unknown, field values are invalid,
+    /// or config persistence fails.
     pub fn set_role(&mut self, name: &str, update: RoleUpdate) -> Result<RoleView, VivariumError> {
         let name = sanitize_identity(name)?;
         let index = self.require_role_index(&name)?;
@@ -138,6 +152,12 @@ impl Mailspace {
         self.role_view(&self.config.identities[index].name.clone())
     }
 
+    /// Rename an identity. The old name is preserved as an alias.
+    ///
+    /// # Errors
+    /// Returns an error if either name is invalid, the role is unknown, the new
+    /// name is taken, config persistence fails, or the charter file cannot be
+    /// renamed.
     pub fn rename_identity(&mut self, old: &str, new: &str) -> Result<String, VivariumError> {
         let old = sanitize_identity(old)?;
         let new = sanitize_identity(new)?;
@@ -153,7 +173,7 @@ impl Mailspace {
             )));
         }
         let previous_name = self.config.identities[index].name.clone();
-        self.config.identities[index].name = new.clone();
+        self.config.identities[index].name.clone_from(&new);
         if !self.config.identities[index]
             .aliases
             .iter()
@@ -169,10 +189,12 @@ impl Mailspace {
         Ok(self.address_for(&new))
     }
 
+    #[must_use] 
     pub fn address_for(&self, identity: &str) -> String {
         format!("{identity}@{}.local", self.config.name)
     }
 
+    #[must_use] 
     pub fn identity_names(&self, canonical: &str) -> HashSet<String> {
         let mut names = HashSet::new();
         names.insert(canonical.to_string());
@@ -187,6 +209,12 @@ impl Mailspace {
         names
     }
 
+    /// Resolve a string to a canonical identity name. Accepts `name@domain`,
+    /// `name`, and aliases.
+    ///
+    /// # Errors
+    /// Returns an error if the value is empty, references an external domain, or
+    /// does not match any known role or alias.
     pub fn resolve_identity(&self, value: &str) -> Result<String, VivariumError> {
         let trimmed = value.trim();
         if trimmed.is_empty() {
@@ -216,6 +244,11 @@ impl Mailspace {
         }
     }
 
+    /// Get the full `RoleView` for a role by name or alias.
+    ///
+    /// # Errors
+    /// Returns an error if the role is unknown or the charter file cannot be
+    /// read.
     pub fn role_view(&self, name: &str) -> Result<RoleView, VivariumError> {
         let canonical = self.resolve_identity(name)?;
         let role = self
@@ -238,6 +271,10 @@ impl Mailspace {
         })
     }
 
+    /// List all role views.
+    ///
+    /// # Errors
+    /// Returns an error if any role's charter file cannot be read.
     pub fn list_role_views(&self) -> Result<Vec<RoleView>, VivariumError> {
         let mut views = Vec::with_capacity(self.config.identities.len());
         for role in &self.config.identities {
@@ -246,6 +283,11 @@ impl Mailspace {
         Ok(views)
     }
 
+    /// Write a charter body for a role.
+    ///
+    /// # Errors
+    /// Returns an error if the role is unknown, the charter directory cannot be
+    /// created, or the file cannot be written.
     pub fn set_charter(&mut self, name: &str, body: &str) -> Result<(), VivariumError> {
         let canonical = self.resolve_identity(name)?;
         let path = self.charter_path(&canonical);
@@ -261,6 +303,11 @@ impl Mailspace {
         Ok(())
     }
 
+    /// Read the charter body for a role. Returns an empty string if no charter
+    /// exists.
+    ///
+    /// # Errors
+    /// Returns an error if the charter file exists but cannot be read.
     pub fn read_charter(&self, name: &str) -> Result<String, VivariumError> {
         let path = self.charter_path(name);
         if !path.exists() {

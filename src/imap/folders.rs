@@ -25,7 +25,12 @@ pub struct ResolvedFolders {
     pub label_roots: Vec<String>,
 }
 
+/// IMAP capabilities discovered during connection.
+///
+/// Each boolean represents whether the server advertised support for a
+/// particular extension.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct CapabilityReport {
     pub uidplus: bool,
     pub move_supported: bool,
@@ -42,6 +47,11 @@ pub struct RemoteFolder {
     pub attributes: Vec<String>,
 }
 
+/// Discover folders and capabilities from the account's IMAP server.
+///
+/// # Errors
+/// Returns an error if the IMAP connection, capability check, or folder
+/// listing fails.
 pub async fn discover_folders(
     account: &Account,
     reject_invalid_certs: bool,
@@ -76,6 +86,7 @@ pub async fn discover_folders(
     })
 }
 
+#[must_use] 
 pub fn resolved_folders(account: &Account) -> ResolvedFolders {
     ResolvedFolders {
         inbox: account.inbox_folder(),

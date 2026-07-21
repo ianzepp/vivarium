@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use crate::message::MessageEntry;
 use crate::sync::SyncWindow;
 
+#[must_use] 
 pub fn filter_entries(
     entries: Vec<MessageEntry>,
     window: SyncWindow,
@@ -38,6 +39,10 @@ pub fn print_entries(folder: &str, entries: &[MessageEntry]) {
     let _ = write_entries(&mut io::stdout().lock(), folder, entries);
 }
 
+/// Writes formatted message entries to the given writer.
+///
+/// # Errors
+/// Returns an I/O error if writing to the writer fails.
 pub fn write_entries<W: Write>(
     writer: &mut W,
     folder: &str,

@@ -20,6 +20,11 @@ const NO_SIGNATURE: u8 = 0;
 const DETACHED_SIGNATURE: u8 = 1;
 const RECIPIENT_TYPE_INTERNAL: ProtonRecipientType = ProtonRecipientType(1);
 
+/// Sends a raw email message through the Proton API.
+///
+/// # Errors
+/// Returns an error if the session cannot be loaded, the message cannot be parsed,
+/// encryption fails, or any API call fails.
 pub async fn send_raw(
     account: &Account,
     config: &Config,
@@ -56,14 +61,19 @@ pub async fn send_raw(
     Ok(())
 }
 
+/// Builds a `CreateDraftReq` from raw EML bytes.
+///
+/// # Errors
+/// Returns an error if the EML cannot be parsed, required sender/recipient fields are missing,
+/// or no To/Cc/Bcc recipients are present.
 pub fn draft_request_from_eml(data: &[u8]) -> Result<CreateDraftReq, VivariumError> {
     let parsed = mail_parser::MessageParser::default()
         .parse(data)
         .ok_or_else(|| VivariumError::Parse("failed to parse outbound message".into()))?;
     let sender = first_address("From", parsed.from())?;
-    let to = address_list(parsed.to())?;
-    let cc = address_list(parsed.cc())?;
-    let bcc = address_list(parsed.bcc())?;
+    let to = address_list(parsed.to());
+    let cc = address_list(parsed.cc());
+    let bcc = address_list(parsed.bcc());
     if to.is_empty() && cc.is_empty() && bcc.is_empty() {
         return Err(VivariumError::Message(
             "draft needs at least one To, Cc, or Bcc recipient".into(),
@@ -142,7 +152,7 @@ fn send_request(
             mime_type: draft.message.mime_type.clone(),
             package_type: package_type(recipients),
             body: STANDARD.encode(body.data_packet),
-            body_key: if recipients.iter().any(|recipient| recipient.is_clear()) {
+            body_key: if recipients.iter().any(RecipientSendPreference::is_clear) {
                 Some(SessionKey {
                     key: STANDARD.encode(body.session_key),
                     algorithm: body.algorithm,
@@ -267,7 +277,7 @@ fn first_address(
     label: &str,
     list: Option<&mail_parser::Address<'_>>,
 ) -> Result<ProtonAddress, VivariumError> {
-    address_list(list)?
+    address_list(list)
         .into_iter()
         .next()
         .ok_or_else(|| VivariumError::Message(format!("message has no {label} address")))
@@ -275,11 +285,11 @@ fn first_address(
 
 fn address_list(
     list: Option<&mail_parser::Address<'_>>,
-) -> Result<Vec<ProtonAddress>, VivariumError> {
+) -> Vec<ProtonAddress> {
     let Some(list) = list else {
-        return Ok(Vec::new());
+        return Vec::new();
     };
-    Ok(list
+    list
         .iter()
         .filter_map(|address| {
             Some(ProtonAddress {
@@ -287,7 +297,7 @@ fn address_list(
                 address: address.address()?.to_string(),
             })
         })
-        .collect())
+        .collect()
 }
 
 #[cfg(test)]

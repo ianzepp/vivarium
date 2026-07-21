@@ -36,31 +36,32 @@ pub struct EmbeddingOptions {
 }
 
 impl EmbeddingOptions {
+    /// # Errors
+    /// Returns an error if a required embedding setting is missing from both the config and CLI args.
     pub fn from_config(config: &Config) -> Result<Self, VivariumError> {
         Self::from_values(config, None, None, None)
     }
 
+    /// # Errors
+    /// Returns an error if a required embedding setting cannot be resolved.
     pub fn from_values(
         config: &Config,
-        provider: Option<String>,
-        model: Option<String>,
-        endpoint: Option<String>,
+        provider: Option<&str>,
+        model: Option<&str>,
+        endpoint: Option<&str>,
     ) -> Result<Self, VivariumError> {
         let provider = required_embedding_setting(
             provider
-                .as_deref()
                 .or(config.defaults.embedding_provider.as_deref()),
             "embedding_provider",
         )?;
         let model = required_embedding_setting(
             model
-                .as_deref()
                 .or(config.defaults.embedding_model.as_deref()),
             "embedding_model",
         )?;
         let endpoint = required_embedding_setting(
             endpoint
-                .as_deref()
                 .or(config.defaults.embedding_endpoint.as_deref()),
             "embedding_endpoint",
         )?;
@@ -122,6 +123,8 @@ pub struct SemanticMatch {
     pub snippet: String,
 }
 
+/// # Errors
+/// Returns an error if the embedding provider is unsupported or if indexing fails.
 pub async fn index_embeddings(
     mail_root: &Path,
     account: &str,
@@ -152,8 +155,7 @@ async fn index_embeddings_with_provider<P: provider::EmbeddingProvider + Sync>(
     let messages = filtered_messages(&index, account, options.catalog_handles.as_ref())?;
     let total_messages = options
         .limit
-        .map(|limit| usize::min(limit, messages.len()))
-        .unwrap_or(messages.len());
+        .map_or(messages.len(), |limit| usize::min(limit, messages.len()));
     let mut stats = EmbeddingStats::default();
     let mut retained_chunks = Vec::new();
     let mut staged_embeddings = Vec::new();
@@ -220,7 +222,7 @@ async fn index_message<P: provider::EmbeddingProvider + Sync>(
     rebuild: bool,
     stats: &mut EmbeddingStats,
 ) -> Result<IndexedEmbeddings, VivariumError> {
-    let Some(chunks) = message_chunks(message, stats)? else {
+    let Some(chunks) = message_chunks(message, stats) else {
         return Ok(empty_indexed_embeddings());
     };
     let retained = chunks
@@ -269,20 +271,14 @@ async fn index_message<P: provider::EmbeddingProvider + Sync>(
 fn message_chunks(
     message: &IndexedMessage,
     stats: &mut EmbeddingStats,
-) -> Result<Option<Vec<EmailChunk>>, VivariumError> {
-    let data = match fs::read(&message.blob_path) {
-        Ok(data) => data,
-        Err(_) => {
-            stats.errors += 1;
-            return Ok(None);
-        }
+) -> Option<Vec<EmailChunk>> {
+    let Ok(data) = fs::read(&message.blob_path) else {
+        stats.errors += 1;
+        return None;
     };
-    match chunk::chunks_for_message(message, &data) {
-        Ok(chunks) => Ok(Some(chunks)),
-        Err(_) => {
-            stats.errors += 1;
-            Ok(None)
-        }
+    if let Ok(chunks) = chunk::chunks_for_message(message, &data) { Some(chunks) } else {
+        stats.errors += 1;
+        None
     }
 }
 

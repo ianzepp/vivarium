@@ -1,3 +1,5 @@
+#![deny(clippy::pedantic)]
+
 pub mod agent;
 pub mod catalog;
 pub mod cli;

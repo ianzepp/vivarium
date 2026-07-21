@@ -12,7 +12,7 @@ pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumE
     match command {
         NeedCommand::Send(command) => send_local_item(command, "needs", "need", "created")?,
         NeedCommand::Watch(command) => {
-            crate::local_mailspace_command::run_watch(command, Some("need"))?
+            crate::local_mailspace_command::run_watch(command, Some("need"))?;
         }
         NeedCommand::List {
             for_identity,
@@ -43,7 +43,7 @@ pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumE
         } => move_item(
             handle,
             for_identity,
-            note,
+            note.as_ref(),
             project.as_deref(),
             "done",
             "need done",
@@ -57,7 +57,7 @@ pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumE
         } => move_item(
             handle,
             for_identity,
-            note,
+            note.as_ref(),
             project.as_deref(),
             "needs",
             "need reopen",
@@ -71,7 +71,7 @@ pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumE
     match command {
         WantCommand::Send(command) => send_local_item(command, "wants", "want", "created")?,
         WantCommand::Watch(command) => {
-            crate::local_mailspace_command::run_watch(command, Some("want"))?
+            crate::local_mailspace_command::run_watch(command, Some("want"))?;
         }
         WantCommand::List {
             for_identity,
@@ -104,19 +104,19 @@ pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumE
             for_identity,
             note,
             project,
-        } => promote_want(handle, for_identity, note, project.as_deref())?,
+        } => promote_want(handle, for_identity, note.as_ref(), project.as_deref())?,
         WantCommand::Done {
             handle,
             for_identity,
             note,
             project,
-        } => close_want_done(handle, for_identity, note, project.as_deref())?,
+        } => close_want_done(handle, for_identity, note.as_ref(), project.as_deref())?,
         WantCommand::Drop {
             handle,
             for_identity,
             note,
             project,
-        } => close_want_drop(handle, for_identity, note, project.as_deref())?,
+        } => close_want_drop(handle, for_identity, note.as_ref(), project.as_deref())?,
     }
     Ok(())
 }
@@ -124,7 +124,7 @@ pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumE
 fn promote_want(
     handle: &str,
     for_identity: &str,
-    note: &Option<String>,
+    note: Option<&String>,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     move_item(
@@ -200,11 +200,10 @@ fn list_wants(
             item.status,
             item.metadata
                 .get("priority")
-                .map(String::as_str)
-                .unwrap_or("-"),
-            item.metadata.get("rank").map(String::as_str).unwrap_or("-"),
-            item.metadata.get("repo").map(String::as_str).unwrap_or("-"),
-            item.metadata.get("lane").map(String::as_str).unwrap_or("-"),
+                .map_or("-", String::as_str),
+            item.metadata.get("rank").map_or("-", String::as_str),
+            item.metadata.get("repo").map_or("-", String::as_str),
+            item.metadata.get("lane").map_or("-", String::as_str),
             item.subject,
             item.active_tasks.join(",")
         );
@@ -215,7 +214,7 @@ fn list_wants(
 fn close_want(
     handle: &str,
     for_identity: &str,
-    note: &Option<String>,
+    note: Option<&String>,
     project: Option<&std::path::Path>,
     command: &str,
     verb: &str,
@@ -226,7 +225,7 @@ fn close_want(
 fn close_want_done(
     handle: &str,
     for_identity: &str,
-    note: &Option<String>,
+    note: Option<&String>,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     close_want(handle, for_identity, note, project, "want done", "done")
@@ -235,7 +234,7 @@ fn close_want_done(
 fn close_want_drop(
     handle: &str,
     for_identity: &str,
-    note: &Option<String>,
+    note: Option<&String>,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     close_want(handle, for_identity, note, project, "want drop", "dropped")
@@ -306,14 +305,14 @@ fn send_local_item(
 fn move_item(
     handle: &str,
     for_identity: &str,
-    note: &Option<String>,
+    note: Option<&String>,
     project: Option<&std::path::Path>,
     role: &str,
     command: &str,
     verb: &str,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    let handle = mailspace.move_item(for_identity, handle, role, note.as_deref(), command)?;
+    let handle = mailspace.move_item(for_identity, handle, role, note.map(String::as_str), command)?;
     println!("{verb} {handle}");
     Ok(())
 }

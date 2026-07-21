@@ -20,6 +20,10 @@ pub(crate) struct UnlockedAddressKey {
 }
 
 impl ProtonBodyDecryptor {
+    /// Creates a new body decryptor from the login password and key material.
+    ///
+    /// # Errors
+    /// Returns an error if the key material cannot unlock any address keys.
     pub fn new(
         login_password: &str,
         key_material: &ProtonKeyMaterial,
@@ -28,11 +32,16 @@ impl ProtonBodyDecryptor {
         Ok(Self { address_keys })
     }
 
+    /// Decrypts an armored PGP message body.
+    ///
+    /// # Errors
+    /// Returns an error if none of the address keys can decrypt the body.
     pub fn decrypt_body(&self, armored_body: &str) -> Result<Vec<u8>, VivariumError> {
         for address_key in &self.address_keys {
+            let password = Password::from(address_key.password.as_slice());
             if let Ok(bytes) = decrypt_armored_message(
                 armored_body,
-                Password::from(address_key.password.as_slice()),
+                &password,
                 &address_key.key,
             ) {
                 return Ok(bytes);
@@ -60,12 +69,9 @@ pub(crate) fn unlock_address_keys(
             diagnostics.user_keys_without_salt += 1;
             continue;
         };
-        let mailbox_password = match derive_mailbox_password(&key_salt.key_salt, login_password) {
-            Ok(password) => password,
-            Err(_) => {
-                diagnostics.mailbox_hash_failures += 1;
-                continue;
-            }
+        let Ok(mailbox_password) = derive_mailbox_password(&key_salt.key_salt, login_password) else {
+            diagnostics.mailbox_hash_failures += 1;
+            continue;
         };
         for address_key in sorted_address_keys(key_material) {
             diagnostics.unlock_attempts += 1;
@@ -139,6 +145,11 @@ impl UnlockDiagnostics {
     }
 }
 
+/// Derives the mailbox password from the encoded salt and login password.
+///
+/// # Errors
+/// Returns an error if the salt cannot be decoded, is an unsupported length,
+/// or the password hash fails.
 pub fn derive_mailbox_password(
     encoded_salt: &str,
     login_password: &str,
@@ -161,19 +172,20 @@ fn unlock_address_key_password(
     token: &str,
 ) -> Result<Vec<u8>, VivariumError> {
     let user_key = read_secret_key(user_private_key)?;
-    decrypt_armored_message(token, Password::from(mailbox_password), &user_key)
+    let password = Password::from(mailbox_password);
+    decrypt_armored_message(token, &password, &user_key)
 }
 
 fn decrypt_armored_message(
     armored_message: &str,
-    password: Password,
+    password: &Password,
     key: &SignedSecretKey,
 ) -> Result<Vec<u8>, VivariumError> {
     let parse_message = || parse_pgp_message(armored_message);
-    let mut message = match parse_message()?.decrypt(&password, key) {
+    let mut message = match parse_message()?.decrypt(password, key) {
         Ok(message) => message,
         Err(_) => parse_message()?
-            .decrypt_legacy(&password, key)
+            .decrypt_legacy(password, key)
             .map_err(|e| VivariumError::Other(format!("Proton PGP message decrypt failed: {e}")))?,
     };
     if message.is_compressed() {

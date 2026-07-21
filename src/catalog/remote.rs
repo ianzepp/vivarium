@@ -90,6 +90,10 @@ impl Catalog {
         RemoteReferenceStatus::Ready(remote)
     }
 
+    /// Resolve a remote identity reference for a catalog entry.
+    ///
+    /// # Errors
+    /// Returns an error if the message or its remote identity is not found.
     pub fn remote_reference(
         &self,
         account: &str,
@@ -107,6 +111,10 @@ impl Catalog {
         }
     }
 
+    /// Attach remote identity information to catalog entries based on candidates.
+    ///
+    /// # Errors
+    /// Returns an error if the database update fails.
     pub fn attach_remote_identities(
         &mut self,
         candidates: &[RemoteIdentityCandidate],
@@ -160,7 +168,7 @@ impl Catalog {
         }
 
         if result.matched > 0 {
-            self.flush()?;
+            Self::flush();
         }
         Ok(result)
     }
@@ -176,6 +184,10 @@ impl Catalog {
     }
 }
 
+/// Open the catalog and attach remote identity information to entries.
+///
+/// # Errors
+/// Returns an error if the catalog cannot be opened or the database update fails.
 pub fn attach_remote_identities(
     mail_root: &Path,
     candidates: &[RemoteIdentityCandidate],

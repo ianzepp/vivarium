@@ -4,6 +4,7 @@ use crate::error::VivariumError;
 
 const STORAGE_SCHEMA_VERSION: &str = "1";
 
+#[allow(clippy::too_many_lines)]
 pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
     // Fast path: skip DDL when schema is already current
     let existing: Option<String> = conn

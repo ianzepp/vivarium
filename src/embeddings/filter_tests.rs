@@ -75,11 +75,11 @@ struct MockProvider;
 
 #[async_trait]
 impl EmbeddingProvider for MockProvider {
-    fn provider(&self) -> &str {
+    fn provider(&self) -> &'static str {
         "mock"
     }
 
-    fn model(&self) -> &str {
+    fn model(&self) -> &'static str {
         "model"
     }
 

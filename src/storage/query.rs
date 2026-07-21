@@ -1,8 +1,13 @@
 use std::collections::HashMap;
 
-use super::*;
+use super::{params, Storage, VivariumError, fs, StoredMessageView, OptionalExtension, message_query, raw_stored_message_from_row, CatalogEntry};
 
 impl Storage {
+    /// Read the raw bytes of a stored blob by content hash.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the blob row is missing or the file
+    /// read fails.
     pub fn read_blob(&self, content_id: &str) -> Result<Vec<u8>, VivariumError> {
         let relpath: String = self
             .conn
@@ -15,6 +20,10 @@ impl Storage {
         fs::read(self.mail_root.join(relpath)).map_err(Into::into)
     }
 
+    /// Check whether a blob exists by content hash.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn blob_exists(&self, content_id: &str) -> Result<bool, VivariumError> {
         self.conn
             .query_row(
@@ -26,6 +35,11 @@ impl Storage {
             .map_err(|e| VivariumError::Other(format!("failed to check blob row: {e}")))
     }
 
+    /// Read the raw message bytes, resolving handles/prefixes first.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the token cannot be resolved, the
+    /// message is not found, or the file read fails.
     pub fn read_message(&self, message_id: &str) -> Result<Vec<u8>, VivariumError> {
         let resolved = self.resolve_message_token(message_id)?;
         let Some(view) = self.message_by_id(&resolved)? else {
@@ -36,6 +50,11 @@ impl Storage {
         fs::read(self.mail_root.join(view.blob_relpath)).map_err(Into::into)
     }
 
+    /// Look up a stored message view by exact message ID.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query or handle
+    /// resolution fails.
     pub fn message_by_id(
         &self,
         message_id: &str,
@@ -55,6 +74,11 @@ impl Storage {
         Ok(message)
     }
 
+    /// Look up a message by content hash, account, and local role.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query or handle
+    /// resolution fails.
     pub fn message_by_content_account_role(
         &self,
         content_id: &str,
@@ -82,6 +106,11 @@ impl Storage {
         Ok(message)
     }
 
+    /// List all messages in a given local role across all accounts.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query or handle
+    /// decoration fails.
     pub fn list_messages_by_role(
         &self,
         local_role: &str,
@@ -93,6 +122,10 @@ impl Storage {
     }
 
     /// List messages filtered by account and a single role.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query or handle
+    /// decoration fails.
     pub fn list_messages_by_account_role(
         &self,
         account: &str,
@@ -105,6 +138,10 @@ impl Storage {
     }
 
     /// List messages filtered by one or more accounts and one or more roles.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query or handle
+    /// decoration fails.
     pub fn list_messages_by_account_roles(
         &self,
         accounts: &[String],
@@ -114,6 +151,10 @@ impl Storage {
     }
 
     /// List messages filtered by accounts and roles, with handles scoped to those accounts.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query or handle
+    /// decoration fails.
     pub fn list_messages_by_account_roles_scoped(
         &self,
         accounts: &[String],
@@ -126,6 +167,9 @@ impl Storage {
     }
 
     /// List messages filtered by accounts and roles without computing display handles.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn list_messages_by_account_roles_raw(
         &self,
         accounts: &[String],
@@ -196,10 +240,19 @@ impl Storage {
         self.decorate_handles(messages?)
     }
 
+    /// List all non-deleted messages across all accounts.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query or handle
+    /// decoration fails.
     pub fn list_messages(&self) -> Result<Vec<StoredMessageView>, VivariumError> {
         self.list_messages_by_query("WHERE m.deleted_at IS NULL", [])
     }
 
+    /// List catalog entries for an account.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn list_catalog_entries(&self, account: &str) -> Result<Vec<CatalogEntry>, VivariumError> {
         let mut stmt = self
             .conn
@@ -220,12 +273,16 @@ impl Storage {
                 })
             })
             .collect();
-        messages?
+        Ok(messages?
             .into_iter()
             .map(|message| self.catalog_entry_from_view(message))
-            .collect()
+            .collect())
     }
 
+    /// Look up a single catalog entry by handle or message ID for an account.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn catalog_entry(
         &self,
         account: &str,
@@ -246,9 +303,13 @@ impl Storage {
         else {
             return Ok(None);
         };
-        self.catalog_entry_from_view(view).map(Some)
+        Ok(Some(self.catalog_entry_from_view(view)))
     }
 
+    /// Count non-deleted messages for an account.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn count_messages_for_account(&self, account: &str) -> Result<usize, VivariumError> {
         self.conn
             .query_row(
@@ -259,6 +320,10 @@ impl Storage {
             .map_err(|e| VivariumError::Other(format!("failed to count stored messages: {e}")))
     }
 
+    /// Count non-deleted messages for an account and role, optionally filtered by read state.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn count_messages_for_account_role(
         &self,
         account: &str,
@@ -287,6 +352,10 @@ impl Storage {
         count.map_err(|e| VivariumError::Other(format!("failed to count stored messages: {e}")))
     }
 
+    /// Map of message identifier → byte size for a given local role.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn local_sizes_by_role(
         &self,
         local_role: &str,
@@ -305,6 +374,10 @@ impl Storage {
             .collect())
     }
 
+    /// Build an RFC-message-id → (`remote_uid`, `byte_size`) index for a role.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn rfc_index_by_role(
         &self,
         local_role: &str,

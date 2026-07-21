@@ -134,6 +134,7 @@ pub struct ProviderOAuthConfig {
 
 impl Provider {
     /// Return the OAuth configuration for this provider.
+    #[must_use] 
     pub fn oauth_config(&self) -> Option<ProviderOAuthConfig> {
         match self {
             Provider::Gmail => Some(ProviderOAuthConfig {
@@ -141,13 +142,12 @@ impl Provider {
                 token_url: "https://oauth2.googleapis.com/token".into(),
                 scope: "https://mail.google.com/".into(),
             }),
-            Provider::ProtonApi => None,
             Provider::Protonmail => Some(ProviderOAuthConfig {
                 auth_url: "https://account.proton.me/oauth".into(),
                 token_url: "https://account.proton.me/token".into(),
                 scope: "https://mail.protonmail.com/wildcard".into(),
             }),
-            Provider::Standard => None,
+            Provider::ProtonApi | Provider::Standard => None,
         }
     }
 }

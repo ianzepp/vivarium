@@ -413,10 +413,10 @@ fn account_with_provider(provider: types::Provider) -> types::Account {
     types::Account {
         name: "proton".into(),
         email: "u@p.me".into(),
-        imap_host: "".into(),
+        imap_host: String::new(),
         imap_port: None,
         imap_security: None,
-        smtp_host: "".into(),
+        smtp_host: String::new(),
         smtp_port: None,
         smtp_security: None,
         username: "u".into(),

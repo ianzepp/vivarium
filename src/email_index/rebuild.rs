@@ -54,12 +54,9 @@ fn index_entry(
     seen.insert(message_id.clone());
     let blob_path = entry.blob_path.clone();
     update_reuse_stats(tx, account, &message_id, entry, &blob_path, stats)?;
-    let data = match fs::read(&blob_path) {
-        Ok(data) => data,
-        Err(_) => {
-            stats.errors += 1;
-            return Ok(());
-        }
+    let Ok(data) = fs::read(&blob_path) else {
+        stats.errors += 1;
+        return Ok(());
     };
     let links = links_from_raw(&data);
     upsert_message(tx, account, &message_id, entry, now)?;

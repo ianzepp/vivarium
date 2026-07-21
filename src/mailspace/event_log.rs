@@ -13,7 +13,7 @@ pub(super) fn log_send_events(
     let command = send_command(&request.role);
     append_event(
         storage,
-        EventDetails {
+        &EventDetails {
             command,
             event_type: "sent_copy_created",
             actor: Some(from),
@@ -31,7 +31,7 @@ pub(super) fn log_send_events(
     for delivered in delivered {
         append_event(
             storage,
-            EventDetails {
+            &EventDetails {
                 command,
                 event_type: "delivered",
                 actor: Some(from),
@@ -60,7 +60,7 @@ pub(super) fn log_move_event(
 ) -> Result<(), VivariumError> {
     append_event(
         storage,
-        EventDetails {
+        &EventDetails {
             command,
             event_type: "moved",
             actor: Some(identity),
@@ -101,7 +101,7 @@ struct EventDetails<'a> {
     note: Option<&'a str>,
 }
 
-fn append_event(storage: &Storage, details: EventDetails<'_>) -> Result<(), VivariumError> {
+fn append_event(storage: &Storage, details: &EventDetails<'_>) -> Result<(), VivariumError> {
     storage.append_mailspace_event(&MailspaceEventInput {
         command: details.command.into(),
         event_type: details.event_type.into(),

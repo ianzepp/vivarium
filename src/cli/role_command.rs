@@ -39,7 +39,7 @@ pub enum RoleCommand {
         #[arg(long)]
         kind: Option<String>,
 
-        /// Execution home (subagent, tmux, vivi_pty, …)
+        /// Execution home (subagent, tmux, `vivi_pty`, …)
         #[arg(long)]
         harness: Option<String>,
 

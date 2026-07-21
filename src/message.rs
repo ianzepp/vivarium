@@ -26,7 +26,10 @@ pub struct MessageEntry {
 }
 
 impl MessageEntry {
-    /// Build a MessageEntry by reading and parsing an .eml file.
+    /// Build a `MessageEntry` by reading and parsing an .eml file.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or parsed as an email message.
     pub fn from_path(path: &Path) -> Result<Self, VivariumError> {
         let message_id = message_id_from_path(path).unwrap_or_else(|| "unknown".to_string());
 
@@ -38,16 +41,13 @@ impl MessageEntry {
         let from = parsed
             .from()
             .and_then(|a| a.first())
-            .map(|a| {
-                a.name()
-                    .map(String::from)
-                    .unwrap_or_else(|| a.address().unwrap_or("unknown").to_string())
-            })
-            .unwrap_or_else(|| "unknown".to_string());
+            .map_or_else(|| "unknown".to_string(), |a| {
+                a.name().map_or_else(|| a.address().unwrap_or("unknown").to_string(), String::from)
+            });
 
         let subject = parsed.subject().unwrap_or("(no subject)").to_string();
 
-        let date = parsed
+        let msg_date = parsed
             .date()
             .and_then(|d| DateTime::from_timestamp(d.to_timestamp(), 0))
             .unwrap_or_default();
@@ -56,7 +56,7 @@ impl MessageEntry {
             message_id,
             from,
             subject,
-            date,
+            date: msg_date,
             path: path.to_path_buf(),
             read_state: path
                 .parent()
@@ -80,11 +80,13 @@ impl fmt::Display for MessageEntry {
     }
 }
 
+#[must_use] 
 pub fn message_id_from_bytes(data: &[u8]) -> Option<String> {
     let parsed = mail_parser::MessageParser::default().parse(data)?;
     normalize_message_id(parsed.message_id()?)
 }
 
+#[must_use] 
 pub fn normalize_message_id(message_id: &str) -> Option<String> {
     let trimmed = message_id
         .trim()
@@ -98,6 +100,9 @@ pub fn normalize_message_id(message_id: &str) -> Option<String> {
 }
 
 /// Render a raw .eml as readable terminal output.
+///
+/// # Errors
+/// Returns an error if the message cannot be parsed.
 pub fn render_message(data: &[u8]) -> Result<String, VivariumError> {
     let parsed = mail_parser::MessageParser::default()
         .parse(data)
@@ -105,8 +110,7 @@ pub fn render_message(data: &[u8]) -> Result<String, VivariumError> {
 
     let from = parsed
         .from()
-        .and_then(|a| a.first())
-        .map(|a| {
+        .and_then(|a| a.first()).map_or_else(|| "unknown".to_string(), |a| {
             let name = a.name().unwrap_or("");
             let addr = a.address().unwrap_or("");
             if name.is_empty() {
@@ -114,13 +118,11 @@ pub fn render_message(data: &[u8]) -> Result<String, VivariumError> {
             } else {
                 format!("{name} <{addr}>")
             }
-        })
-        .unwrap_or_else(|| "unknown".to_string());
+        });
 
     let to = parsed
         .to()
-        .and_then(|a| a.first())
-        .map(|a| {
+        .and_then(|a| a.first()).map_or_else(|| "unknown".to_string(), |a| {
             let name = a.name().unwrap_or("");
             let addr = a.address().unwrap_or("");
             if name.is_empty() {
@@ -128,32 +130,31 @@ pub fn render_message(data: &[u8]) -> Result<String, VivariumError> {
             } else {
                 format!("{name} <{addr}>")
             }
-        })
-        .unwrap_or_else(|| "unknown".to_string());
+        });
 
     let subject = parsed.subject().unwrap_or("(no subject)");
-    let date = parsed
+    let msg_date = parsed
         .date()
-        .and_then(|d| DateTime::from_timestamp(d.to_timestamp(), 0))
-        .map(|dt| dt.format("%Y-%m-%d %H:%M %Z").to_string())
-        .unwrap_or_else(|| "unknown".to_string());
+        .and_then(|d| DateTime::from_timestamp(d.to_timestamp(), 0)).map_or_else(|| "unknown".to_string(), |dt| dt.format("%Y-%m-%d %H:%M %Z").to_string());
 
     let body = parsed
-        .body_text(0)
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "(no text body)".to_string());
+        .body_text(0).map_or_else(|| "(no text body)".to_string(), |s| s.to_string());
 
     Ok(format!(
-        "From:    {from}\nTo:      {to}\nDate:    {date}\nSubject: {subject}\n\n{body}"
+        "From:    {from}\nTo:      {to}\nDate:    {msg_date}\nSubject: {subject}\n\n{body}"
     ))
 }
 
+/// Render a raw .eml as a JSON value.
+///
+/// # Errors
+/// Returns an error if the message cannot be parsed.
 pub fn to_json_message(message_id: &str, data: &[u8]) -> Result<serde_json::Value, VivariumError> {
     let parsed = mail_parser::MessageParser::default()
         .parse(data)
         .ok_or_else(|| VivariumError::Parse("failed to parse message".into()))?;
 
-    let date = parsed
+    let msg_date = parsed
         .date()
         .and_then(|d| DateTime::from_timestamp(d.to_timestamp(), 0))
         .map(|dt| dt.to_rfc3339());
@@ -166,7 +167,7 @@ pub fn to_json_message(message_id: &str, data: &[u8]) -> Result<serde_json::Valu
         "to": addresses(parsed.to()),
         "cc": addresses(parsed.cc()),
         "bcc": addresses(parsed.bcc()),
-        "date": date,
+        "date": msg_date,
         "subject": parsed.subject(),
         "body": body,
     }))

@@ -181,8 +181,8 @@ mod tests {
     fn parses_interval_units() {
         assert_eq!(parse_interval("30").unwrap(), Duration::from_secs(30));
         assert_eq!(parse_interval("30s").unwrap(), Duration::from_secs(30));
-        assert_eq!(parse_interval("5m").unwrap(), Duration::from_secs(300));
-        assert_eq!(parse_interval("1h").unwrap(), Duration::from_secs(3600));
+        assert_eq!(parse_interval("5m").unwrap(), Duration::from_mins(5));
+        assert_eq!(parse_interval("1h").unwrap(), Duration::from_hours(1));
     }
 
     #[test]

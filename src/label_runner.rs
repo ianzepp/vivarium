@@ -10,7 +10,7 @@ pub(super) enum LabelDispatch {
 }
 
 impl Runtime {
-    pub(super) async fn run_label_command(
+    pub(super) fn run_label_command(
         &self,
         command: Command,
     ) -> Result<LabelDispatch, VivariumError> {
@@ -53,7 +53,7 @@ impl Runtime {
     ) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.account.clone())?;
         let (operation, label) = label_request(add, remove)?;
-        let plan = labels::plan_json(&acct, handle, operation, &label, dry_run);
+        let plan = labels::plan_json(&acct, handle, &operation, &label, dry_run);
         if as_json || dry_run {
             println!("{}", serde_json::to_string_pretty(&plan).unwrap());
             return Ok(());

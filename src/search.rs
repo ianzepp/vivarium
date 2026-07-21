@@ -31,6 +31,9 @@ pub struct SearchResult {
 }
 
 /// Keyword search over the catalog and extracted text.
+///
+/// # Errors
+/// Returns an error if the database query fails or the index cannot be opened.
 pub fn keyword_search(
     mail_root: &Path,
     account: &str,
@@ -42,6 +45,8 @@ pub fn keyword_search(
     indexed_lexical_results_page(mail_root, account, query, limit, offset, filters)
 }
 
+/// # Errors
+/// Returns an error if the folder name is unrecognized.
 pub fn canonical_search_folder(folder: &str) -> Result<String, VivariumError> {
     match folder.to_ascii_lowercase().as_str() {
         "inbox" => Ok("inbox".into()),
@@ -98,6 +103,7 @@ pub(crate) fn indexed_lexical_results_page(
 
 /// Score a query against raw .eml bytes.
 #[cfg(test)]
+#[allow(clippy::cast_precision_loss)]
 fn score_query(query: &str, data: &[u8]) -> f64 {
     let text = std::str::from_utf8(data).ok().unwrap_or("");
     let text_lower = text.to_ascii_lowercase();
@@ -181,10 +187,11 @@ mod tests {
     fn scores_contained_words() {
         let data = b"From: a@b\r\nTo: c@d\r\nSubject: Hello World\r\n\r\nBody text";
         let score = score_query("hello", data);
-        assert!(score > 0.0);
+        assert!(score > 0.0_f64);
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn scores_zero_for_nonmatching() {
         let data = b"Subject: Hello World\r\n\r\nBody";
         let score = score_query("zxczxczxczxczxczxczxc", data);

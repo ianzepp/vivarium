@@ -326,6 +326,7 @@ pub struct MailThreadCommand {
 }
 
 #[derive(Debug, Clone, Parser)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct MailspaceWatchCommand {
     /// Identity whose local events should wake the watcher
     #[arg(long = "for")]

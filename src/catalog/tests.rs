@@ -75,10 +75,10 @@ fn catalog_rebuild_stable_handles() {
     catalog.upsert(&entry).unwrap();
 
     let catalog2 = Catalog::open(&mail_root).unwrap();
-    let handles = catalog2.list_messages("test").unwrap();
-    assert_eq!(handles.len(), 1);
-    assert_eq!(handles[0].handle, handle1);
-    assert_eq!(handles[0].content_id, fp1);
+    let entries = catalog2.list_messages("test").unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].handle, handle1);
+    assert_eq!(entries[0].content_id, fp1);
 }
 
 #[test]

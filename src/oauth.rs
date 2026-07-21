@@ -24,6 +24,11 @@ struct TokenResponse {
     error_description: Option<String>,
 }
 
+/// Perform the OAuth authorization flow for an account.
+///
+/// # Errors
+/// Returns an error if the TCP listener, browser open, token exchange, or
+/// keychain store fails.
 pub async fn authorize(account: &Account, client: OAuthClient) -> Result<(), VivariumError> {
     let urls = account.oauth_urls()?;
     let listener = TcpListener::bind("127.0.0.1:0").await?;
@@ -53,6 +58,11 @@ pub async fn authorize(account: &Account, client: OAuthClient) -> Result<(), Viv
     Ok(())
 }
 
+/// Print the current OAuth access token for an account.
+///
+/// # Errors
+/// Returns an error if the refresh token cannot be loaded from the keychain
+/// or the token refresh request fails.
 pub async fn print_access_token(
     account: &Account,
     client: OAuthClient,
@@ -67,6 +77,11 @@ pub async fn print_access_token(
     Ok(())
 }
 
+/// Build an OAuth client from account config or CLI overrides.
+///
+/// # Errors
+/// Returns an error if the account has no configured client ID or secret
+/// and no CLI override was provided.
 pub fn oauth_client(
     account: &Account,
     client_id: Option<String>,
@@ -112,9 +127,8 @@ async fn wait_for_code(listener: TcpListener) -> Result<String, VivariumError> {
             ));
         }
         let request = String::from_utf8_lossy(&buffer[..n]);
-        match parse_callback_code(&request) {
-            Ok(c) => break c,
-            Err(_) => continue, // Ignore non-callback requests (e.g., favicon.ico)
+        if let Ok(c) = parse_callback_code(&request) {
+            break c;
         }
     };
 

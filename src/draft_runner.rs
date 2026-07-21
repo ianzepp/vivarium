@@ -36,7 +36,7 @@ impl Runtime {
                     html_body_auto,
                     append_remote,
                 )
-                .await?
+                .await?;
             }
             Command::Compose(command) => self.compose(command).await?,
             other => return Ok(DraftDispatch::Unhandled(Box::new(other))),
@@ -259,7 +259,7 @@ fn edit_message(prefix: &str, initial: &[u8]) -> Result<Option<Vec<u8>>, Vivariu
         .unwrap_or_else(|_| "vi".to_string());
     let status = std::process::Command::new("sh")
         .arg("-c")
-        .arg(format!("{} \"$1\"", editor))
+        .arg(format!("{editor} \"$1\""))
         .arg("vivarium-editor")
         .arg(&path)
         .status()?;

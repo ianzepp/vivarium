@@ -1,5 +1,6 @@
 use super::*;
 use crate::imap::identity::remote_identity_candidates;
+use crate::config::{Auth, MutationPolicy};
 
 #[test]
 fn inbox_watch_plan_has_no_sent_or_outbound_folder() {
@@ -21,7 +22,7 @@ fn test_account() -> Account {
         smtp_port: None,
         smtp_security: None,
         username: "agent".into(),
-        auth: Default::default(),
+        auth: Auth::default(),
         password: Some("secret".into()),
         password_cmd: None,
         token_cmd: None,
@@ -35,12 +36,12 @@ fn test_account() -> Account {
         drafts_folder: Some("Drafts".into()),
         label_roots: None,
         storage_mode: None,
-        provider: Default::default(),
+        provider: Provider::default(),
         oauth_authorization_url: None,
         oauth_token_url: None,
         oauth_scope: None,
         reject_invalid_certs: None,
-        policy: Default::default(),
+        policy: MutationPolicy::default(),
     }
 }
 

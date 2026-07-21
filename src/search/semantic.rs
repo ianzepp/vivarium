@@ -14,6 +14,13 @@ pub struct SemanticSearchOptions<'a> {
     pub filters: Option<SearchFilters<'a>>,
 }
 
+/// Run a semantic, lexical, or hybrid search across indexed messages.
+///
+/// Returns a vector of [`SearchResult`] values and the total count.
+///
+/// # Errors
+/// Returns an error if the embedding provider, index lookup, or database
+/// query fails.
 pub async fn semantic_or_hybrid_search(
     config: &Config,
     mail_root: &Path,

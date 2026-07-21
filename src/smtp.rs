@@ -9,6 +9,10 @@ use crate::error::VivariumError;
 ///
 /// Bcc headers are stripped from the transmitted DATA (RFC 5322 §3.6.3)
 /// while remaining in the SMTP envelope so delivery reaches all recipients.
+///
+/// # Errors
+/// Returns an error if the SMTP transport cannot be built, sending fails,
+/// or the message is malformed.
 pub async fn send_raw(
     account: &Account,
     data: &[u8],
@@ -47,6 +51,10 @@ fn prepare_for_send(data: &[u8]) -> Result<(Envelope, Vec<u8>), VivariumError> {
 }
 
 /// Test SMTP connectivity, TLS, auth, and NOOP without sending mail.
+///
+/// # Errors
+/// Returns an error if the SMTP transport cannot be built or the connection
+/// test fails.
 pub async fn test_connection(
     account: &Account,
     reject_invalid_certs: bool,
@@ -116,9 +124,8 @@ fn tls_parameters(
 /// Per RFC 5322 §3.6.3, Bcc recipients must not appear in the DATA sent
 /// to the SMTP server. The envelope (RCPT TO) still includes them.
 fn strip_bcc_headers(data: &[u8]) -> Vec<u8> {
-    let text = match std::str::from_utf8(data) {
-        Ok(s) => s,
-        Err(_) => return data.to_vec(),
+    let Ok(text) = std::str::from_utf8(data) else {
+        return data.to_vec();
     };
     let Some((header_block, body)) = text.split_once("\r\n\r\n") else {
         return data.to_vec();
@@ -307,8 +314,7 @@ mod tests {
         let captured_text = std::str::from_utf8(&captured).unwrap();
         let header_block = captured_text
             .split_once("\r\n\r\n")
-            .map(|(h, _)| h)
-            .unwrap_or(captured_text);
+            .map_or(captured_text, |(h, _)| h);
         assert!(
             !header_block.to_ascii_lowercase().contains("bcc"),
             "DATA header block must not contain Bcc: {header_block}"
@@ -349,8 +355,7 @@ mod tests {
         // Captured DATA must not contain any Bcc header.
         let header_block = captured_data
             .split_once("\r\n\r\n")
-            .map(|(h, _)| h)
-            .unwrap_or(captured_data);
+            .map_or(captured_data.as_ref(), |(h, _)| h);
         assert!(
             !header_block.to_ascii_lowercase().contains("bcc"),
             "DATA must not contain Bcc: {header_block}"

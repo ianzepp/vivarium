@@ -6,6 +6,11 @@ use crate::message;
 use crate::retrieve::citation_json;
 use crate::store::MailStore;
 
+/// Print thread messages as JSON to stdout.
+///
+/// # Errors
+/// Returns an error if resolving the seed, reading the index, or serializing
+/// the output fails.
 pub fn print_thread_json(
     store: &MailStore,
     account: &str,
@@ -20,6 +25,11 @@ pub fn print_thread_json(
     Ok(())
 }
 
+/// Build a JSON representation of a thread.
+///
+/// # Errors
+/// Returns an error if resolving the seed, reading the index, reading message
+/// data, or parsing an email fails.
 pub fn thread_json(
     store: &MailStore,
     account: &str,
@@ -31,7 +41,7 @@ pub fn thread_json(
     let messages = index.thread_messages(account, &resolved_seed, limit)?;
     let total = messages.len();
     let messages = messages
-        .into_iter()
+        .iter()
         .take(limit)
         .map(|message| indexed_message_json(message, account))
         .collect::<Result<Vec<_>, _>>()?;
@@ -45,7 +55,7 @@ pub fn thread_json(
 }
 
 fn indexed_message_json(
-    indexed: IndexedMessage,
+    indexed: &IndexedMessage,
     account: &str,
 ) -> Result<serde_json::Value, VivariumError> {
     let data = fs::read(&indexed.blob_path)?;

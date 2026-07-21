@@ -40,6 +40,7 @@ impl std::fmt::Display for RemoteMutation {
 ///
 /// Aliases normalized: `"trash"`, `"deleted"` (case-insensitive), and the
 /// account's configured provider trash folder name all classify as trash.
+#[must_use] 
 pub fn classifies_as_trash(account: &Account, folder: &str) -> bool {
     let lower = folder.to_ascii_lowercase();
     lower == "trash" || lower == "deleted" || lower == account.trash_folder().to_ascii_lowercase()
@@ -49,6 +50,7 @@ pub fn classifies_as_trash(account: &Account, folder: &str) -> bool {
 ///
 /// Returns `None` for commands that cause no remote side effects (e.g. local
 /// reply draft creation) and are therefore not subject to mutation policy.
+#[must_use] 
 pub fn classify(account: &Account, command: &QueuedCommand) -> Option<RemoteMutation> {
     match command {
         QueuedCommand::Archive { .. } => Some(RemoteMutation::Archive),
@@ -72,6 +74,10 @@ pub fn classify(account: &Account, command: &QueuedCommand) -> Option<RemoteMuta
 ///
 /// Must be called at both enqueue admission and queue execution to ensure
 /// stale or manually constructed queued items cannot bypass policy.
+///
+/// # Errors
+/// Returns a `VivariumError::Policy` error if the command's mutation is
+/// denied by the account's policy.
 pub fn authorize(account: &Account, command: &QueuedCommand) -> Result<(), VivariumError> {
     let Some(mutation) = classify(account, command) else {
         return Ok(());
@@ -83,6 +89,10 @@ pub fn authorize(account: &Account, command: &QueuedCommand) -> Result<(), Vivar
 ///
 /// Use this for remote write paths that do not flow through `QueuedCommand`
 /// (e.g. `--append-remote` IMAP APPEND, outbox auto-send).
+///
+/// # Errors
+/// Returns a `VivariumError::Policy` error if the mutation is denied by the
+/// account's policy.
 pub fn authorize_mutation(
     account: &Account,
     mutation: RemoteMutation,
@@ -98,6 +108,7 @@ pub fn authorize_mutation(
 }
 
 /// Whether a given policy permits a given remote mutation.
+#[must_use] 
 pub fn policy_allows(policy: MutationPolicy, mutation: RemoteMutation) -> bool {
     match policy {
         MutationPolicy::FullWrite => true,
@@ -431,7 +442,7 @@ mod tests {
             },
         ];
         for cmd in commands {
-            assert!(authorize(&acct, &cmd).is_ok(), "should allow {:?}", cmd);
+            assert!(authorize(&acct, &cmd).is_ok(), "should allow {cmd:?}");
         }
     }
 

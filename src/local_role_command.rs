@@ -20,7 +20,7 @@ pub(crate) fn handle_role_command(command: &RoleCommand) -> Result<(), VivariumE
             status,
             labels,
             project,
-        } => add_role(AddRoleArgs {
+        } => add_role(&AddRoleArgs {
             name,
             kind: kind.as_deref(),
             harness: harness.as_deref(),
@@ -49,7 +49,7 @@ pub(crate) fn handle_role_command(command: &RoleCommand) -> Result<(), VivariumE
             project,
         } => set_role(
             name,
-            RoleSetArgs {
+            &RoleSetArgs {
                 kind: kind.clone(),
                 clear_kind: *clear_kind,
                 harness: harness.clone(),
@@ -83,6 +83,7 @@ struct AddRoleArgs<'a> {
     project: Option<&'a std::path::Path>,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 struct RoleSetArgs {
     kind: Option<String>,
     clear_kind: bool,
@@ -127,7 +128,7 @@ fn show_role(
     Ok(())
 }
 
-fn add_role(args: AddRoleArgs<'_>) -> Result<(), VivariumError> {
+fn add_role(args: &AddRoleArgs<'_>) -> Result<(), VivariumError> {
     let mut mailspace = Mailspace::discover(args.project)?;
     let label_refs: Vec<&str> = args.labels.iter().map(String::as_str).collect();
     let address = mailspace.add_role(args.name, args.kind, &label_refs)?;
@@ -150,10 +151,10 @@ fn add_role(args: AddRoleArgs<'_>) -> Result<(), VivariumError> {
 
 fn set_role(
     name: &str,
-    args: RoleSetArgs,
+    args: &RoleSetArgs,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
-    let update = build_role_update(&args);
+    let update = build_role_update(args);
     if !update_has_fields(&update) {
         return Err(VivariumError::Message(
             "role set requires at least one field to change".into(),
@@ -191,7 +192,7 @@ fn handle_charter(command: &RoleCharterCommand) -> Result<(), VivariumError> {
             file,
             project,
         } => {
-            let path = body_file.as_ref().or(file.as_ref()).map(|p| p.as_path());
+            let path = body_file.as_ref().or(file.as_ref()).map(std::path::PathBuf::as_path);
             let charter = read_body_input(body.as_deref(), path)?;
             let mut mailspace = Mailspace::discover(project.as_deref())?;
             mailspace.set_charter(name, &charter)?;
@@ -259,6 +260,7 @@ fn build_role_update(args: &RoleSetArgs) -> RoleUpdate {
     update
 }
 
+#[allow(clippy::option_option)]
 fn set_optional_field(slot: &mut Option<Option<String>>, clear: bool, value: Option<&String>) {
     if clear {
         *slot = Some(None);

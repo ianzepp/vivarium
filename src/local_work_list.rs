@@ -125,8 +125,7 @@ fn print_human(kind: &str, roles: &[&str], items: &[WorkListItem]) {
         let last_event = item
             .last_event
             .as_ref()
-            .map(|event| event.command.as_str())
-            .unwrap_or("-");
+            .map_or("-", |event| event.command.as_str());
         println!(
             "  {}  {}  {}  {}  {}  {}  {}",
             item.handle, item.status, item.role, item.date, item.from, item.subject, last_event

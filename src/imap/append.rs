@@ -2,6 +2,10 @@ use super::transport::connect;
 use crate::config::Account;
 use crate::error::VivariumError;
 
+/// Append a raw message to the given IMAP mailbox.
+///
+/// # Errors
+/// Returns an error if the IMAP connection or APPEND command fails.
 pub async fn append_message(
     account: &Account,
     mailbox: &str,

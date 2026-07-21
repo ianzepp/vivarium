@@ -12,6 +12,7 @@ pub struct SearchOutput<'a> {
 }
 
 /// Search result in JSON-friendly format.
+#[must_use] 
 pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
     serde_json::json!({
         "handle": result.handle,
@@ -40,7 +41,7 @@ pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
 
 pub fn print_search_output(output: SearchOutput<'_>) {
     if output.count_only {
-        print_count(output);
+        print_count(&output);
         return;
     }
     if output.as_json {
@@ -88,7 +89,7 @@ fn print_text_header(output: &SearchOutput<'_>) {
     }
 }
 
-fn print_count(output: SearchOutput<'_>) {
+fn print_count(output: &SearchOutput<'_>) {
     if output.as_json {
         let output = serde_json::json!({
             "query": output.query,

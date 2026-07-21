@@ -55,6 +55,10 @@ impl ProtonApiClient {
         }
     }
 
+    /// Fetches authentication info for the given username.
+    ///
+    /// # Errors
+    /// Returns an error if the API request fails or the response cannot be parsed.
     pub async fn auth_info(&self, username: &str) -> Result<AuthInfo, VivariumError> {
         let response = self
             .http
@@ -69,6 +73,10 @@ impl ProtonApiClient {
         parse_response::<AuthInfo>(response).await
     }
 
+    /// Performs a login check — logs in and returns session metadata without persisting.
+    ///
+    /// # Errors
+    /// Returns an error if the API request fails, authentication fails, or the response cannot be parsed.
     pub async fn login_check(
         &self,
         username: &str,
@@ -80,6 +88,11 @@ impl ProtonApiClient {
             .map(|session| session.check())
     }
 
+    /// Authenticates with the Proton API and returns a session.
+    ///
+    /// # Errors
+    /// Returns an error if the API request fails, SRP proof verification fails,
+    /// or the response cannot be parsed.
     pub async fn login(
         &self,
         username: &str,
@@ -111,6 +124,11 @@ impl ProtonApiClient {
         auth.into_session(self.app_version.clone())
     }
 
+    /// Refreshes an existing session.
+    ///
+    /// # Errors
+    /// Returns an error if the API request fails, the session is invalid,
+    /// or the response cannot be parsed.
     pub async fn refresh(&self, session: &ProtonSession) -> Result<ProtonSession, VivariumError> {
         let response = self
             .http
@@ -137,6 +155,10 @@ impl ProtonApiClient {
         Ok(refreshed)
     }
 
+    /// Fetches the identity (user + addresses) for the current session.
+    ///
+    /// # Errors
+    /// Returns an error if the API call fails or the session cannot be refreshed.
     pub async fn identity(
         &self,
         session: &ProtonSession,
@@ -159,6 +181,12 @@ impl ProtonApiClient {
         }
     }
 
+    /// Lists messages for the current session, paginated.
+    ///
+    /// Returns the (possibly refreshed) session, the messages, and the total count.
+    ///
+    /// # Errors
+    /// Returns an error if the API call fails or the session cannot be refreshed.
     pub async fn list_messages(
         &self,
         session: &ProtonSession,
@@ -188,6 +216,10 @@ impl ProtonApiClient {
         }
     }
 
+    /// Fetches a full message (header + body) by ID.
+    ///
+    /// # Errors
+    /// Returns an error if the API call fails or the session cannot be refreshed.
     pub async fn fetch_message(
         &self,
         session: &ProtonSession,
@@ -211,6 +243,10 @@ impl ProtonApiClient {
         }
     }
 
+    /// Fetches key material (user keys, address keys, salts) for the current session.
+    ///
+    /// # Errors
+    /// Returns an error if the API call fails or the session cannot be refreshed.
     pub async fn key_material(
         &self,
         session: &ProtonSession,

@@ -27,6 +27,10 @@ pub struct MutationAuditRecord {
     pub error: Option<String>,
 }
 
+/// Appends an audit record for a mutation to the audit file.
+///
+/// # Errors
+/// Returns an error if the audit directory cannot be created or the audit file cannot be written.
 pub fn append_audit(
     mail_root: &Path,
     prepared: &PreparedMutation,
@@ -52,6 +56,7 @@ pub fn append_audit(
     Ok(path)
 }
 
+#[must_use] 
 pub fn audit_record(
     prepared: &PreparedMutation,
     status: &str,

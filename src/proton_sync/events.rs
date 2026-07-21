@@ -1,5 +1,21 @@
-use super::*;
+use super::{
+    body_decryptor, direct_sync_storage_supported, ingest_body, ingest_header, local_message_id,
+    ProtonRawMessageCache,
+};
+use crate::config::Account;
+use crate::error::VivariumError;
+use crate::proton_api::{
+    ProtonApiClient, ProtonFullMessage, ProtonSessionStore,
+};
+use crate::storage::Storage;
+use crate::store::MailStore;
+use crate::sync::SyncResult;
 
+/// Syncs specific message IDs from the Proton API.
+///
+/// # Errors
+/// Returns an error if the storage mode is unsupported, the session cannot be loaded,
+/// or any API or storage call fails.
 pub async fn sync_message_ids(
     account: &Account,
     store: &MailStore,
@@ -47,6 +63,10 @@ pub async fn sync_message_ids(
     Ok(result)
 }
 
+/// Marks a message as deleted by its Proton ID.
+///
+/// # Errors
+/// Returns an error if storage cannot be opened or the delete operation fails.
 pub fn delete_message_id(
     account: &Account,
     store: &MailStore,

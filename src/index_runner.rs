@@ -29,9 +29,9 @@ impl Runtime {
                 }
                 let mut options = vivarium::embeddings::EmbeddingOptions::from_values(
                     &self.config,
-                    provider,
-                    model,
-                    endpoint,
+                    provider.as_deref(),
+                    model.as_deref(),
+                    endpoint.as_deref(),
                 )?;
                 options.rebuild = rebuild;
                 options.limit = limit;

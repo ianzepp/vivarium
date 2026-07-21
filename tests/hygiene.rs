@@ -20,7 +20,7 @@ fn collect_src_files(dir: &Path, files: &mut Vec<String>) {
         if !is_checked_rust_file(&path) {
             continue;
         }
-        files.push(path.to_string_lossy().into_owned())
+        files.push(path.to_string_lossy().into_owned());
     }
 }
 
@@ -104,6 +104,7 @@ fn hygiene_no_file_over_line_limit() {
 }
 
 #[test]
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 fn hygiene_no_function_over_line_limit() {
     let budgets = budgets();
     for file in src_files() {

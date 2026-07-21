@@ -44,7 +44,7 @@ pub(super) fn encode_vector(vector: &[f32]) -> Vec<u8> {
         .collect::<Vec<_>>()
 }
 
-fn decode_vector(data: Vec<u8>) -> rusqlite::Result<Vec<f32>> {
+fn decode_vector(data: &[u8]) -> rusqlite::Result<Vec<f32>> {
     if !data.len().is_multiple_of(4) {
         return Err(rusqlite::Error::InvalidQuery);
     }
@@ -58,7 +58,7 @@ pub(super) fn stored_embedding_from_row(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<StoredEmbedding> {
     let ordinal = row.get::<_, i64>(4)?;
-    let vector = decode_vector(row.get::<_, Vec<u8>>(6)?)?;
+    let vector = decode_vector(&row.get::<_, Vec<u8>>(6)?)?;
     Ok(StoredEmbedding {
         chunk_id: row.get(0)?,
         account: row.get(1)?,

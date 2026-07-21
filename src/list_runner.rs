@@ -2,6 +2,7 @@ use super::{Runtime, VivariumError};
 use std::io::{self, Write};
 use vivarium::{cli::Command, message::MessageEntry, store::MailStore};
 
+#[allow(clippy::struct_excessive_bools)]
 struct ListRequest<'a> {
     folder: &'a str,
     limit: Option<usize>,
@@ -39,7 +40,7 @@ impl Runtime {
         else {
             unreachable!();
         };
-        self.list(ListRequest {
+        self.list(&ListRequest {
             folder: &folder,
             limit,
             filter: filter.as_deref(),
@@ -53,7 +54,7 @@ impl Runtime {
         })
     }
 
-    fn list(&self, request: ListRequest<'_>) -> Result<(), VivariumError> {
+    fn list(&self, request: &ListRequest<'_>) -> Result<(), VivariumError> {
         let window =
             vivarium::sync::SyncWindow::parse(request.since.as_deref(), request.before.as_deref())?;
         let read_state = match (request.unread, request.read) {

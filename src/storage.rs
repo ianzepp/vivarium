@@ -133,6 +133,14 @@ pub struct Storage {
 }
 
 impl Storage {
+    /// Open (or create) a storage database at the given mail root.
+    ///
+    /// Creates the internal directory and database file if they do not
+    /// exist.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the directory cannot be created, the
+    /// database cannot be opened, or the schema cannot be initialized.
     pub fn open(mail_root: &Path) -> Result<Self, VivariumError> {
         let internal_dir = mail_root.join(INTERNAL_DIR);
         secure_create_dir_all(&internal_dir)
@@ -140,6 +148,14 @@ impl Storage {
         Self::open_with_db(mail_root, &internal_dir.join(STORAGE_DB_FILENAME))
     }
 
+    /// Open a mailspace-local storage database.
+    ///
+    /// Creates the mailspace directory and database file if they do not
+    /// exist.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the directory cannot be created, the
+    /// database cannot be opened, or the schema cannot be initialized.
     pub fn open_mailspace(mailspace_dir: &Path) -> Result<Self, VivariumError> {
         secure_create_dir_all(mailspace_dir)
             .map_err(|e| VivariumError::Other(format!("failed to create mailspace dir: {e}")))?;
@@ -173,6 +189,11 @@ impl Storage {
         *self.handle_cache.borrow_mut() = None;
     }
 
+    /// Import catalog entries (messages and blobs) into the storage.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if any blob file cannot be read or the
+    /// database ingest fails.
     pub fn import_catalog_entries(
         &mut self,
         entries: &[CatalogEntry],
@@ -193,6 +214,7 @@ impl Storage {
     }
 }
 
+#[allow(clippy::cast_sign_loss)]
 fn raw_stored_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredMessageView> {
     let remote_account: Option<String> = row.get(15)?;
     let remote = if let Some(account) = remote_account {
@@ -228,6 +250,14 @@ fn raw_stored_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Stor
     })
 }
 
+/// Open storage and import catalog entries.
+///
+/// A convenience wrapper around [`Storage::open`] and
+/// [`Storage::import_catalog_entries`].
+///
+/// # Errors
+/// Returns a [`VivariumError`] if the storage cannot be opened or the
+/// import fails.
 pub fn import_catalog_entries(
     mail_root: &Path,
     entries: &[CatalogEntry],
@@ -331,7 +361,7 @@ impl Storage {
     fn catalog_entry_from_view(
         &self,
         message: StoredMessageView,
-    ) -> Result<CatalogEntry, VivariumError> {
+    ) -> CatalogEntry {
         let remote = message.remote.as_ref().map(|binding| RemoteIdentity {
             account: binding.account.clone(),
             provider: binding.provider.clone(),
@@ -343,7 +373,7 @@ impl Storage {
             size: message.byte_size,
             content_fingerprint: message.content_id.clone(),
         });
-        Ok(CatalogEntry {
+        CatalogEntry {
             handle: message.message_id.clone(),
             account: message.account,
             content_id: message.content_id,
@@ -363,7 +393,7 @@ impl Storage {
             subject: message.subject,
             rfc_message_id: message.normalized_message_id.unwrap_or_default(),
             remote,
-        })
+        }
     }
 }
 
@@ -396,12 +426,12 @@ fn short_handle_map(message_ids: &[String]) -> HashMap<String, String> {
             map.insert(message_id.clone(), message_id.clone());
             continue;
         }
-        let basis = handle_basis(message_id);
-        let min_len = usize::min(MIN_HANDLE_LEN, basis.len());
-        let handle = (min_len..=basis.len())
-            .map(|len| &basis[..len])
+        let base = handle_basis(message_id);
+        let min_len = usize::min(MIN_HANDLE_LEN, base.len());
+        let handle = (min_len..=base.len())
+            .map(|len| &base[..len])
             .find(|prefix| prefix_counts.get(*prefix) == Some(&1))
-            .unwrap_or(basis)
+            .unwrap_or(base)
             .to_string();
         map.insert(message_id.clone(), handle);
     }

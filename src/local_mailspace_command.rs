@@ -76,7 +76,7 @@ fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumEr
         }
         MailspaceCommand::Watch(command) => run_watch(command, None)?,
         MailspaceCommand::Import(command) | MailspaceCommand::Merge(command) => {
-            import_mailspace(command)?
+            import_mailspace(command)?;
         }
         MailspaceCommand::Identity { command } => match command {
             MailspaceIdentityCommand::Add { identity, project } => {
@@ -209,7 +209,7 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
             for_identity,
             folder,
             *status,
-            absorbed_by,
+            absorbed_by.as_ref(),
             *json,
             project.as_deref(),
         )?,
@@ -229,7 +229,7 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
             for_identity,
             note,
             project,
-        } => absorb_local_mail(handle, for_identity, note, project.as_deref())?,
+        } => absorb_local_mail(handle, for_identity, note.as_ref(), project.as_deref())?,
         MailCommand::Dump(command) => {
             let mailspace = Mailspace::discover(command.project.as_deref())?;
             let records = mailspace.dump_mail(mail_dump_request(command))?;
@@ -273,7 +273,7 @@ fn list_local_mail(
     for_identity: &str,
     folder: &str,
     status: MailAbsorbStatus,
-    absorbed_by: &Option<String>,
+    absorbed_by: Option<&String>,
     json: bool,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
@@ -291,11 +291,11 @@ fn list_local_mail(
 fn absorb_local_mail(
     handle: &str,
     for_identity: &str,
-    note: &Option<String>,
+    note: Option<&String>,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    let handle = mailspace.absorb_mail(for_identity, handle, note.as_deref())?;
+    let handle = mailspace.absorb_mail(for_identity, handle, note.map(String::as_str))?;
     println!("absorbed {handle}");
     Ok(())
 }
@@ -444,7 +444,7 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             note,
             project,
         } => {
-            move_task(handle, for_identity, note, project.as_deref(), "done")?;
+            move_task(handle, for_identity, note.as_ref(), project.as_deref(), "done")?;
         }
         TaskCommand::Reopen {
             handle,
@@ -452,7 +452,7 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             note,
             project,
         } => {
-            move_task(handle, for_identity, note, project.as_deref(), "tasks")?;
+            move_task(handle, for_identity, note.as_ref(), project.as_deref(), "tasks")?;
         }
     }
     Ok(())
@@ -565,12 +565,12 @@ pub(crate) fn run_watch(
 fn move_task(
     handle: &str,
     for_identity: &str,
-    note: &Option<String>,
+    note: Option<&String>,
     project: Option<&std::path::Path>,
     role: &str,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    let handle = mailspace.move_task(for_identity, handle, role, note.as_deref())?;
+    let handle = mailspace.move_task(for_identity, handle, role, note.map(String::as_str))?;
     let verb = if role == "done" { "done" } else { "reopened" };
     println!("{verb} {handle}");
     Ok(())

@@ -323,8 +323,7 @@ fn changed_since(
 
 fn timestamp_at_or_after(raw: &str, since: DateTime<Utc>) -> bool {
     DateTime::parse_from_rfc3339(raw)
-        .map(|date| date.with_timezone(&Utc) >= since)
-        .unwrap_or(false)
+        .is_ok_and(|date| date.with_timezone(&Utc) >= since)
 }
 
 fn write_watermark(command: &BoardCommand) -> Result<(), VivariumError> {

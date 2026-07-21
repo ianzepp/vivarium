@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::*;
+use super::{params, Storage, VivariumError, OptionalExtension, StoredMessageView, message_query, raw_stored_message_from_row};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct MailspaceLink {
@@ -10,6 +10,11 @@ pub struct MailspaceLink {
 }
 
 impl Storage {
+    /// Link a child content blob to a parent mailspace message.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the content IDs are identical, the
+    /// source is unsupported, or the database insert fails.
     pub fn link_mailspace_content(
         &self,
         child_content_id: &str,
@@ -47,6 +52,10 @@ impl Storage {
         Ok(())
     }
 
+    /// Look up the parent link for a child content ID.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn mailspace_link_for_child(
         &self,
         child_content_id: &str,
@@ -62,7 +71,10 @@ impl Storage {
             .map_err(|e| VivariumError::Other(format!("failed to read mailspace link: {e}")))
     }
 
-    /// Batch-load links for multiple child content_ids in a single query.
+    /// Batch-load links for multiple child `content_ids` in a single query.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn list_mailspace_links_for_children(
         &self,
         content_ids: &[String],
@@ -101,6 +113,10 @@ impl Storage {
         Ok(map)
     }
 
+    /// List all mailspace links.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query fails.
     pub fn list_mailspace_links(&self) -> Result<Vec<MailspaceLink>, VivariumError> {
         let mut stmt = self
             .conn
@@ -118,6 +134,11 @@ impl Storage {
         .collect()
     }
 
+    /// Look up a message by content hash.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query or handle
+    /// resolution fails.
     pub fn message_by_content_id(
         &self,
         content_id: &str,

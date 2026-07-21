@@ -1,4 +1,5 @@
 use std::fs::{self, OpenOptions};
+use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -79,7 +80,6 @@ fn write_private_file(path: &Path, data: &[u8]) -> Result<(), VivariumError> {
     #[cfg(unix)]
     options.mode(0o600);
     let mut file = options.open(path)?;
-    use std::io::Write;
     file.write_all(data)?;
     file.sync_all()?;
     #[cfg(unix)]

@@ -20,7 +20,7 @@ pub(crate) fn print_mail_list(
     identity: &str,
     role: &str,
     absorb_status: MailAbsorbFilter,
-    absorbed_by: &Option<String>,
+    absorbed_by: Option<&String>,
     json: bool,
 ) -> Result<(), VivariumError> {
     let storage = mailspace.storage()?;
@@ -73,7 +73,7 @@ fn mail_list_item(message: StoredMessageView, events: &[MailspaceEvent]) -> Mail
 fn matches_absorb(
     events: &[MailspaceEvent],
     absorb_status: MailAbsorbFilter,
-    absorbed_by: &Option<String>,
+    absorbed_by: Option<&String>,
 ) -> bool {
     let absorbed = events.iter().any(|event| event.command == "mail absorb");
     let status_matches = match absorb_status {
@@ -82,7 +82,7 @@ fn matches_absorb(
         MailAbsorbFilter::Unabsorbed => !absorbed,
     };
     status_matches
-        && absorbed_by.as_ref().is_none_or(|identity| {
+        && absorbed_by.is_none_or(|identity| {
             events.iter().any(|event| {
                 event.command == "mail absorb" && event.actor_identity.as_ref() == Some(identity)
             })

@@ -5,6 +5,10 @@ use super::types::{Account, Auth, Config, Provider, ProviderOAuthConfig, Securit
 use crate::error::VivariumError;
 
 impl Account {
+    /// Resolve the secret (password or OAuth token) for this account.
+    ///
+    /// # Errors
+    /// Returns an error if the password or token cannot be resolved.
     pub async fn resolve_secret(&self) -> Result<String, VivariumError> {
         match self.auth {
             Auth::Password => self.resolve_password().await,
@@ -66,15 +70,18 @@ impl Account {
         Ok(token)
     }
 
+    #[must_use] 
     pub fn reject_invalid_certs(&self, config: &Config) -> bool {
         self.reject_invalid_certs.unwrap_or(match self.provider {
             Provider::Protonmail => true,
-            Provider::ProtonApi => config.defaults.reject_invalid_certs,
             _ => config.defaults.reject_invalid_certs,
         })
     }
 
     /// Resolve OAuth URLs: account-level overrides take priority, then provider defaults.
+    ///
+    /// # Errors
+    /// Returns an error if no OAuth configuration is available for this account.
     pub fn oauth_urls(&self) -> Result<ProviderOAuthConfig, VivariumError> {
         if let (Some(auth), Some(token), Some(scope)) = (
             &self.oauth_authorization_url,
@@ -107,32 +114,34 @@ impl Account {
         let root = config
             .defaults
             .mail_root
-            .as_deref()
-            .map(expand_tilde)
-            .unwrap_or_else(Config::default_mail_root);
+            .as_deref().map_or_else(Config::default_mail_root, expand_tilde);
         root.join(&self.name)
     }
 
     /// Provider-specific upstream aggregate used for sync only.
+    #[must_use] 
     pub fn all_mail_folder(&self) -> &str {
         match self.provider {
             crate::config::types::Provider::Gmail => "[Gmail]/All Mail",
-            crate::config::types::Provider::ProtonApi => "INBOX",
             crate::config::types::Provider::Protonmail => "All Mail",
-            crate::config::types::Provider::Standard => "INBOX",
+            crate::config::types::Provider::ProtonApi
+            | crate::config::types::Provider::Standard => "INBOX",
         }
     }
 
+    #[must_use] 
     pub fn inbox_folder(&self) -> String {
         self.inbox_folder.clone().unwrap_or_else(|| "INBOX".into())
     }
 
+    #[must_use] 
     pub fn archive_folder(&self) -> String {
         self.archive_folder
             .clone()
             .unwrap_or_else(|| "Archive".into())
     }
 
+    #[must_use] 
     pub fn trash_folder(&self) -> String {
         self.trash_folder
             .clone()
@@ -144,6 +153,7 @@ impl Account {
             })
     }
 
+    #[must_use] 
     pub fn sent_folder(&self) -> String {
         self.sent_folder.clone().unwrap_or_else(|| {
             match self.provider {
@@ -156,6 +166,7 @@ impl Account {
         })
     }
 
+    #[must_use] 
     pub fn drafts_folder(&self) -> String {
         self.drafts_folder.clone().unwrap_or_else(|| {
             match self.provider {
@@ -168,14 +179,17 @@ impl Account {
         })
     }
 
+    #[must_use] 
     pub fn label_roots(&self) -> Vec<String> {
         self.label_roots.clone().unwrap_or_default()
     }
 
+    #[must_use] 
     pub fn resolved_storage_mode(&self) -> StorageMode {
         self.storage_mode.clone().unwrap_or_default()
     }
 
+    #[must_use] 
     pub fn stores_full_bodies(&self) -> bool {
         matches!(
             self.resolved_storage_mode(),
@@ -183,33 +197,31 @@ impl Account {
         )
     }
 
+    #[must_use] 
     pub fn allows_semantic_indexing(&self) -> bool {
         matches!(self.resolved_storage_mode(), StorageMode::Semantic)
     }
 
     /// Resolved IMAP host, with provider defaults applied.
+    #[must_use] 
     pub fn resolved_imap_host(&self) -> String {
         if !self.imap_host.is_empty() {
             return self.imap_host.clone();
         }
         match self.provider {
             crate::config::types::Provider::Protonmail => "127.0.0.1".into(),
-            crate::config::types::Provider::ProtonApi => self.imap_host.clone(),
             _ => self.imap_host.clone(),
         }
     }
 
     /// Resolved IMAP port, with provider defaults applied.
+    #[must_use] 
     pub fn resolved_imap_port(&self) -> u16 {
         if let Some(port) = self.imap_port {
             return port;
         }
         match self.provider {
             Provider::Protonmail => 1143,
-            Provider::ProtonApi => match self.resolved_imap_security() {
-                Security::Ssl => 993,
-                Security::Starttls => 143,
-            },
             _ => match self.resolved_imap_security() {
                 Security::Ssl => 993,
                 Security::Starttls => 143,
@@ -218,37 +230,31 @@ impl Account {
     }
 
     /// Resolved IMAP security, with provider defaults applied.
+    #[must_use] 
     pub fn resolved_imap_security(&self) -> Security {
-        self.imap_security.clone().unwrap_or(match self.provider {
-            Provider::Protonmail => Security::Ssl,
-            Provider::ProtonApi => Security::Ssl,
-            _ => Security::Ssl,
-        })
+        self.imap_security.clone().unwrap_or(Security::Ssl)
     }
 
     /// Resolved SMTP host, with provider defaults applied.
+    #[must_use] 
     pub fn resolved_smtp_host(&self) -> String {
         if !self.smtp_host.is_empty() {
             return self.smtp_host.clone();
         }
         match self.provider {
             Provider::Protonmail => "127.0.0.1".into(),
-            Provider::ProtonApi => self.smtp_host.clone(),
             _ => self.smtp_host.clone(),
         }
     }
 
     /// Resolved SMTP port, with provider defaults applied.
+    #[must_use] 
     pub fn resolved_smtp_port(&self) -> u16 {
         if let Some(port) = self.smtp_port {
             return port;
         }
         match self.provider {
             Provider::Protonmail => 1025,
-            Provider::ProtonApi => match self.resolved_smtp_security() {
-                Security::Ssl => 465,
-                Security::Starttls => 587,
-            },
             _ => match self.resolved_smtp_security() {
                 Security::Ssl => 465,
                 Security::Starttls => 587,
@@ -257,15 +263,16 @@ impl Account {
     }
 
     /// Resolved SMTP security, with provider defaults applied.
+    #[must_use] 
     pub fn resolved_smtp_security(&self) -> Security {
         self.smtp_security.clone().unwrap_or(match self.provider {
             Provider::Protonmail => Security::Starttls,
-            Provider::ProtonApi => Security::Ssl,
             _ => Security::Ssl,
         })
     }
 
     /// Whether this account should accept self-signed certificates by default.
+    #[must_use] 
     pub fn defaults_to_accept_invalid_certs(&self) -> bool {
         matches!(self.provider, crate::config::types::Provider::Protonmail)
     }

@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::path::Path;
 
 use vivarium::VivariumError;
@@ -51,7 +52,7 @@ fn render_markdown(title: &str, records: &[DumpRecord]) -> String {
     out.push_str("# ");
     out.push_str(title);
     out.push_str("\n\n");
-    out.push_str(&format!("count: {}\n\n", records.len()));
+    let _ = write!(out, "count: {}\n\n", records.len());
     if records.is_empty() {
         out.push_str("No matching messages.\n");
         return out;
@@ -68,25 +69,22 @@ fn push_record(out: &mut String, record: &DumpRecord) {
         .as_deref()
         .map(|status| format!(" - {status}"))
         .unwrap_or_default();
-    out.push_str(&format!(
-        "## {} - {}{}\n\n",
-        record.date, record.handle, status
-    ));
-    out.push_str(&format!("Role: {}\n", record.role));
+    let _ = write!(out, "## {} - {}{}\n\n", record.date, record.handle, status);
+    let _ = writeln!(out, "Role: {}", record.role);
     if let Some(kind) = &record.kind {
-        out.push_str(&format!("Kind: {kind}\n"));
+        let _ = writeln!(out, "Kind: {kind}");
     }
-    out.push_str(&format!("Account: {}\n", record.account));
-    out.push_str(&format!("From: {}\n", empty_marker(&record.from)));
-    out.push_str(&format!("To: {}\n", empty_marker(&record.to)));
+    let _ = writeln!(out, "Account: {}", record.account);
+    let _ = writeln!(out, "From: {}", empty_marker(&record.from));
+    let _ = writeln!(out, "To: {}", empty_marker(&record.to));
     if !record.cc.is_empty() {
-        out.push_str(&format!("Cc: {}\n", record.cc));
+        let _ = writeln!(out, "Cc: {}", record.cc);
     }
-    out.push_str(&format!("Subject: {}\n\n", empty_marker(&record.subject)));
+    let _ = write!(out, "Subject: {}\n\n", empty_marker(&record.subject));
     if let Some(parent) = &record.parent_content_id {
-        out.push_str(&format!("Parent content: {parent}\n"));
+        let _ = writeln!(out, "Parent content: {parent}");
         if let Some(source) = &record.link_source {
-            out.push_str(&format!("Link source: {source}\n"));
+            let _ = writeln!(out, "Link source: {source}");
         }
         out.push('\n');
     }
@@ -101,19 +99,17 @@ fn push_events(out: &mut String, record: &DumpRecord) {
     }
     out.push_str("Events:\n");
     for event in &record.events {
-        out.push_str(&format!(
-            "- {} {} {}",
-            event.occurred_at, event.command, event.event_type
-        ));
+        let _ = write!(out, "- {} {} {}", event.occurred_at, event.command, event.event_type);
         if let Some(actor) = &event.actor_identity {
-            out.push_str(&format!(" by {actor}"));
+            let _ = write!(out, " by {actor}");
         }
         if event.from_role.is_some() || event.to_role.is_some() {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 " ({} -> {})",
                 event.from_role.as_deref().unwrap_or("(none)"),
                 event.to_role.as_deref().unwrap_or("(none)")
-            ));
+            );
         }
         out.push('\n');
     }

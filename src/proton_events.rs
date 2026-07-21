@@ -32,6 +32,11 @@ pub struct ProtonEventSyncOptions {
     pub bootstrap: bool,
 }
 
+/// Syncs events from the Proton API for the given account.
+///
+/// # Errors
+/// Returns an error if the account uses a non-Proton API provider, the session cannot be loaded,
+/// or any API call fails.
 pub async fn sync_events(
     account: &Account,
     store: &MailStore,
