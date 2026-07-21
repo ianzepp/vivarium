@@ -182,6 +182,66 @@ vivi task done <handle> --for hand-2 --repo hosts --tip 0de5c36
 - `--repo` + `--tip` are repeatable for multi-repo units.
 - Backward-compatible addition; existing tasks simply lack the fields.
 
+## [2026-07-21] Mailspace lacks a description / charter field
+
+**Severity:** Low-medium — no canonical "what is this fleet for?"  
+**Version affected:** vivi 6.3.0
+
+### What happened
+
+A role has a charter (`vivi role charter show`) that defines what the role is and how it operates. The mailspace — which is effectively the fleet — has no equivalent field. There is no structured place to record:
+
+- What the fleet exists to accomplish
+- What matters to this fleet (priorities, constraints, guardrails)
+- The fleet's reason for being
+
+This information currently lives scattered across AGENTS.md, fleet.json `note` fields, Mind memos, or nowhere. A cold-booting Mind or a newly spawned role has no single canonical source for "what is this fleet?"
+
+### The analogy
+
+| Concept | Role-level | Fleet-level |
+|---|---|---|
+| Identity | Role name (`hand-1`) | Mailspace name (`faberlang`) |
+| Charter | `vivi role charter show` | **Missing** |
+| Capacity | Provider/model/thinking on role record | Fleet posture (in fleet.json, not Vivi) |
+
+A mailspace description would be the fleet-level charter: a short, durable statement of the fleet's purpose, priorities, and constraints that any role or Mind can read on cold boot.
+
+### Proposed schema addition
+
+```sh
+# Set a mailspace description
+vivi mailspace set-description --project <root> --description 'Faber language work. Compiler, runtime, and host repos. Ship working features over architectural purity. WebGPU host-parity is the current spine.'
+
+# Show it
+vivi mailspace status --project <root>    # includes description
+vivi mailspace description --project <root>
+```
+
+Or as a field on the existing mailspace config alongside `name`:
+
+```toml
+# mailspace.toml
+name = "faberlang"
+description = "Faber language work. Compiler, runtime, and host repos."
+```
+
+### Use cases
+
+| Who reads it | Why |
+|---|---|
+| Cold-booting Mind | "What fleet am I attached to and what matters here?" before reading memos |
+| Newly spawned role | Quick context on what the fleet does, beyond the role's own charter |
+| Ops supervisor | Fleet summary without reading project-specific AGENTS.md |
+| Fleet sensors / board | Could surface the description in output headers |
+
+### Notes
+
+- Should be short (1-3 sentences). Long-form context belongs in AGENTS.md or delivery docs.
+- Not a replacement for AGENTS.md — the project charter. This is the fleet identity.
+- Backward-compatible: existing mailspaces simply lack the field.
+
+
 ## [2026-05-07] `vivi agent archive` does not support `--execute`
 
 **Severity:** Medium — breaks documented agent workflow  
