@@ -112,55 +112,75 @@ vivi memo search --project <root> --for mind --subject "ACCEPT*"
 
 Search should match subject and body. Output format can match `memo list` but filtered to hits. No schema change required — memos already have subject and body fields.
 
-## [2026-07-21] Task lifecycle lacks depends-on and verdict fields
+## [2026-07-21] Task lifecycle lacks depends-on and blocking fields
 
-**Severity:** Medium — forces prose-based dependency tracking and verdict scavenging  
+**Severity:** Medium — forces prose-based dependency tracking  
 **Version affected:** vivi 6.3.0
 
 ### What happened
 
-Tasks have `send → done` lifecycle but no structured fields for:
+A task that depends on another task completing first (e.g., "HV-07C after A+B") is expressed as prose in the body, not as a queryable structured field. The Mind cannot query "what tasks are blocked by this open task?" or "can I start this task yet?" without reading body prose.
 
-1. **Dependencies.** A task that depends on another task completing first (e.g., "HV-07C after A+B") is expressed as prose in the body, not as a queryable field.
+Both fleet Minds independently requested this during retrospective:
 
-2. **Verdict on close.** Auditor tasks return `clean_pass`, `residual`, or `block_ship` as a note string, not as a structured field. The Mind must parse the note to determine the outcome.
+- **Swarm:** "depends-on (HV-07C after A+B) as first-class, not prose in the body"
+- **Faber:** "link unit → delivery id / tip SHAs as structured fields"
 
-3. **Tip SHAs and repo on close.** When a Hand completes work, the commit SHA and affected repo are in the note prose, not structured fields. Multi-repo fleets (faber has hosts + examples repos) cannot query "what landed where" without reading notes.
+### Proposed schema addition
 
-### Evidence
+```sh
+# Dependencies (repeatable for multi-dependency chains)
+vivi task send --to hand-3 --depends-on <handle> --depends-on <handle> ...
 
-Both fleet Minds independently requested these additions during retrospective:
+# Query blocked tasks
+vivi task list --blocked                    # open tasks with unmet depends-on
+vivi task list --blocking <handle>          # what depends on this task?
+```
 
-- **Swarm:** "depends-on (HV-07C after A+B) as first-class, not prose in the body" and "link unit → delivery id / tip SHAs as structured fields"
-- **Faber:** "Structured task close: verdict + tip SHAs + repo"
+Board and sensors could then surface blocked tasks without body parsing.
+
+### Notes
+
+- `--depends-on` is repeatable for multi-dependency chains.
+- Backward-compatible addition; existing tasks simply lack the field.
+- Separate from the verdict/tip SHA issue (see below).
+
+## [2026-07-21] Task close lacks verdict, repo, and tip SHA fields
+
+**Severity:** Medium — forces verdict scavenging and multi-repo git log  
+**Version affected:** vivi 6.3.0
+
+### What happened
+
+Two structured fields are missing from task close:
+
+1. **Verdict on close.** Auditor tasks return `clean_pass`, `residual`, or `block_ship` as a note string, not as a structured field. The Mind must parse the note to determine the outcome.
+
+2. **Tip SHAs and repo on close.** When a Hand completes work, the commit SHA and affected repo are in the note prose, not structured fields. Multi-repo fleets (faber has hosts + examples repos) cannot query "what landed where" without reading notes.
+
+Both fleet Minds independently requested these during retrospective:
+
+- **Swarm:** "Structured task close: verdict + tip SHAs + repo"
+- **Faber:** "verdict + tip SHAs + repo on task done"
 
 ### Proposed schema additions
 
 ```sh
-# Dependencies
-vivi task send --to hand-3 --depends-on <handle> --depends-on <handle> ...
-
 # Verdict on close
 vivi task done <handle> --for auditor-1 --verdict clean_pass
 vivi task done <handle> --for auditor-1 --verdict residual --note 'P2: ...'
 vivi task done <handle> --for auditor-1 --verdict block_ship --note 'F1: ...'
 
-# Tip SHAs and repo on close
+# Tip SHAs and repo on close (repeatable for multi-repo units)
 vivi task done <handle> --for hand-2 --repo examples --tip e968cc3
 vivi task done <handle> --for hand-2 --repo hosts --tip 0de5c36
 ```
 
-Board and sensors could then surface:
-- blocked tasks (open with unmet depends-on)
-- auditor verdicts without note parsing
-- multi-repo land receipts without per-repo `git log`
-
 ### Notes
 
 - `--verdict` is most valuable for auditor tasks but could be used by any closing role.
-- `--depends-on` is repeatable for multi-dependency chains.
 - `--repo` + `--tip` are repeatable for multi-repo units.
-- All three are backward-compatible additions; existing tasks simply lack the fields.
+- Backward-compatible addition; existing tasks simply lack the fields.
 
 ## [2026-05-07] `vivi agent archive` does not support `--execute`
 
