@@ -1,6 +1,7 @@
 use vivarium::VivariumError;
 use vivarium::cli::{RoleCharterCommand, RoleCommand};
 use vivarium::mailspace::{Mailspace, RoleUpdate, RoleView, read_body_input};
+use vivarium::role_status;
 
 pub(crate) fn handle_role_command(command: &RoleCommand) -> Result<(), VivariumError> {
     match command {
@@ -43,6 +44,10 @@ pub(crate) fn handle_role_command(command: &RoleCommand) -> Result<(), VivariumE
             clear_model,
             thinking,
             clear_thinking,
+            pid,
+            clear_pid,
+            host,
+            clear_host,
             status,
             labels,
             clear_labels,
@@ -60,6 +65,10 @@ pub(crate) fn handle_role_command(command: &RoleCommand) -> Result<(), VivariumE
                 clear_model: *clear_model,
                 thinking: thinking.clone(),
                 clear_thinking: *clear_thinking,
+                pid: *pid,
+                clear_pid: *clear_pid,
+                host: host.clone(),
+                clear_host: *clear_host,
                 status: status.clone(),
                 labels: labels.clone(),
                 clear_labels: clear_labels.clone(),
@@ -68,6 +77,11 @@ pub(crate) fn handle_role_command(command: &RoleCommand) -> Result<(), VivariumE
         ),
         RoleCommand::Rename { old, new, project } => rename_role(old, new, project.as_deref()),
         RoleCommand::Charter { command } => handle_charter(command),
+        RoleCommand::Status {
+            name,
+            project,
+            json,
+        } => status_role(name, project.as_deref(), *json),
     }
 }
 
@@ -95,6 +109,10 @@ struct RoleSetArgs {
     clear_model: bool,
     thinking: Option<String>,
     clear_thinking: bool,
+    pid: Option<u32>,
+    clear_pid: bool,
+    host: Option<String>,
+    clear_host: bool,
     status: Option<String>,
     labels: Vec<String>,
     clear_labels: Vec<String>,
@@ -139,6 +157,8 @@ fn add_role(args: &AddRoleArgs<'_>) -> Result<(), VivariumError> {
         provider: args.provider.map(|v| Some(v.to_string())),
         model: args.model.map(|v| Some(v.to_string())),
         thinking: args.thinking.map(|v| Some(v.to_string())),
+        pid: None,
+        host: None,
         add_labels: Vec::new(),
         clear_labels: Vec::new(),
     };
@@ -175,6 +195,29 @@ fn rename_role(
     let address = mailspace.rename_identity(old, new)?;
     println!("renamed {old} -> {new} ({address})");
     println!("historical mail sent as {old} still resolves under {new}");
+    Ok(())
+}
+
+fn status_role(
+    name: &str,
+    project: Option<&std::path::Path>,
+    json: bool,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(project)?;
+    let view = mailspace.role_view(name)?;
+    let status = role_status::probe(view.pid, view.host.as_deref());
+    let outcome = role_status::RoleStatusOutcome {
+        name: view.name.clone(),
+        address: view.address.clone(),
+        pid: view.pid,
+        host: view.host.clone(),
+        status,
+    };
+    if json {
+        print_json(&outcome)?;
+    } else {
+        outcome.print_text();
+    }
     Ok(())
 }
 
@@ -257,6 +300,14 @@ fn build_role_update(args: &RoleSetArgs) -> RoleUpdate {
         args.clear_thinking,
         args.thinking.as_ref(),
     );
+    apply_pid_update(
+        &mut update.pid,
+        &mut update.host,
+        args.pid,
+        args.clear_pid,
+        args.host.as_ref(),
+        args.clear_host,
+    );
     update
 }
 
@@ -269,6 +320,43 @@ fn set_optional_field(slot: &mut Option<Option<String>>, clear: bool, value: Opt
     }
 }
 
+/// Resolve the pid/host fields of a `role set` call into `RoleUpdate` slots.
+///
+/// `--pid` without `--host` defaults `host` to the local hostname, so a binding
+/// is always host-complete (the PID-file invariant). `--clear-pid` also clears
+/// host, since a binding without a pid has no meaningful host.
+#[allow(clippy::option_option)]
+fn apply_pid_update(
+    pid_slot: &mut Option<Option<u32>>,
+    host_slot: &mut Option<Option<String>>,
+    pid: Option<u32>,
+    clear_pid: bool,
+    host: Option<&String>,
+    clear_host: bool,
+) {
+    if clear_pid {
+        *pid_slot = Some(None);
+        *host_slot = Some(None);
+        return;
+    }
+    if let Some(pid) = pid {
+        *pid_slot = Some(Some(pid));
+        if clear_host {
+            *host_slot = Some(None);
+        } else if let Some(host) = host {
+            *host_slot = Some(Some(host.clone()));
+        } else {
+            *host_slot = Some(role_status::local_host_name());
+        }
+        return;
+    }
+    if clear_host {
+        *host_slot = Some(None);
+    } else if let Some(host) = host {
+        *host_slot = Some(Some(host.clone()));
+    }
+}
+
 fn update_has_fields(update: &RoleUpdate) -> bool {
     update.kind.is_some()
         || update.status.is_some()
@@ -276,6 +364,8 @@ fn update_has_fields(update: &RoleUpdate) -> bool {
         || update.provider.is_some()
         || update.model.is_some()
         || update.thinking.is_some()
+        || update.pid.is_some()
+        || update.host.is_some()
         || !update.add_labels.is_empty()
         || !update.clear_labels.is_empty()
 }
@@ -300,6 +390,8 @@ fn print_role_text(view: &RoleView, full: bool) {
     println!("  provider:  {}", display_opt(view.provider.as_deref()));
     println!("  model:     {}", display_opt(view.model.as_deref()));
     println!("  thinking:  {}", display_opt(view.thinking.as_deref()));
+    println!("  pid:       {}", display_pid(view.pid));
+    println!("  host:      {}", display_opt(view.host.as_deref()));
     if view.labels.is_empty() {
         println!("  labels:    (none)");
     } else {
@@ -324,4 +416,11 @@ fn print_role_text(view: &RoleView, full: bool) {
 
 fn display_opt(value: Option<&str>) -> &str {
     value.unwrap_or("(unset)")
+}
+
+fn display_pid(value: Option<u32>) -> String {
+    match value {
+        Some(pid) => pid.to_string(),
+        None => "(unset)".into(),
+    }
 }

@@ -113,6 +113,22 @@ pub enum RoleCommand {
         #[arg(long)]
         clear_thinking: bool,
 
+        /// Process id of the live process occupying this seat (self-set by the role)
+        #[arg(long)]
+        pid: Option<u32>,
+
+        /// Clear pid (also clears host, since a binding without a pid has no meaningful host)
+        #[arg(long)]
+        clear_pid: bool,
+
+        /// Host where the pid lives. Defaults to the local hostname when `--pid` is set.
+        #[arg(long)]
+        host: Option<String>,
+
+        /// Clear host only (keep pid)
+        #[arg(long)]
+        clear_host: bool,
+
         /// Lifecycle status
         #[arg(long)]
         status: Option<String>,
@@ -141,6 +157,20 @@ pub enum RoleCommand {
         /// Project root to update
         #[arg(long)]
         project: Option<PathBuf>,
+    },
+
+    /// Show live process status for a role (liveness, CPU, memory, uptime)
+    Status {
+        /// Role name (local-part) or alias
+        name: String,
+
+        /// Project root to inspect
+        #[arg(long)]
+        project: Option<PathBuf>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Show or set the standing charter prompt for a role

@@ -46,6 +46,12 @@ pub struct LocalIdentity {
     /// Reasoning / thinking effort level.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
+    /// Process id of the live process occupying this seat (self-set by the role).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    /// Host where `pid` lives. Defaults to the local hostname when `pid` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 fn default_role_status() -> String {
@@ -61,6 +67,8 @@ pub struct RoleUpdate {
     pub provider: Option<Option<String>>,
     pub model: Option<Option<String>>,
     pub thinking: Option<Option<String>>,
+    pub pid: Option<Option<u32>>,
+    pub host: Option<Option<String>>,
     pub add_labels: Vec<String>,
     pub clear_labels: Vec<String>,
 }
@@ -78,6 +86,8 @@ pub struct RoleView {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub thinking: Option<String>,
+    pub pid: Option<u32>,
+    pub host: Option<String>,
     pub charter: String,
     pub has_charter: bool,
 }
@@ -94,6 +104,8 @@ impl LocalIdentity {
             provider: None,
             model: None,
             thinking: None,
+            pid: None,
+            host: None,
         }
     }
 }
@@ -266,6 +278,8 @@ impl Mailspace {
             provider: role.provider.clone(),
             model: role.model.clone(),
             thinking: role.thinking.clone(),
+            pid: role.pid,
+            host: role.host.clone(),
             has_charter: !charter.is_empty(),
             charter,
         })
@@ -388,6 +402,12 @@ fn apply_role_update(role: &mut LocalIdentity, update: RoleUpdate) -> Result<(),
     if let Some(thinking) = update.thinking {
         role.thinking = optional_field("thinking", thinking)?;
     }
+    if let Some(pid) = update.pid {
+        role.pid = optional_pid(pid)?;
+    }
+    if let Some(host) = update.host {
+        role.host = optional_host(host)?;
+    }
     for label in update.add_labels {
         let label = sanitize_label(&label)?;
         if !role.labels.iter().any(|known| known == &label) {
@@ -405,6 +425,25 @@ fn optional_field(field: &str, value: Option<String>) -> Result<Option<String>, 
     match value {
         Some(value) if !value.trim().is_empty() => {
             Ok(Some(sanitize_freeform_field(field, &value)?))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn optional_pid(value: Option<u32>) -> Result<Option<u32>, VivariumError> {
+    match value {
+        Some(pid) if pid > 0 => Ok(Some(pid)),
+        Some(pid) => Err(VivariumError::Message(format!(
+            "role pid must be a positive integer (got {pid})"
+        ))),
+        None => Ok(None),
+    }
+}
+
+fn optional_host(value: Option<String>) -> Result<Option<String>, VivariumError> {
+    match value {
+        Some(value) if !value.trim().is_empty() => {
+            Ok(Some(sanitize_freeform_field("host", &value)?))
         }
         _ => Ok(None),
     }

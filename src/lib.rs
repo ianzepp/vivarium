@@ -26,6 +26,7 @@ pub mod proton_sync;
 pub mod queue;
 pub mod render;
 pub mod retrieve;
+pub mod role_status;
 pub mod search;
 pub mod storage;
 pub mod thread;

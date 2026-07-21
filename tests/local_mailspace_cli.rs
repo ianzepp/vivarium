@@ -1613,6 +1613,113 @@ fn send_work(project: &std::path::Path, kind: &str, to: &str, subject: &str, bod
     handle_after(&stdout(&output), &format!("created {to}"))
 }
 
+#[test]
+fn role_status_reports_pid_binding_and_liveness() {
+    let project = tempfile::tempdir().unwrap();
+    assert_success(&vivi([
+        "mailspace",
+        "init",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]));
+    assert_success(&vivi([
+        "role",
+        "add",
+        "hand-1",
+        "--kind",
+        "hand",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]));
+    let p = project.path().to_str().unwrap();
+
+    // No binding set yet.
+    let out = vivi(["role", "status", "hand-1", "--json", "--project", p]);
+    assert_success(&out);
+    let v: Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["name"], "hand-1");
+    assert_eq!(v["pid"], Value::Null);
+    assert_eq!(v["status"]["state"], "not_set");
+    assert_eq!(v["status"]["running"], Value::Null);
+
+    // Self-register this test process's pid; host defaults to the local host.
+    let pid = std::process::id();
+    assert_success(&vivi([
+        "role",
+        "set",
+        "hand-1",
+        "--pid",
+        &pid.to_string(),
+        "--project",
+        p,
+    ]));
+    let show = vivi(["role", "show", "hand-1", "--json", "--project", p]);
+    assert_success(&show);
+    let shown: Value = serde_json::from_str(&stdout(&show)).unwrap();
+    assert_eq!(shown["pid"].as_u64(), Some(u64::from(pid)));
+    assert!(shown["host"].as_str().is_some(), "{shown}");
+
+    let out = vivi(["role", "status", "hand-1", "--json", "--project", p]);
+    assert_success(&out);
+    let v: Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["status"]["state"], "alive");
+    assert_eq!(v["status"]["running"], true);
+    assert!(v["status"]["name"].as_str().is_some(), "{v}");
+    assert!(v["status"]["memory_bytes"].as_u64().is_some(), "{v}");
+    assert!(v["status"]["uptime_seconds"].as_u64().is_some(), "{v}");
+
+    // A pid that does not exist reports dead. 4_000_000 is outside the macOS
+    // pid space; this test runs on the dev host where it is reliably dead.
+    assert_success(&vivi([
+        "role",
+        "set",
+        "hand-1",
+        "--pid",
+        "4000000",
+        "--project",
+        p,
+    ]));
+    let out = vivi(["role", "status", "hand-1", "--json", "--project", p]);
+    assert_success(&out);
+    let v: Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["status"]["state"], "dead");
+    assert_eq!(v["status"]["running"], false);
+
+    // A binding whose stored host differs from the local host is reported remote;
+    // the local process table is not probed.
+    assert_success(&vivi([
+        "role",
+        "set",
+        "hand-1",
+        "--pid",
+        &pid.to_string(),
+        "--host",
+        "zzz-remote-host-not-local-999",
+        "--project",
+        p,
+    ]));
+    let out = vivi(["role", "status", "hand-1", "--json", "--project", p]);
+    assert_success(&out);
+    let v: Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["status"]["state"], "remote");
+    assert_eq!(v["status"]["running"], Value::Null);
+    assert_eq!(v["host"], "zzz-remote-host-not-local-999");
+
+    // Clearing the pid also clears the host (no binding without a pid).
+    assert_success(&vivi(["role", "set", "hand-1", "--clear-pid", "--project", p]));
+    let shown: Value = serde_json::from_str(&stdout(&vivi([
+        "role",
+        "show",
+        "hand-1",
+        "--json",
+        "--project",
+        p,
+    ])))
+    .unwrap();
+    assert_eq!(shown["pid"], Value::Null);
+    assert_eq!(shown["host"], Value::Null);
+}
+
 fn vivi<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,

@@ -324,6 +324,67 @@ fn parses_role_add_set_and_charter() {
 }
 
 #[test]
+fn parses_role_set_pid_host_and_status() {
+    use vivarium::cli::RoleCommand;
+
+    let set = Cli::try_parse_from([
+        "vivi",
+        "role",
+        "set",
+        "hand-1",
+        "--pid",
+        "12345",
+        "--host",
+        "pharos",
+    ])
+    .unwrap();
+    match set.command {
+        Command::Role {
+            command:
+                RoleCommand::Set {
+                    name,
+                    pid,
+                    host,
+                    clear_pid,
+                    clear_host,
+                    ..
+                },
+        } => {
+            assert_eq!(name, "hand-1");
+            assert_eq!(pid, Some(12_345));
+            assert_eq!(host.as_deref(), Some("pharos"));
+            assert!(!clear_pid);
+            assert!(!clear_host);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let clear = Cli::try_parse_from(["vivi", "role", "set", "hand-1", "--clear-pid"])
+        .unwrap();
+    match clear.command {
+        Command::Role {
+            command: RoleCommand::Set { name, clear_pid, .. },
+        } => {
+            assert_eq!(name, "hand-1");
+            assert!(clear_pid);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let status = Cli::try_parse_from(["vivi", "role", "status", "hand-1", "--json"])
+        .unwrap();
+    match status.command {
+        Command::Role {
+            command: RoleCommand::Status { name, json, .. },
+        } => {
+            assert_eq!(name, "hand-1");
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_mailspace_import_dry_run() {
     let cli = Cli::try_parse_from([
         "vivi",
