@@ -1404,6 +1404,169 @@ fn inbox_unread(project: &std::path::Path, identity: &str) -> usize {
         .unwrap() as usize
 }
 
+#[test]
+fn role_add_set_charter_show_and_rename() {
+    let project = tempfile::tempdir().unwrap();
+    assert_success(&vivi([
+        "mailspace",
+        "init",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]));
+
+    let add = vivi([
+        "role",
+        "add",
+        "head-ceo",
+        "--kind",
+        "head",
+        "--harness",
+        "subagent",
+        "--label",
+        "executive",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert_success(&add);
+    assert!(stdout(&add).contains("head-ceo@"), "{}", stdout(&add));
+
+    let set = vivi([
+        "role",
+        "set",
+        "head-ceo",
+        "--provider",
+        "zai",
+        "--model",
+        "glm-5.2",
+        "--thinking",
+        "high",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert_success(&set);
+
+    let charter_path = project.path().join("ceo-charter.md");
+    std::fs::write(&charter_path, "You are head-ceo.\nFocus on map health.\n").unwrap();
+    let charter = vivi([
+        "role",
+        "charter",
+        "set",
+        "head-ceo",
+        "--file",
+        charter_path.to_str().unwrap(),
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert_success(&charter);
+
+    let show = vivi([
+        "role",
+        "show",
+        "head-ceo",
+        "--json",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert_success(&show);
+    let value: Value = serde_json::from_str(&stdout(&show)).unwrap();
+    assert_eq!(value["name"], "head-ceo");
+    assert_eq!(value["kind"], "head");
+    assert_eq!(value["harness"], "subagent");
+    assert_eq!(value["provider"], "zai");
+    assert_eq!(value["model"], "glm-5.2");
+    assert_eq!(value["thinking"], "high");
+    assert_eq!(value["status"], "active");
+    assert_eq!(value["labels"][0], "executive");
+    assert_eq!(value["has_charter"], true);
+    assert!(
+        value["charter"].as_str().unwrap().contains("map health"),
+        "{value}"
+    );
+
+    // Existing identity CLI still works and coexists.
+    assert_success(&vivi([
+        "mailspace",
+        "identity",
+        "add",
+        "hand-1",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]));
+    assert_success(&vivi([
+        "role",
+        "set",
+        "hand-1",
+        "--kind",
+        "hand",
+        "--provider",
+        "openai-codex",
+        "--model",
+        "gpt-5.5",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]));
+
+    // Mail delivery still works against role names.
+    assert_success(&vivi([
+        "mail",
+        "send",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "hand-1",
+        "--to",
+        "head-ceo",
+        "--subject",
+        "hello role",
+        "--body",
+        "pointer boot works",
+    ]));
+
+    let rename = vivi([
+        "role",
+        "rename",
+        "head-ceo",
+        "chief",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert_success(&rename);
+    let show_renamed = vivi([
+        "role",
+        "show",
+        "chief",
+        "--json",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert_success(&show_renamed);
+    let renamed: Value = serde_json::from_str(&stdout(&show_renamed)).unwrap();
+    assert_eq!(renamed["name"], "chief");
+    assert!(
+        renamed["aliases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a == "head-ceo"),
+        "{renamed}"
+    );
+    assert!(
+        renamed["charter"].as_str().unwrap().contains("map health"),
+        "charter should move on rename: {renamed}"
+    );
+
+    let list = vivi([
+        "role",
+        "list",
+        "--json",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert_success(&list);
+    let listed: Value = serde_json::from_str(&stdout(&list)).unwrap();
+    assert!(listed.as_array().unwrap().len() >= 2, "{listed}");
+}
+
 fn init_roster(project: &std::path::Path) {
     assert_success(&vivi([
         "mailspace",

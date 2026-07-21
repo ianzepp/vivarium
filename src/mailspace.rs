@@ -25,7 +25,10 @@ pub use body::{read_body_arg, read_body_input};
 pub use dump::{
     DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
 };
-pub use identity::LocalIdentity;
+pub use identity::{
+    LocalIdentity, ROLE_HARNESS_SUBAGENT, ROLE_STATUS_ACTIVE, ROLE_STATUS_PARKED,
+    ROLE_STATUS_RETIRED, RoleUpdate, RoleView,
+};
 pub use lifecycle::{
     CycleIntake, MailAbsorbFilter, SourceTaskRequest, SourceTaskResult, WantListOptions,
     WantListRecord, WantMetadataUpdate,

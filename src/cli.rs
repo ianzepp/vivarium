@@ -9,6 +9,7 @@ mod index_command;
 mod mailspace_command;
 mod proton_command;
 mod render_command;
+mod role_command;
 mod write_command;
 pub use agent_command::AgentCommand;
 pub use board_command::BoardCommand;
@@ -22,6 +23,7 @@ pub use mailspace_command::{
 };
 pub use proton_command::ProtonCommand;
 pub use render_command::{RenderCommand, RenderFormat};
+pub use role_command::{RoleCharterCommand, RoleCommand};
 pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
 
 #[derive(Debug, Parser)]
@@ -263,6 +265,12 @@ pub enum Command {
     Memo {
         #[command(subcommand)]
         command: MemoCommand,
+    },
+
+    /// Manage first-class mailspace agent seats (roles)
+    Role {
+        #[command(subcommand)]
+        command: RoleCommand,
     },
 
     /// Inspect project-local agent cycle intake

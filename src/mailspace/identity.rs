@@ -1,68 +1,155 @@
 use std::collections::HashSet;
+use std::fs;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
 use super::{MAILSPACE_CONFIG, Mailspace, write_config};
 use crate::error::VivariumError;
 
+/// Preferred lifecycle values; freeform strings are still accepted.
+pub const ROLE_STATUS_ACTIVE: &str = "active";
+pub const ROLE_STATUS_PARKED: &str = "parked";
+pub const ROLE_STATUS_RETIRED: &str = "retired";
+
+/// Preferred harness value for parent-TUI / spawned child execution.
+pub const ROLE_HARNESS_SUBAGENT: &str = "subagent";
+
+/// A mailspace seat: mailbox name plus durable role metadata.
+///
+/// Stored under `[[identities]]` in `mailspace.toml` for backward compatibility
+/// with existing mailspaces. Charter bodies live in `.vivi/charters/<name>.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalIdentity {
     pub name: String,
-    /// Former names this identity was known by, kept so historical mail
-    /// (stored under the old name) still resolves and shows up under the
-    /// renamed identity. Renaming never rewrites stored message rows.
-    #[serde(default)]
+    /// Former names this role was known by. Rename never rewrites message rows.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<String>,
+    /// Process class (`hand`, `head`, `mind`, `operator`, `steward`, or freeform).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Freeform tag slugs (`auditor`, `floater`, …).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
+    /// Lifecycle status. Default `active` for legacy configs missing the field.
+    #[serde(default = "default_role_status")]
+    pub status: String,
+    /// Execution home (`subagent`, `tmux`, `vivi_pty`, …).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
+    /// Inference provider / account lane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    /// Model id for the provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Reasoning / thinking effort level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+}
+
+fn default_role_status() -> String {
+    ROLE_STATUS_ACTIVE.to_string()
+}
+
+/// Partial update for `role set`. Only `Some` fields are applied.
+#[derive(Debug, Clone, Default)]
+pub struct RoleUpdate {
+    pub kind: Option<Option<String>>,
+    pub status: Option<String>,
+    pub harness: Option<Option<String>>,
+    pub provider: Option<Option<String>>,
+    pub model: Option<Option<String>>,
+    pub thinking: Option<Option<String>>,
+    pub add_labels: Vec<String>,
+    pub clear_labels: Vec<String>,
+}
+
+/// JSON/text view of a role, including derived address and charter body.
+#[derive(Debug, Clone, Serialize)]
+pub struct RoleView {
+    pub name: String,
+    pub address: String,
+    pub aliases: Vec<String>,
+    pub kind: Option<String>,
+    pub labels: Vec<String>,
+    pub status: String,
+    pub harness: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub thinking: Option<String>,
+    pub charter: String,
+    pub has_charter: bool,
+}
+
+impl LocalIdentity {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            aliases: Vec::new(),
+            kind: None,
+            labels: Vec::new(),
+            status: default_role_status(),
+            harness: None,
+            provider: None,
+            model: None,
+            thinking: None,
+        }
+    }
 }
 
 impl Mailspace {
     pub fn add_identity(&mut self, identity: &str) -> Result<String, VivariumError> {
-        let identity = sanitize_identity(identity)?;
-        if !self
-            .config
-            .identities
-            .iter()
-            .any(|known| known.name == identity)
-        {
-            self.config.identities.push(LocalIdentity {
-                name: identity.clone(),
-                aliases: Vec::new(),
-            });
-            self.config
-                .identities
-                .sort_by(|left, right| left.name.cmp(&right.name));
-            write_config(&self.dir.join(MAILSPACE_CONFIG), &self.config)?;
-        }
-        Ok(self.address_for(&identity))
+        self.add_role(identity, None, &[])
     }
 
-    /// Renames a local identity in the roster. Historical mail already
-    /// stored under the old name is left untouched: the old name is kept
-    /// as an alias so it keeps resolving and its mail keeps counting
-    /// toward this identity in status, list, and dump output.
+    /// Add a role seat. Idempotent on name: existing name is left unchanged.
+    pub fn add_role(
+        &mut self,
+        name: &str,
+        kind: Option<&str>,
+        labels: &[&str],
+    ) -> Result<String, VivariumError> {
+        let name = sanitize_identity(name)?;
+        if self.find_role_index(&name).is_some() {
+            return Ok(self.address_for(&name));
+        }
+        let mut role = LocalIdentity::new(name.clone());
+        if let Some(kind) = kind {
+            role.kind = Some(sanitize_freeform_field("kind", kind)?);
+        }
+        for label in labels {
+            let label = sanitize_label(label)?;
+            if !role.labels.iter().any(|known| known == &label) {
+                role.labels.push(label);
+            }
+        }
+        self.config.identities.push(role);
+        self.sort_roles();
+        self.persist_config()?;
+        Ok(self.address_for(&name))
+    }
+
+    pub fn set_role(&mut self, name: &str, update: RoleUpdate) -> Result<RoleView, VivariumError> {
+        let name = sanitize_identity(name)?;
+        let index = self.require_role_index(&name)?;
+        apply_role_update(&mut self.config.identities[index], update)?;
+        self.persist_config()?;
+        self.role_view(&self.config.identities[index].name.clone())
+    }
+
     pub fn rename_identity(&mut self, old: &str, new: &str) -> Result<String, VivariumError> {
         let old = sanitize_identity(old)?;
         let new = sanitize_identity(new)?;
-        let Some(index) = self
-            .config
-            .identities
-            .iter()
-            .position(|known| known.name == old || known.aliases.iter().any(|a| a == &old))
-        else {
-            return Err(VivariumError::Message(format!(
-                "unknown local identity '{old}'"
-            )));
-        };
+        let index = self.require_role_index(&old)?;
         if self.config.identities[index].name == new {
             return Err(VivariumError::Message(format!(
-                "identity is already named '{new}'"
+                "role is already named '{new}'"
             )));
         }
-        if self.config.identities.iter().enumerate().any(|(i, known)| {
-            i != index && (known.name == new || known.aliases.iter().any(|a| a == &new))
-        }) {
+        if self.name_taken(&new, Some(index)) {
             return Err(VivariumError::Message(format!(
-                "local identity '{new}' already exists"
+                "local role '{new}' already exists"
             )));
         }
         let previous_name = self.config.identities[index].name.clone();
@@ -72,12 +159,13 @@ impl Mailspace {
             .iter()
             .any(|a| a == &previous_name)
         {
-            self.config.identities[index].aliases.push(previous_name);
+            self.config.identities[index]
+                .aliases
+                .push(previous_name.clone());
         }
-        self.config
-            .identities
-            .sort_by(|left, right| left.name.cmp(&right.name));
-        write_config(&self.dir.join(MAILSPACE_CONFIG), &self.config)?;
+        self.sort_roles();
+        self.persist_config()?;
+        rename_charter_file(&self.dir, &previous_name, &new)?;
         Ok(self.address_for(&new))
     }
 
@@ -85,9 +173,6 @@ impl Mailspace {
         format!("{identity}@{}.local", self.config.name)
     }
 
-    /// All names (current name plus former names) that historical mail for
-    /// this identity may be stored under. `canonical` must already be a
-    /// resolved identity name.
     pub fn identity_names(&self, canonical: &str) -> HashSet<String> {
         let mut names = HashSet::new();
         names.insert(canonical.to_string());
@@ -122,18 +207,177 @@ impl Mailspace {
             trimmed
         };
         let identity = sanitize_identity(identity)?;
-        if let Some(known) =
-            self.config.identities.iter().find(|known| {
-                known.name == identity || known.aliases.iter().any(|a| a == &identity)
-            })
-        {
+        if let Some(known) = self.find_role_by_name_or_alias(&identity) {
             Ok(known.name.clone())
         } else {
             Err(VivariumError::Message(format!(
-                "unknown local identity '{identity}'; add it with `vivi mailspace identity add {identity}`"
+                "unknown local role '{identity}'; add it with `vivi role add {identity}`"
             )))
         }
     }
+
+    pub fn role_view(&self, name: &str) -> Result<RoleView, VivariumError> {
+        let canonical = self.resolve_identity(name)?;
+        let role = self
+            .find_role_by_name_or_alias(&canonical)
+            .ok_or_else(|| VivariumError::Message(format!("unknown local role '{name}'")))?;
+        let charter = self.read_charter(&role.name)?;
+        Ok(RoleView {
+            name: role.name.clone(),
+            address: self.address_for(&role.name),
+            aliases: role.aliases.clone(),
+            kind: role.kind.clone(),
+            labels: role.labels.clone(),
+            status: role.status.clone(),
+            harness: role.harness.clone(),
+            provider: role.provider.clone(),
+            model: role.model.clone(),
+            thinking: role.thinking.clone(),
+            has_charter: !charter.is_empty(),
+            charter,
+        })
+    }
+
+    pub fn list_role_views(&self) -> Result<Vec<RoleView>, VivariumError> {
+        let mut views = Vec::with_capacity(self.config.identities.len());
+        for role in &self.config.identities {
+            views.push(self.role_view(&role.name)?);
+        }
+        Ok(views)
+    }
+
+    pub fn set_charter(&mut self, name: &str, body: &str) -> Result<(), VivariumError> {
+        let canonical = self.resolve_identity(name)?;
+        let path = self.charter_path(&canonical);
+        if let Some(parent) = path.parent() {
+            crate::store::secure_create_dir_all(parent)?;
+        }
+        fs::write(&path, body).map_err(|e| {
+            VivariumError::Message(format!(
+                "failed to write charter for role '{canonical}' at {}: {e}",
+                path.display()
+            ))
+        })?;
+        Ok(())
+    }
+
+    pub fn read_charter(&self, name: &str) -> Result<String, VivariumError> {
+        let path = self.charter_path(name);
+        if !path.exists() {
+            return Ok(String::new());
+        }
+        fs::read_to_string(&path).map_err(|e| {
+            VivariumError::Message(format!(
+                "failed to read charter for role '{name}' at {}: {e}",
+                path.display()
+            ))
+        })
+    }
+
+    fn charter_path(&self, name: &str) -> PathBuf {
+        self.dir.join("charters").join(format!("{name}.md"))
+    }
+
+    fn persist_config(&self) -> Result<(), VivariumError> {
+        write_config(&self.dir.join(MAILSPACE_CONFIG), &self.config)
+    }
+
+    fn sort_roles(&mut self) {
+        self.config
+            .identities
+            .sort_by(|left, right| left.name.cmp(&right.name));
+    }
+
+    fn find_role_index(&self, name_or_alias: &str) -> Option<usize> {
+        self.config.identities.iter().position(|known| {
+            known.name == name_or_alias || known.aliases.iter().any(|a| a == name_or_alias)
+        })
+    }
+
+    fn require_role_index(&self, name_or_alias: &str) -> Result<usize, VivariumError> {
+        self.find_role_index(name_or_alias).ok_or_else(|| {
+            VivariumError::Message(format!(
+                "unknown local role '{name_or_alias}'; add it with `vivi role add {name_or_alias}`"
+            ))
+        })
+    }
+
+    fn find_role_by_name_or_alias(&self, name_or_alias: &str) -> Option<&LocalIdentity> {
+        self.find_role_index(name_or_alias)
+            .map(|index| &self.config.identities[index])
+    }
+
+    fn name_taken(&self, name: &str, except_index: Option<usize>) -> bool {
+        self.config.identities.iter().enumerate().any(|(i, known)| {
+            if except_index == Some(i) {
+                return false;
+            }
+            known.name == name || known.aliases.iter().any(|a| a == name)
+        })
+    }
+}
+
+fn apply_role_update(role: &mut LocalIdentity, update: RoleUpdate) -> Result<(), VivariumError> {
+    if let Some(kind) = update.kind {
+        role.kind = match kind {
+            Some(value) if !value.trim().is_empty() => {
+                Some(sanitize_freeform_field("kind", &value)?)
+            }
+            _ => None,
+        };
+    }
+    if let Some(status) = update.status {
+        role.status = sanitize_freeform_field("status", &status)?;
+    }
+    if let Some(harness) = update.harness {
+        role.harness = optional_field("harness", harness)?;
+    }
+    if let Some(provider) = update.provider {
+        role.provider = optional_field("provider", provider)?;
+    }
+    if let Some(model) = update.model {
+        role.model = optional_field("model", model)?;
+    }
+    if let Some(thinking) = update.thinking {
+        role.thinking = optional_field("thinking", thinking)?;
+    }
+    for label in update.add_labels {
+        let label = sanitize_label(&label)?;
+        if !role.labels.iter().any(|known| known == &label) {
+            role.labels.push(label);
+        }
+    }
+    for label in update.clear_labels {
+        let label = sanitize_label(&label)?;
+        role.labels.retain(|known| known != &label);
+    }
+    Ok(())
+}
+
+fn optional_field(field: &str, value: Option<String>) -> Result<Option<String>, VivariumError> {
+    match value {
+        Some(value) if !value.trim().is_empty() => {
+            Ok(Some(sanitize_freeform_field(field, &value)?))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn rename_charter_file(dir: &std::path::Path, old: &str, new: &str) -> Result<(), VivariumError> {
+    let old_path = dir.join("charters").join(format!("{old}.md"));
+    if !old_path.exists() {
+        return Ok(());
+    }
+    let new_dir = dir.join("charters");
+    crate::store::secure_create_dir_all(&new_dir)?;
+    let new_path = new_dir.join(format!("{new}.md"));
+    fs::rename(&old_path, &new_path).map_err(|e| {
+        VivariumError::Message(format!(
+            "failed to rename charter {} -> {}: {e}",
+            old_path.display(),
+            new_path.display()
+        ))
+    })
 }
 
 fn sanitize_identity(value: &str) -> Result<String, VivariumError> {
@@ -146,7 +390,33 @@ fn sanitize_identity(value: &str) -> Result<String, VivariumError> {
         Ok(value)
     } else {
         Err(VivariumError::Message(format!(
-            "invalid local identity '{value}'; use letters, numbers, dot, dash, or underscore"
+            "invalid local role '{value}'; use letters, numbers, dot, dash, or underscore"
         )))
     }
+}
+
+fn sanitize_label(value: &str) -> Result<String, VivariumError> {
+    sanitize_identity(value).map_err(|_| {
+        VivariumError::Message(format!(
+            "invalid role label '{value}'; use letters, numbers, dot, dash, or underscore"
+        ))
+    })
+}
+
+fn sanitize_freeform_field(field: &str, value: &str) -> Result<String, VivariumError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(VivariumError::Message(format!(
+            "role {field} cannot be empty"
+        )));
+    }
+    if value
+        .chars()
+        .any(|ch| ch == '\n' || ch == '\r' || ch == '\0')
+    {
+        return Err(VivariumError::Message(format!(
+            "role {field} cannot contain control characters"
+        )));
+    }
+    Ok(value.to_string())
 }

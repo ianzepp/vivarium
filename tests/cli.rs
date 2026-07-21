@@ -229,6 +229,101 @@ fn parses_mailspace_identity_add() {
 }
 
 #[test]
+fn parses_role_add_set_and_charter() {
+    use vivarium::cli::{RoleCharterCommand, RoleCommand};
+
+    let add = Cli::try_parse_from([
+        "vivi",
+        "role",
+        "add",
+        "head-ceo",
+        "--kind",
+        "head",
+        "--harness",
+        "subagent",
+        "--label",
+        "executive",
+    ])
+    .unwrap();
+    match add.command {
+        Command::Role {
+            command:
+                RoleCommand::Add {
+                    name,
+                    kind,
+                    harness,
+                    labels,
+                    ..
+                },
+        } => {
+            assert_eq!(name, "head-ceo");
+            assert_eq!(kind.as_deref(), Some("head"));
+            assert_eq!(harness.as_deref(), Some("subagent"));
+            assert_eq!(labels, vec!["executive".to_string()]);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let set = Cli::try_parse_from([
+        "vivi",
+        "role",
+        "set",
+        "hand-1",
+        "--provider",
+        "zai",
+        "--model",
+        "glm-5.2",
+        "--thinking",
+        "low",
+    ])
+    .unwrap();
+    match set.command {
+        Command::Role {
+            command:
+                RoleCommand::Set {
+                    name,
+                    provider,
+                    model,
+                    thinking,
+                    ..
+                },
+        } => {
+            assert_eq!(name, "hand-1");
+            assert_eq!(provider.as_deref(), Some("zai"));
+            assert_eq!(model.as_deref(), Some("glm-5.2"));
+            assert_eq!(thinking.as_deref(), Some("low"));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let charter = Cli::try_parse_from([
+        "vivi",
+        "role",
+        "charter",
+        "set",
+        "head-ceo",
+        "--file",
+        "personas/ceo.md",
+    ])
+    .unwrap();
+    match charter.command {
+        Command::Role {
+            command:
+                RoleCommand::Charter {
+                    command: RoleCharterCommand::Set { name, file, .. },
+                },
+        } => {
+            assert_eq!(name, "head-ceo");
+            assert_eq!(
+                file.as_ref().map(|p| p.to_string_lossy().into_owned()),
+                Some("personas/ceo.md".into())
+            );
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_mailspace_import_dry_run() {
     let cli = Cli::try_parse_from([
         "vivi",

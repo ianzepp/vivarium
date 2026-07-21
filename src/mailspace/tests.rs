@@ -38,7 +38,7 @@ fn local_delivery_rejects_unknown_identity() {
         })
         .unwrap_err();
 
-    assert!(err.to_string().contains("unknown local identity"));
+    assert!(err.to_string().contains("unknown local role"));
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn rename_identity_rejects_unknown_or_colliding_names() {
     mailspace.add_identity("cto").unwrap();
 
     let err = mailspace.rename_identity("missing", "vp").unwrap_err();
-    assert!(err.to_string().contains("unknown local identity"));
+    assert!(err.to_string().contains("unknown local role"));
 
     let err = mailspace.rename_identity("ceo", "cto").unwrap_err();
     assert!(err.to_string().contains("already exists"));
@@ -431,4 +431,47 @@ Subject: batch\r\n\r\nbody";
     let events = storage.list_mailspace_events_after(0).unwrap();
     assert_eq!(events.len(), 2);
     assert!(events.iter().all(|e| e.command == "mail deliver"));
+}
+
+#[test]
+fn legacy_identity_toml_loads_as_role_with_defaults() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    Mailspace::init(Some(root)).unwrap();
+    std::fs::write(
+        root.join(".vivi/mailspace.toml"),
+        "name = \"demo\"\n\n[[identities]]\nname = \"hand-1\"\naliases = []\n",
+    )
+    .unwrap();
+    let mut mailspace = Mailspace::discover(Some(root)).unwrap();
+    let view = mailspace.role_view("hand-1").unwrap();
+    assert_eq!(view.name, "hand-1");
+    assert_eq!(view.status, "active");
+    assert!(view.kind.is_none());
+    assert!(view.provider.is_none());
+    assert!(!view.has_charter);
+
+    mailspace
+        .set_role(
+            "hand-1",
+            RoleUpdate {
+                kind: Some(Some("hand".into())),
+                provider: Some(Some("zai".into())),
+                model: Some(Some("glm-5.2".into())),
+                thinking: Some(Some("low".into())),
+                harness: Some(Some("subagent".into())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    mailspace
+        .set_charter("hand-1", "Implement packages; report to mind.\n")
+        .unwrap();
+    let view = mailspace.role_view("hand-1").unwrap();
+    assert_eq!(view.kind.as_deref(), Some("hand"));
+    assert_eq!(view.provider.as_deref(), Some("zai"));
+    assert_eq!(view.model.as_deref(), Some("glm-5.2"));
+    assert_eq!(view.thinking.as_deref(), Some("low"));
+    assert_eq!(view.harness.as_deref(), Some("subagent"));
+    assert!(view.charter.contains("report to mind"));
 }

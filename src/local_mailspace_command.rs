@@ -40,6 +40,10 @@ pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumE
             handle_memo_command(command)?;
             Ok(true)
         }
+        Command::Role { command } => {
+            crate::local_role_command::handle_role_command(command)?;
+            Ok(true)
+        }
         Command::Cycle { command } => {
             handle_cycle_command(command)?;
             Ok(true)

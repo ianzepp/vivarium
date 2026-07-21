@@ -207,15 +207,59 @@ effect of send, list, search, or show commands.
 ```sh
 cd /path/to/project
 vivi mailspace init
-vivi mailspace identity add ceo
-vivi mailspace identity add cto
+vivi role add ceo --kind head
+vivi role add cto --kind head --harness subagent
+# legacy alias still works:
+# vivi mailspace identity add hand-1
 vivi mailspace status
 vivi board
 ```
 
+### Roles (agent seats)
+
+Roles are first-class mailspace seats. Each role owns a local mailbox name plus
+durable metadata used by multi-agent fleets (especially sub-agent spawns):
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Local-part / mailbox key (`head-ceo`, `hand-1`) |
+| `kind` | Process class (`hand`, `head`, `mind`, `operator`, `steward`, or freeform) |
+| `status` | Lifecycle (`active`, `parked`, `retired`, or freeform); default `active` |
+| `labels` | Freeform slugs (`auditor`, `floater`, …) |
+| `harness` | Execution home (`subagent`, `tmux`, `vivi_pty`, …) |
+| `provider` / `model` / `thinking` | Desired capacity (not process liveness) |
+| `charter` | Standing prompt body for the seat (stored under `.vivi/charters/`) |
+| `address` | Derived: `{name}@{mailspace}.local` |
+
+```sh
+vivi role list --json
+vivi role show head-ceo --json
+vivi role set hand-1 --provider zai --model glm-5.2 --thinking low
+vivi role set head-ceo --harness subagent
+vivi role charter set head-ceo --file personas/ceo.md
+vivi role charter show head-ceo
+
+# Bulk capacity flips stay outside vivi (one role per mutation):
+for r in head-ceo head-cto hand-1; do
+  vivi role set "$r" --provider zai --model glm-5.2 --thinking high
+done
+```
+
+Parent agents should pass **pointers**, not paste charters:
+
+```text
+You are fleet role head-ceo.
+Load charter: vivi role charter show head-ceo --project <root>
+Load task:    vivi task show <handle> --project <root>
+```
+
+`vivi mailspace identity add|list|rename` remains as a thin roster path; prefer
+`vivi role` for new work. Existing `[[identities]]` entries in
+`mailspace.toml` load as roles with empty optional fields.
+
 The default local domain is derived from the project directory name. In a
 project named `hanta-monitor`, `cto` resolves to
-`cto@hanta-monitor.local`. Unknown local identities are rejected, external
+`cto@hanta-monitor.local`. Unknown local roles are rejected, external
 recipients are rejected by the local delivery commands, and mixed
 local/external sends are not sent automatically. Use the existing
 `compose`, `enqueue send`, and `exec send` flows for human or external mail.
@@ -515,7 +559,7 @@ Folder aliases are normalized before classification: `trash`, `deleted`, and
 provider-specific trash folder names all classify as a denied move-to-trash
 under read-only and archive policies.
 
-Local project mailspace operations (board, task, need, want, mail, memo) are
+Local project mailspace operations (board, task, need, want, mail, memo, role) are
 separate from external account mutation policy and are never restricted by it.
 
 Check the effective policy with `vivi doctor --account <name>` (text or JSON).

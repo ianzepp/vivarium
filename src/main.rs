@@ -20,6 +20,7 @@ mod local_board_command;
 mod local_mail_list;
 mod local_mailspace_command;
 mod local_mailspace_dump;
+mod local_role_command;
 mod local_work_command;
 mod local_work_list;
 mod mutation_runner;
@@ -133,6 +134,7 @@ impl Runtime {
             | Command::Need { .. }
             | Command::Want { .. }
             | Command::Memo { .. }
+            | Command::Role { .. }
             | Command::Cycle { .. } => unreachable!(),
             Command::Show { message_ids, json } => self.show(&message_ids, json),
             Command::Thread {
