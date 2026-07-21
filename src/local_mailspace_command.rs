@@ -414,27 +414,12 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             status,
             json,
             project,
-        } => {
-            let mailspace = Mailspace::discover(project.as_deref())?;
-            crate::local_work_list::print_work_list(
-                &mailspace,
-                for_identity,
-                match status {
-                    vivarium::cli::TaskStatus::Open => "tasks",
-                    vivarium::cli::TaskStatus::Done => "done",
-                },
-                "task",
-                *json,
-            )?;
-        }
+        } => list_tasks(for_identity, status, *json, project.as_deref())?,
         TaskCommand::Show {
             handle,
             json,
             project,
-        } => {
-            let mailspace = Mailspace::discover(project.as_deref())?;
-            vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, *json)?;
-        }
+        } => show_task(handle, *json, project.as_deref())?,
         TaskCommand::Dump(command) => {
             crate::local_work_command::dump_tasks(command)?;
         }
@@ -444,7 +429,13 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             note,
             project,
         } => {
-            move_task(handle, for_identity, note.as_ref(), project.as_deref(), "done")?;
+            move_task(
+                handle,
+                for_identity,
+                note.as_ref(),
+                project.as_deref(),
+                "done",
+            )?;
         }
         TaskCommand::Reopen {
             handle,
@@ -452,9 +443,45 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             note,
             project,
         } => {
-            move_task(handle, for_identity, note.as_ref(), project.as_deref(), "tasks")?;
+            move_task(
+                handle,
+                for_identity,
+                note.as_ref(),
+                project.as_deref(),
+                "tasks",
+            )?;
         }
     }
+    Ok(())
+}
+
+fn list_tasks(
+    for_identity: &str,
+    status: &vivarium::cli::TaskStatus,
+    json: bool,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(project)?;
+    crate::local_work_list::print_work_list(
+        &mailspace,
+        for_identity,
+        match status {
+            vivarium::cli::TaskStatus::Open => "tasks",
+            vivarium::cli::TaskStatus::Done => "done",
+        },
+        "task",
+        json,
+    )?;
+    Ok(())
+}
+
+fn show_task(
+    handle: &str,
+    json: bool,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(project)?;
+    vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, json)?;
     Ok(())
 }
 
