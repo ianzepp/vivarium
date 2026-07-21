@@ -80,6 +80,88 @@ The clean break is: **subagent fleets should not use OS PID for liveness at all.
 
 A `--harness subagent` flag on the role record (or inferring from the existing `harness` field) could suppress PID-based liveness in `vivi role status` and board output, so the sensor chain stops emitting false `state=stopped` signals without requiring a schema migration.
 
+## [2026-07-21] `memo search` does not exist
+
+**Severity:** Medium — forces full dump for selective retrieval  
+**Version affected:** vivi 6.3.0
+
+### What happened
+
+`vivi memo list --project <root> --for <role>` dumps every memo for a role. There is no keyword, handle, or subject query to find memos mentioning a topic.
+
+The fleet skill documents this gap already:
+
+> **Known gap: no `memo search`.** `memo list` dumps every memo for a role;
+> there is no keyword or handle query to find memos mentioning a topic. This
+> forces a Mind to load all of a role's memos into context, which defeats
+> the purpose of selective durable memory.
+
+### Impact
+
+Standing law, policy, architecture decisions, and capacity records live in memos. A Mind with 20 memos (current observed count on swarm) must load all 20 to find the one that mentions "Railway deploy paused" or "lowering law." After compaction, when the Mind most needs durable memory, the cost of retrieving it is highest.
+
+Both fleet Minds independently flagged this as a priority gap during retrospective.
+
+### Proposed command
+
+```sh
+vivi memo search --project <root> --for <role> <query>
+vivi memo search --project <root> --for mind "railway deploy"
+vivi memo search --project <root> --for mind --subject "ACCEPT*"
+```
+
+Search should match subject and body. Output format can match `memo list` but filtered to hits. No schema change required — memos already have subject and body fields.
+
+## [2026-07-21] Task lifecycle lacks depends-on and verdict fields
+
+**Severity:** Medium — forces prose-based dependency tracking and verdict scavenging  
+**Version affected:** vivi 6.3.0
+
+### What happened
+
+Tasks have `send → done` lifecycle but no structured fields for:
+
+1. **Dependencies.** A task that depends on another task completing first (e.g., "HV-07C after A+B") is expressed as prose in the body, not as a queryable field.
+
+2. **Verdict on close.** Auditor tasks return `clean_pass`, `residual`, or `block_ship` as a note string, not as a structured field. The Mind must parse the note to determine the outcome.
+
+3. **Tip SHAs and repo on close.** When a Hand completes work, the commit SHA and affected repo are in the note prose, not structured fields. Multi-repo fleets (faber has hosts + examples repos) cannot query "what landed where" without reading notes.
+
+### Evidence
+
+Both fleet Minds independently requested these additions during retrospective:
+
+- **Swarm:** "depends-on (HV-07C after A+B) as first-class, not prose in the body" and "link unit → delivery id / tip SHAs as structured fields"
+- **Faber:** "Structured task close: verdict + tip SHAs + repo"
+
+### Proposed schema additions
+
+```sh
+# Dependencies
+vivi task send --to hand-3 --depends-on <handle> --depends-on <handle> ...
+
+# Verdict on close
+vivi task done <handle> --for auditor-1 --verdict clean_pass
+vivi task done <handle> --for auditor-1 --verdict residual --note 'P2: ...'
+vivi task done <handle> --for auditor-1 --verdict block_ship --note 'F1: ...'
+
+# Tip SHAs and repo on close
+vivi task done <handle> --for hand-2 --repo examples --tip e968cc3
+vivi task done <handle> --for hand-2 --repo hosts --tip 0de5c36
+```
+
+Board and sensors could then surface:
+- blocked tasks (open with unmet depends-on)
+- auditor verdicts without note parsing
+- multi-repo land receipts without per-repo `git log`
+
+### Notes
+
+- `--verdict` is most valuable for auditor tasks but could be used by any closing role.
+- `--depends-on` is repeatable for multi-dependency chains.
+- `--repo` + `--tip` are repeatable for multi-repo units.
+- All three are backward-compatible additions; existing tasks simply lack the fields.
+
 ## [2026-05-07] `vivi agent archive` does not support `--execute`
 
 **Severity:** Medium — breaks documented agent workflow  
