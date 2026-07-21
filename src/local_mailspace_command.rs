@@ -2,7 +2,7 @@ use vivarium::VivariumError;
 use vivarium::cli::{
     Command, CycleCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
     MailReplyCommand, MailspaceCommand, MailspaceIdentityCommand, MailspaceImportCommand,
-    MailspaceWatchCommand, MemoCommand, TaskCommand, TraceCommand,
+    MailspaceWatchCommand, MemoCommand, TaskCommand, TaskSendCommand, TraceCommand,
 };
 use vivarium::mailspace::{
     DumpFilters, MailAbsorbFilter, MailDumpRequest, Mailspace, MailspaceWatchRequest, SendRequest,
@@ -443,9 +443,11 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
         TaskCommand::List {
             for_identity,
             status,
+            blocked,
+            blocking,
             json,
             project,
-        } => list_tasks(for_identity, status, *json, project.as_deref())?,
+        } => list_tasks_command(for_identity, status, blocked, blocking, json, project)?,
         TaskCommand::Show {
             handle,
             json,
@@ -486,6 +488,27 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
     Ok(())
 }
 
+fn list_tasks_command(
+    for_identity: &str,
+    status: &vivarium::cli::TaskStatus,
+    blocked: &bool,
+    blocking: &Option<String>,
+    json: &bool,
+    project: &Option<std::path::PathBuf>,
+) -> Result<(), VivariumError> {
+    if *blocked || blocking.is_some() {
+        list_tasks_with_deps(
+            for_identity,
+            *blocked,
+            blocking.as_deref(),
+            *json,
+            project.as_deref(),
+        )
+    } else {
+        list_tasks(for_identity, status, *json, project.as_deref())
+    }
+}
+
 fn list_tasks(
     for_identity: &str,
     status: &vivarium::cli::TaskStatus,
@@ -504,6 +527,18 @@ fn list_tasks(
         json,
     )?;
     Ok(())
+}
+
+fn list_tasks_with_deps(
+    for_identity: &str,
+    blocked: bool,
+    blocking: Option<&str>,
+    json: bool,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(project)?;
+    let tasks = mailspace.list_tasks_with_deps(for_identity, blocked, blocking)?;
+    crate::local_work_list::print_task_list(&mailspace, &tasks, json)
 }
 
 fn show_task(
@@ -537,8 +572,28 @@ fn task_from_source(command: &vivarium::cli::TaskFromCommand) -> Result<(), Viva
     Ok(())
 }
 
-fn send_task(command: &LocalSendCommand) -> Result<(), VivariumError> {
-    send_mail(command, "tasks", "task", "created")
+fn send_task(command: &TaskSendCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.send.project.as_deref())?;
+    let result = mailspace.send(SendRequest {
+        from: command.send.from.clone(),
+        to: command.send.to.clone(),
+        cc: command.send.cc.clone(),
+        bcc: command.send.bcc.clone(),
+        subject: command.send.subject.clone(),
+        body: vivarium::mailspace::read_body_input(
+            command.send.body.as_deref(),
+            command.send.body_file.as_deref(),
+        )?,
+        role: "tasks".into(),
+        kind: Some("task".into()),
+        reply_to: command.send.reply_to.clone(),
+        depends_on: command.depends_on.clone(),
+    })?;
+    for delivered in result.delivered {
+        println!("created {} {}", delivered.identity, delivered.handle);
+    }
+    println!("sent {}", result.sent);
+    Ok(())
 }
 
 fn send_mail(
@@ -561,6 +616,7 @@ fn send_mail(
         role: role.into(),
         kind: Some(kind.into()),
         reply_to: command.reply_to.clone(),
+        depends_on: Vec::new(),
     })?;
     for delivered in result.delivered {
         println!(

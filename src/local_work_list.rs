@@ -105,7 +105,88 @@ fn status_for_role(role: &str) -> String {
     }
 }
 
-fn print_json(items: &[WorkListItem]) -> Result<(), VivariumError> {
+#[derive(Debug, Serialize)]
+struct TaskListItem {
+    handle: String,
+    status: String,
+    role: String,
+    date: String,
+    from: String,
+    to: String,
+    subject: String,
+    depends_on: Vec<String>,
+    last_event: Option<WorkListEvent>,
+}
+
+pub(crate) fn print_task_list(
+    mailspace: &Mailspace,
+    tasks: &[(StoredMessageView, Vec<String>)],
+    json: bool,
+) -> Result<(), VivariumError> {
+    let storage = mailspace.storage()?;
+    let message_ids = tasks
+        .iter()
+        .map(|(message, _)| message.message_id.clone())
+        .collect::<Vec<_>>();
+    let events_by_message = storage.list_mailspace_events_for_messages(&message_ids)?;
+    let items = tasks
+        .iter()
+        .map(|(message, deps)| {
+            let events = events_by_message
+                .get(&message.message_id)
+                .map_or([].as_slice(), Vec::as_slice);
+            task_list_item(message.clone(), deps, events)
+        })
+        .collect::<Vec<_>>();
+    if json {
+        print_json(&items)
+    } else {
+        print_task_human(&items);
+        Ok(())
+    }
+}
+
+fn task_list_item(
+    message: StoredMessageView,
+    deps: &[String],
+    events: &[MailspaceEvent],
+) -> TaskListItem {
+    TaskListItem {
+        handle: message.handle,
+        status: status_for_role(&message.local_role),
+        role: message.local_role,
+        date: message.date,
+        from: message.from_addr,
+        to: message.to_addr,
+        subject: message.subject,
+        depends_on: deps.to_vec(),
+        last_event: events.last().map(work_list_event),
+    }
+}
+
+fn print_task_human(items: &[TaskListItem]) {
+    if items.is_empty() {
+        println!("  no tasks");
+        return;
+    }
+    println!("  handle  status  depends_on  subject  last_event");
+    for item in items {
+        let last_event = item
+            .last_event
+            .as_ref()
+            .map_or("-", |event| event.command.as_str());
+        println!(
+            "  {}  {}  [{}]  {}  {}",
+            item.handle,
+            item.status,
+            item.depends_on.join(", "),
+            item.subject,
+            last_event
+        );
+    }
+}
+
+fn print_json(items: &[impl serde::Serialize]) -> Result<(), VivariumError> {
     println!(
         "{}",
         serde_json::to_string_pretty(items)

@@ -4,8 +4,8 @@ use clap::Parser;
 use vivarium::cli::{
     AgentCommand, Cli, Command, CycleCommand, EnqueueCommand, ExecCommand, IndexCommand,
     MailAbsorbStatus, MailCommand, MailspaceCommand, MailspaceIdentityCommand, MemoCommand,
-    NeedCommand, ProtonCommand, QueueCommand, TaskCommand, TaskDumpStatusArg, TaskStatus,
-    WantCommand,
+    NeedCommand, ProtonCommand, QueueCommand, TaskCommand, TaskDumpStatusArg, TaskSendCommand,
+    TaskStatus, WantCommand,
 };
 
 #[test]
@@ -746,6 +746,8 @@ fn parses_task_list_done_status() {
                     status,
                     json,
                     project,
+                    blocked: _,
+                    blocking: _,
                 },
         } => {
             assert_eq!(for_identity, "cto");
@@ -1790,6 +1792,75 @@ fn parses_memo_search_subject_only() {
             assert_eq!(for_identity, "mind");
             assert!(subject);
             assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_task_send_with_depends_on() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "task",
+        "send",
+        "--from",
+        "ceo",
+        "--to",
+        "hand-1",
+        "--subject",
+        "do this after that",
+        "--body",
+        "depends on prior work",
+        "--depends-on",
+        "abc123",
+        "--depends-on",
+        "def456",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Task {
+            command:
+                TaskCommand::Send(TaskSendCommand {
+                    send, depends_on, ..
+                }),
+        } => {
+            assert_eq!(send.from, "ceo");
+            assert_eq!(send.to, vec!["hand-1"]);
+            assert_eq!(send.subject, "do this after that");
+            assert_eq!(depends_on, vec!["abc123", "def456"]);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_task_list_blocked_and_blocking() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "task",
+        "list",
+        "--for",
+        "hand-1",
+        "--blocked",
+        "--blocking",
+        "abc123",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Task {
+            command:
+                TaskCommand::List {
+                    for_identity,
+                    blocked,
+                    blocking,
+                    ..
+                },
+        } => {
+            assert_eq!(for_identity, "hand-1");
+            assert!(blocked);
+            assert_eq!(blocking.as_deref(), Some("abc123"));
         }
         other => panic!("unexpected command: {other:?}"),
     }

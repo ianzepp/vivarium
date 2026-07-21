@@ -19,8 +19,8 @@ pub use mailspace_command::{
     CycleCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
     MailReplyCommand, MailThreadCommand, MailspaceCommand, MailspaceIdentityCommand,
     MailspaceImportCommand, MailspaceWatchCommand, MemoCommand, NeedCommand, TaskCommand,
-    TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand, TaskStatus, TraceCommand, WantCommand,
-    WantStatus,
+    TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand, TaskSendCommand, TaskStatus, TraceCommand,
+    WantCommand, WantStatus,
 };
 pub use proton_command::ProtonCommand;
 pub use render_command::{RenderCommand, RenderFormat};

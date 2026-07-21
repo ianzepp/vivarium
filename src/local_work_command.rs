@@ -292,6 +292,7 @@ fn send_local_item(
         role: role.into(),
         kind: Some(kind.into()),
         reply_to: command.reply_to.clone(),
+        depends_on: Vec::new(),
     })?;
     for delivered in result.delivered {
         println!("{verb} {} {}", delivered.identity, delivered.handle);

@@ -217,7 +217,7 @@ pub enum MailAbsorbStatus {
     Unabsorbed,
 }
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Clone, Parser)]
 #[command(group(
     ArgGroup::new("body_input")
         .required(true)
@@ -259,6 +259,16 @@ pub struct LocalSendCommand {
     /// Project root to use
     #[arg(long)]
     pub project: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Parser)]
+pub struct TaskSendCommand {
+    #[command(flatten)]
+    pub send: LocalSendCommand,
+
+    /// Task handle this task depends on (repeatable)
+    #[arg(long = "depends-on")]
+    pub depends_on: Vec<String>,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -466,7 +476,7 @@ pub struct TaskFromCommand {
 #[derive(Debug, Subcommand)]
 pub enum TaskCommand {
     /// Send a task message into the recipient's Tasks folder
-    Send(LocalSendCommand),
+    Send(TaskSendCommand),
 
     /// Create a task from an existing source handle
     From(TaskFromCommand),
@@ -483,6 +493,14 @@ pub enum TaskCommand {
         /// Task folder status
         #[arg(long, default_value = "open")]
         status: TaskStatus,
+
+        /// List only tasks blocked by an unfinished dependency
+        #[arg(long)]
+        blocked: bool,
+
+        /// List tasks that depend on the given handle
+        #[arg(long)]
+        blocking: Option<String>,
 
         /// Output as JSON
         #[arg(long)]

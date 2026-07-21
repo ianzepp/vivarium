@@ -130,6 +130,9 @@ impl Mailspace {
         if let Some(kind) = &request.kind {
             eml = add_header(&eml, "X-Vivi-Kind", kind)?;
         }
+        for dependency in &request.depends_on {
+            eml = add_header(&eml, "X-Vivi-Depends-On", dependency)?;
+        }
         if let Some(parent) = parent {
             eml = add_reply_headers(&eml, parent)?;
         }
@@ -299,6 +302,90 @@ impl Mailspace {
             }
         }
         Ok(matched)
+    }
+
+    /// Extract the dependency handles recorded on a task message.
+    ///
+    /// Dependencies are stored as repeated `X-Vivi-Depends-On` headers.
+    ///
+    /// # Errors
+    /// Returns an error if the message cannot be read or parsed.
+    pub fn task_depends_on(&self, message_id: &str) -> Result<Vec<String>, VivariumError> {
+        let storage = self.storage()?;
+        let data = storage.read_message(message_id)?;
+        let parsed = mail_parser::MessageParser::default()
+            .parse(&data)
+            .ok_or_else(|| VivariumError::Parse("failed to parse task message".into()))?;
+        Ok(parsed
+            .headers()
+            .iter()
+            .filter(|h| h.name().eq_ignore_ascii_case("X-Vivi-Depends-On"))
+            .filter_map(|h| {
+                if let mail_parser::HeaderValue::Text(text) = h.value() {
+                    Some(text.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect())
+    }
+
+    /// Return whether the task identified by handle has been moved to Done.
+    ///
+    /// # Errors
+    /// Returns an error if the handle cannot be resolved.
+    pub fn is_task_done(&self, handle: &str) -> Result<bool, VivariumError> {
+        let storage = self.storage()?;
+        let message_id = storage.resolve_message_token(handle)?;
+        let Some(view) = storage.message_by_id(&message_id)? else {
+            return Err(VivariumError::Message(format!(
+                "message not found: {handle}"
+            )));
+        };
+        Ok(view.local_role == "done")
+    }
+
+    /// List open tasks with their dependency handles, optionally filtered.
+    ///
+    /// - `blocked` keeps only tasks with at least one unfinished dependency.
+    /// - `blocking` keeps only tasks that depend on the given handle.
+    ///
+    /// # Errors
+    /// Returns an error if the identity cannot be resolved or a storage
+    /// operation fails.
+    pub fn list_tasks_with_deps(
+        &self,
+        identity: &str,
+        blocked: bool,
+        blocking: Option<&str>,
+    ) -> Result<Vec<(StoredMessageView, Vec<String>)>, VivariumError> {
+        let tasks = self.list_kind(identity, "tasks", "task")?;
+        let mut result = Vec::new();
+        for task in tasks {
+            let deps = self.task_depends_on(&task.message_id)?;
+            if deps.is_empty() {
+                continue;
+            }
+            if let Some(blocking) = blocking {
+                if !deps.iter().any(|d| d == blocking) {
+                    continue;
+                }
+            }
+            if blocked {
+                let mut has_unmet = false;
+                for dep in &deps {
+                    if !self.is_task_done(dep)? {
+                        has_unmet = true;
+                        break;
+                    }
+                }
+                if !has_unmet {
+                    continue;
+                }
+            }
+            result.push((task, deps));
+        }
+        Ok(result)
     }
 
     /// Move a task message to a new role (e.g. `done`, `tasks`). If `note` is

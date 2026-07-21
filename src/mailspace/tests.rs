@@ -35,6 +35,7 @@ fn local_delivery_rejects_unknown_identity() {
             role: "inbox".into(),
             kind: None,
             reply_to: None,
+            depends_on: Vec::new(),
         })
         .unwrap_err();
 
@@ -71,6 +72,7 @@ fn absorb_mail_marks_message_read() {
             role: "inbox".into(),
             kind: None,
             reply_to: None,
+            depends_on: Vec::new(),
         })
         .unwrap();
     let handle = sent.delivered[0].handle.clone();
@@ -102,6 +104,7 @@ fn task_move_keeps_handle_stable() {
             role: "tasks".into(),
             kind: Some("task".into()),
             reply_to: None,
+            depends_on: Vec::new(),
         })
         .unwrap();
     let handle = sent.delivered[0].handle.clone();
@@ -133,6 +136,7 @@ fn rename_identity_keeps_historical_mail_and_old_alias_working() {
             role: "tasks".into(),
             kind: Some("task".into()),
             reply_to: None,
+            depends_on: Vec::new(),
         })
         .unwrap();
     let handle = sent.delivered[0].handle.clone();
@@ -271,6 +275,7 @@ fn fixture_with_noise(noise: usize) -> (tempfile::TempDir, Mailspace, String) {
                 role: "inbox".into(),
                 kind: None,
                 reply_to: None,
+                depends_on: Vec::new(),
             })
             .unwrap();
     }
@@ -285,6 +290,7 @@ fn fixture_with_noise(noise: usize) -> (tempfile::TempDir, Mailspace, String) {
             role: "needs".into(),
             kind: Some("need".into()),
             reply_to: None,
+            depends_on: Vec::new(),
         })
         .unwrap();
     (tmp, mailspace, sent.delivered[0].handle.clone())

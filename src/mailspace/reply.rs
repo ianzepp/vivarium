@@ -48,6 +48,7 @@ impl Mailspace {
             role: "inbox".into(),
             kind: Some("mail".into()),
             reply_to: Some(parent.handle),
+            depends_on: Vec::new(),
         })
     }
 
