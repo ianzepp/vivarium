@@ -297,3 +297,55 @@ fn format_duration(seconds: u64) -> String {
         format!("{secs}s")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_pid_is_not_set() {
+        assert!(matches!(probe(None, None).state, ProcessState::NotSet));
+    }
+
+    #[test]
+    fn host_is_remote_classifies_cross_host_correctly() {
+        // Stored host differs from local -> remote (never a false dead).
+        assert!(host_is_remote(Some("pharos"), Some("burgus")));
+        // Same host -> local probe.
+        assert!(!host_is_remote(Some("burgus"), Some("burgus")));
+        // No stored host -> assume local (cannot disagree).
+        assert!(!host_is_remote(None, Some("burgus")));
+        // Local hostname unreadable -> assume local rather than guessing remote.
+        assert!(!host_is_remote(Some("pharos"), None));
+    }
+
+    #[test]
+    fn classify_maps_process_status() {
+        assert!(matches!(
+            classify(ProcessStatus::Zombie),
+            ProcessState::Zombie
+        ));
+        assert!(matches!(classify(ProcessStatus::Dead), ProcessState::Dead));
+        assert!(matches!(classify(ProcessStatus::Run), ProcessState::Alive));
+        assert!(matches!(
+            classify(ProcessStatus::Sleep),
+            ProcessState::Alive
+        ));
+        assert!(matches!(
+            classify(ProcessStatus::Unknown(99)),
+            ProcessState::Unknown
+        ));
+    }
+
+    #[test]
+    fn not_set_and_dead_reports_carry_no_resource_detail() {
+        let not_set = not_set();
+        assert!(matches!(not_set.state, ProcessState::NotSet));
+        assert!(not_set.name.is_none() && not_set.running.is_none());
+
+        let dead = dead();
+        assert!(matches!(dead.state, ProcessState::Dead));
+        assert_eq!(dead.running, Some(false));
+        assert!(dead.name.is_none());
+    }
+}
