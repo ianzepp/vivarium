@@ -366,10 +366,10 @@ impl Mailspace {
             if deps.is_empty() {
                 continue;
             }
-            if let Some(blocking) = blocking {
-                if !deps.iter().any(|d| d == blocking) {
-                    continue;
-                }
+            if let Some(blocking) = blocking
+                && !deps.iter().any(|d| d == blocking)
+            {
+                continue;
             }
             if blocked {
                 let mut has_unmet = false;
@@ -394,6 +394,7 @@ impl Mailspace {
     /// # Errors
     /// Returns an error if the identity or message cannot be resolved, the role
     /// is invalid, or the storage operation fails.
+    #[allow(clippy::too_many_arguments)]
     pub fn move_task(
         &self,
         identity: &str,

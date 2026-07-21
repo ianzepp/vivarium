@@ -552,7 +552,7 @@ pub enum TaskCommand {
         #[arg(long)]
         note: Option<String>,
 
-        /// Optional close verdict (e.g. clean_pass, residual, block_ship)
+        /// Optional close verdict (e.g. `clean_pass`, residual, `block_ship`)
         #[arg(long)]
         verdict: Option<String>,
 

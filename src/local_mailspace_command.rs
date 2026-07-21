@@ -81,15 +81,12 @@ fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumEr
         }
         MailspaceCommand::Description { project, set } => {
             let mut mailspace = Mailspace::discover(project.as_deref())?;
-            match set {
-                Some(description) => {
-                    mailspace.set_description(Some(description.clone()))?;
-                    println!("description set");
-                }
-                None => {
-                    let description = mailspace.config.description.as_deref().unwrap_or("(none)");
-                    println!("{description}");
-                }
+            if let Some(description) = set {
+                mailspace.set_description(Some(description.clone()))?;
+                println!("description set");
+            } else {
+                let description = mailspace.config.description.as_deref().unwrap_or("(none)");
+                println!("{description}");
             }
         }
         MailspaceCommand::Watch(command) => run_watch(command, None)?,
@@ -454,13 +451,9 @@ fn send_local_mail(command: &LocalSendCommand) -> Result<(), VivariumError> {
 
 fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
     match command {
-        TaskCommand::Send(command) => {
-            send_task(command)?;
-        }
+        TaskCommand::Send(command) => send_task(command)?,
         TaskCommand::From(command) => task_from_source(command)?,
-        TaskCommand::Watch(command) => {
-            run_watch(command, Some("task"))?;
-        }
+        TaskCommand::Watch(command) => run_watch(command, Some("task"))?,
         TaskCommand::List {
             for_identity,
             status,
@@ -468,15 +461,20 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             blocking,
             json,
             project,
-        } => list_tasks_command(for_identity, status, blocked, blocking, json, project)?,
+        } => list_tasks_command(
+            for_identity,
+            status,
+            *blocked,
+            blocking.as_deref(),
+            *json,
+            project.as_deref(),
+        )?,
         TaskCommand::Show {
             handle,
             json,
             project,
         } => show_task(handle, *json, project.as_deref())?,
-        TaskCommand::Dump(command) => {
-            crate::local_work_command::dump_tasks(command)?;
-        }
+        TaskCommand::Dump(command) => crate::local_work_command::dump_tasks(command)?,
         TaskCommand::Done {
             handle,
             for_identity,
@@ -485,22 +483,21 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             repo,
             tip,
             project,
-        } => done_task(handle, for_identity, note, verdict, repo, tip, project)?,
+        } => done_task(
+            handle,
+            for_identity,
+            note.as_deref(),
+            verdict.as_deref(),
+            repo,
+            tip,
+            project.as_deref(),
+        )?,
         TaskCommand::Reopen {
             handle,
             for_identity,
             note,
             project,
-        } => move_task(
-            handle,
-            for_identity,
-            note.as_ref(),
-            project.as_deref(),
-            "tasks",
-            None,
-            &[],
-            &[],
-        )?,
+        } => reopen_task(handle, for_identity, note, project)?,
     }
     Ok(())
 }
@@ -508,42 +505,54 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
 fn done_task(
     handle: &str,
     for_identity: &str,
-    note: &Option<String>,
-    verdict: &Option<String>,
+    note: Option<&str>,
+    verdict: Option<&str>,
     repo: &[String],
     tip: &[String],
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    move_task(
+        handle,
+        for_identity,
+        note,
+        project,
+        "done",
+        verdict,
+        repo,
+        tip,
+    )
+}
+
+fn reopen_task(
+    handle: &str,
+    for_identity: &str,
+    note: &Option<String>,
     project: &Option<std::path::PathBuf>,
 ) -> Result<(), VivariumError> {
     move_task(
         handle,
         for_identity,
-        note.as_ref(),
+        note.as_deref(),
         project.as_deref(),
-        "done",
-        verdict.as_deref(),
-        repo,
-        tip,
+        "tasks",
+        None,
+        &[],
+        &[],
     )
 }
 
 fn list_tasks_command(
     for_identity: &str,
     status: &vivarium::cli::TaskStatus,
-    blocked: &bool,
-    blocking: &Option<String>,
-    json: &bool,
-    project: &Option<std::path::PathBuf>,
+    blocked: bool,
+    blocking: Option<&str>,
+    json: bool,
+    project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
-    if *blocked || blocking.is_some() {
-        list_tasks_with_deps(
-            for_identity,
-            *blocked,
-            blocking.as_deref(),
-            *json,
-            project.as_deref(),
-        )
+    if blocked || blocking.is_some() {
+        list_tasks_with_deps(for_identity, blocked, blocking, json, project)
     } else {
-        list_tasks(for_identity, status, *json, project.as_deref())
+        list_tasks(for_identity, status, json, project)
     }
 }
 
@@ -714,10 +723,11 @@ pub(crate) fn run_watch(
     vivarium::mailspace::run_watch(&mailspace, request)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn move_task(
     handle: &str,
     for_identity: &str,
-    note: Option<&String>,
+    note: Option<&str>,
     project: Option<&std::path::Path>,
     role: &str,
     verdict: Option<&str>,
@@ -730,15 +740,7 @@ fn move_task(
         ));
     }
     let mailspace = Mailspace::discover(project)?;
-    let handle = mailspace.move_task(
-        for_identity,
-        handle,
-        role,
-        note.map(String::as_str),
-        verdict,
-        repo,
-        tip,
-    )?;
+    let handle = mailspace.move_task(for_identity, handle, role, note, verdict, repo, tip)?;
     let verb = if role == "done" { "done" } else { "reopened" };
     println!("{verb} {handle}");
     Ok(())
