@@ -28,6 +28,10 @@ pub struct BoardCommand {
     #[arg(long)]
     pub json: bool,
 
+    /// Include live process status per role (liveness, memory, uptime; no CPU)
+    #[arg(long)]
+    pub process: bool,
+
     /// Project root that owns .vivi/ (also accepted globally: vivi --project <ROOT> board)
     #[arg(long)]
     pub project: Option<PathBuf>,

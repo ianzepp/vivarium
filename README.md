@@ -375,6 +375,17 @@ vivi need list --project /path/to/project --for ceo --json
 vivi task show --project /path/to/project <handle>
 ```
 
+`vivi board --process` adds a live process block per role (one role with `--for`,
+or every role without it). It uses a quick probe — accurate `state`, `running`,
+process `name`, `memory`, and `uptime`, but `cpu_percent` is null (a board scan
+does not sleep for CPU samples; use `vivi role status <name>` for that). A role
+with no binding reads `not_set`, which is the "available to assign" signal:
+
+```sh
+vivi board --process --project /path/to/project --json
+vivi board --process --for hand-1 --project /path/to/project
+```
+
 Agent-cycle bookkeeping can mark ordinary advisory mail as absorbed without
 moving it into the task/need/want lifecycle. Absorb means dispositioned signal,
 not accepted work or cleared review debt:

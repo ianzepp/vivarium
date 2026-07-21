@@ -70,15 +70,33 @@ pub enum ProcessState {
 /// - `pid` `None` → [`ProcessState::NotSet`].
 /// - stored host differs from local → [`ProcessState::Remote`] (no local probe).
 /// - otherwise the OS is probed via `sysinfo`.
+///
+/// Pays one [`CPU_SAMPLE_INTERVAL`] sleep for a live local pid so `cpu_percent`
+/// reflects a real delta. Use [`probe_quick`] when many roles are scanned and a
+/// precise CPU reading is not required.
 #[must_use]
 pub fn probe(pid: Option<u32>, stored_host: Option<&str>) -> ProcessReport {
+    probe_with(pid, stored_host, true)
+}
+
+/// Lightweight probe for scanning many roles (e.g. `vivi board --process`).
+///
+/// Same states as [`probe`] but skips the CPU sample sleep, so a live pid is
+/// instant. `cpu_percent` is `None` here — a single refresh cannot honestly
+/// report CPU. Precise CPU stays `vivi role status <name>`.
+#[must_use]
+pub fn probe_quick(pid: Option<u32>, stored_host: Option<&str>) -> ProcessReport {
+    probe_with(pid, stored_host, false)
+}
+
+fn probe_with(pid: Option<u32>, stored_host: Option<&str>, sample_cpu: bool) -> ProcessReport {
     let Some(pid) = pid else {
         return not_set();
     };
     if host_is_remote(stored_host, local_host_name().as_deref()) {
         return remote();
     }
-    probe_local(pid)
+    probe_local(pid, sample_cpu)
 }
 
 fn host_is_remote(stored: Option<&str>, local: Option<&str>) -> bool {
@@ -122,19 +140,22 @@ fn dead() -> ProcessReport {
     }
 }
 
-/// Probe the local process table. A live pid pays one [`CPU_SAMPLE_INTERVAL`]
-/// sleep so `cpu_usage()` reflects a real delta rather than a zero first read.
-fn probe_local(pid: u32) -> ProcessReport {
+/// Probe the local process table. When `sample_cpu` is set, a live pid pays
+/// one [`CPU_SAMPLE_INTERVAL`] sleep so `cpu_usage()` reflects a real delta
+/// rather than a zero first read.
+fn probe_local(pid: u32, sample_cpu: bool) -> ProcessReport {
     let mut system = System::new();
     let target = Pid::from_u32(pid);
     refresh_one(&mut system, target);
     if system.process(target).is_none() {
         return dead();
     }
-    thread::sleep(CPU_SAMPLE_INTERVAL);
-    refresh_one(&mut system, target);
+    if sample_cpu {
+        thread::sleep(CPU_SAMPLE_INTERVAL);
+        refresh_one(&mut system, target);
+    }
     match system.process(target) {
-        Some(process) => report_live(process),
+        Some(process) => report_live(process, sample_cpu),
         None => dead(),
     }
 }
@@ -143,7 +164,7 @@ fn refresh_one(system: &mut System, target: Pid) {
     system.refresh_processes(ProcessesToUpdate::Some(&[target]), false);
 }
 
-fn report_live(process: &Process) -> ProcessReport {
+fn report_live(process: &Process, include_cpu: bool) -> ProcessReport {
     let state = classify(process.status());
     ProcessReport {
         running: match state {
@@ -153,7 +174,8 @@ fn report_live(process: &Process) -> ProcessReport {
         },
         state,
         name: Some(process.name().to_string_lossy().into_owned()),
-        cpu_percent: Some(process.cpu_usage()),
+        // A single refresh cannot honestly report CPU; only the sampled probe does.
+        cpu_percent: include_cpu.then_some(process.cpu_usage()),
         memory_bytes: Some(process.memory()),
         uptime_seconds: Some(process.run_time()),
     }

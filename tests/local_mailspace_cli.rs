@@ -658,6 +658,51 @@ fn board_and_status_report_actionable_work() {
 }
 
 #[test]
+fn board_process_reports_liveness_per_role() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let p = project.path().to_str().unwrap();
+
+    // ceo self-registers a live pid; cto has no binding.
+    let pid = std::process::id();
+    assert_success(&vivi(["role", "set", "ceo", "--pid", &pid.to_string(), "--project", p]));
+
+    // Default board has no process block.
+    let plain: Value =
+        serde_json::from_str(&stdout(&vivi(["board", "--for", "ceo", "--json", "--project", p])))
+            .unwrap();
+    assert!(plain["identities"][0].get("process").is_none(), "{plain}");
+
+    // --process adds a process block per role.
+    let board: Value =
+        serde_json::from_str(&stdout(&vivi(["board", "--process", "--json", "--project", p])))
+            .unwrap();
+    let by_name: std::collections::HashMap<&str, &Value> = board["identities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|id| (id["identity"].as_str().unwrap(), id))
+        .collect();
+
+    let ceo = by_name["ceo"];
+    assert_eq!(ceo["process"]["state"], "alive");
+    assert_eq!(ceo["process"]["running"], true);
+    assert!(ceo["process"]["name"].as_str().is_some(), "{ceo}");
+    // Board uses the quick probe; cpu is intentionally null.
+    assert_eq!(ceo["process"]["cpu_percent"], Value::Null);
+
+    // A role with no binding reads not_set (available to assign).
+    let cto = by_name["cto"];
+    assert_eq!(cto["process"]["state"], "not_set");
+    assert_eq!(cto["process"]["running"], Value::Null);
+
+    // Text output surfaces the process line.
+    let text = stdout(&vivi(["board", "--process", "--project", p]));
+    assert!(text.contains("process: alive running:yes"), "{text}");
+    assert!(text.contains("process: not_set running:unknown"), "{text}");
+}
+
+#[test]
 fn want_done_drop_and_status_lists_closed_wants() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());

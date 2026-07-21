@@ -8,6 +8,7 @@ use serde::Serialize;
 use vivarium::VivariumError;
 use vivarium::cli::BoardCommand;
 use vivarium::mailspace::Mailspace;
+use vivarium::role_status::ProcessReport;
 use vivarium::storage::{MailspaceEvent, Storage, StoredMessageView};
 
 #[derive(Debug, Serialize)]
@@ -37,6 +38,9 @@ struct IdentityBoard {
     needs: Vec<BoardItem>,
     wants: Vec<BoardItem>,
     wants_hidden: usize,
+    /// Live process status. Present only when the board is run with `--process`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    process: Option<ProcessReport>,
 }
 
 #[derive(Debug, Serialize)]
@@ -64,6 +68,7 @@ pub(crate) fn handle_board_command(command: &BoardCommand) -> Result<(), Vivariu
         command.for_identity.as_deref(),
         command.wants,
         since,
+        command.process,
     )?;
     if command.json {
         print_json(&board)?;
@@ -79,6 +84,7 @@ fn build_board(
     for_identity: Option<&str>,
     wants_cap: usize,
     since: Option<DateTime<Utc>>,
+    with_process: bool,
 ) -> Result<Board, VivariumError> {
     let identities = board_identities(mailspace, for_identity)?;
     let storage = mailspace.storage()?;
@@ -103,6 +109,7 @@ fn build_board(
             &events_by_message,
             wants_cap,
             since,
+            with_process,
         ));
     }
     Ok(Board {
@@ -216,6 +223,7 @@ fn build_identity_board(
     events_by_message: &HashMap<String, Vec<MailspaceEvent>>,
     wants_cap: usize,
     since: Option<DateTime<Utc>>,
+    with_process: bool,
 ) -> IdentityBoard {
     let (tasks_open, needs_open, wants_open) = partition_board_messages(messages);
     let tasks = board_items(tasks_open, events_by_message, None, since);
@@ -227,10 +235,31 @@ fn build_identity_board(
         address: mailspace.address_for(identity),
         actionable_open: tasks.len() + needs.len(),
         wants_hidden: wants_count.saturating_sub(wants.len()),
+        process: role_process_status(mailspace, identity, with_process),
         tasks,
         needs,
         wants,
     }
+}
+
+/// Look up a role's pid/host binding and probe it when `with_process` is set.
+/// Reads the config record directly so the board does not pay charter file reads.
+fn role_process_status(
+    mailspace: &Mailspace,
+    identity: &str,
+    with_process: bool,
+) -> Option<ProcessReport> {
+    if !with_process {
+        return None;
+    }
+    let role = mailspace
+        .config
+        .identities
+        .iter()
+        .find(|known| known.name == identity);
+    let pid = role.and_then(|role| role.pid);
+    let host = role.and_then(|role| role.host.as_deref());
+    Some(vivarium::role_status::probe_quick(pid, host))
 }
 
 fn partition_board_messages(
@@ -403,11 +432,40 @@ fn print_identity(identity: &IdentityBoard) {
         identity.needs.len(),
         identity.wants.len() + identity.wants_hidden
     );
+    if let Some(process) = &identity.process {
+        let running = match process.running {
+            Some(true) => "yes",
+            Some(false) => "no",
+            None => "unknown",
+        };
+        let name = process
+            .name
+            .as_deref()
+            .map(|name| format!("  ({name})"))
+            .unwrap_or_default();
+        println!(
+            "  process: {} running:{}{name}",
+            role_status_state_label(&process.state),
+            running
+        );
+    }
     print_items("tasks", &identity.tasks);
     print_items("needs", &identity.needs);
     print_items("wants", &identity.wants);
     if identity.wants_hidden > 0 {
         println!("  wants hidden by cap: {}", identity.wants_hidden);
+    }
+}
+
+fn role_status_state_label(state: &vivarium::role_status::ProcessState) -> &'static str {
+    use vivarium::role_status::ProcessState;
+    match state {
+        ProcessState::NotSet => "not_set",
+        ProcessState::Remote => "remote",
+        ProcessState::Alive => "alive",
+        ProcessState::Zombie => "zombie",
+        ProcessState::Dead => "dead",
+        ProcessState::Unknown => "unknown",
     }
 }
 
