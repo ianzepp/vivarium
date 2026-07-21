@@ -675,6 +675,29 @@ fn board_process_reports_liveness_per_role() {
         p,
     ]));
 
+    // Add a subagent harness role with a stale pid. The board must not report
+    // it as dead, because OS pid is not a valid liveness signal for subagents.
+    assert_success(&vivi([
+        "role",
+        "add",
+        "hand-1",
+        "--kind",
+        "hand",
+        "--harness",
+        "subagent",
+        "--project",
+        p,
+    ]));
+    assert_success(&vivi([
+        "role",
+        "set",
+        "hand-1",
+        "--pid",
+        "4000000",
+        "--project",
+        p,
+    ]));
+
     // Default board has no process block.
     let plain: Value = serde_json::from_str(&stdout(&vivi([
         "board",
@@ -715,10 +738,16 @@ fn board_process_reports_liveness_per_role() {
     assert_eq!(cto["process"]["state"], "not_set");
     assert_eq!(cto["process"]["running"], Value::Null);
 
+    // Subagent harness ignores the stored pid and reports subagent.
+    let hand = by_name["hand-1"];
+    assert_eq!(hand["process"]["state"], "subagent");
+    assert_eq!(hand["process"]["running"], Value::Null);
+
     // Text output surfaces the process line.
     let text = stdout(&vivi(["board", "--process", "--project", p]));
     assert!(text.contains("process: alive running:yes"), "{text}");
     assert!(text.contains("process: not_set running:unknown"), "{text}");
+    assert!(text.contains("process: subagent running:unknown"), "{text}");
 }
 
 #[test]
@@ -1961,6 +1990,33 @@ fn role_status_reports_pid_binding_and_liveness() {
     .unwrap();
     assert_eq!(shown["pid"], Value::Null);
     assert_eq!(shown["host"], Value::Null);
+
+    // Subagent harness: a stored pid is not treated as a liveness signal.
+    assert_success(&vivi([
+        "role",
+        "add",
+        "hand-2",
+        "--kind",
+        "hand",
+        "--harness",
+        "subagent",
+        "--project",
+        p,
+    ]));
+    assert_success(&vivi([
+        "role",
+        "set",
+        "hand-2",
+        "--pid",
+        "4000000",
+        "--project",
+        p,
+    ]));
+    let out = vivi(["role", "status", "hand-2", "--json", "--project", p]);
+    assert_success(&out);
+    let v: Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(v["status"]["state"], "subagent");
+    assert_eq!(v["status"]["running"], Value::Null);
 }
 
 #[test]

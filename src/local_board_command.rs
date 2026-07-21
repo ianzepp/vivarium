@@ -269,7 +269,8 @@ fn role_process_status(
         .find(|known| known.name == identity);
     let pid = role.and_then(|role| role.pid);
     let host = role.and_then(|role| role.host.as_deref());
-    Some(vivarium::role_status::probe_quick(pid, host))
+    let harness = role.and_then(|role| role.harness.as_deref());
+    Some(vivarium::role_status::probe_quick(pid, host, harness))
 }
 
 fn partition_board_messages(
@@ -475,6 +476,7 @@ fn role_status_state_label(state: &vivarium::role_status::ProcessState) -> &'sta
         ProcessState::Alive => "alive",
         ProcessState::Zombie => "zombie",
         ProcessState::Dead => "dead",
+        ProcessState::Subagent => "subagent",
         ProcessState::Unknown => "unknown",
     }
 }

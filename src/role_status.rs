@@ -64,6 +64,8 @@ pub enum ProcessState {
     Zombie,
     /// No live process with this pid on this host.
     Dead,
+    /// The role uses a subagent harness; OS PID is not a valid liveness signal.
+    Subagent,
     /// Status could not be classified.
     Unknown,
 }
@@ -71,6 +73,8 @@ pub enum ProcessState {
 /// Probe a role's bound process. Liveness is computed fresh; nothing is stored.
 ///
 /// - `pid` `None` → [`ProcessState::NotSet`].
+/// - `harness` is `subagent` → [`ProcessState::Subagent`] (PID is not a valid
+///   liveness signal for one-shot tool shells).
 /// - stored host differs from local → [`ProcessState::Remote`] (no local probe).
 /// - otherwise the OS is probed via `sysinfo`.
 ///
@@ -78,8 +82,8 @@ pub enum ProcessState {
 /// reflects a real delta. Use [`probe_quick`] when many roles are scanned and a
 /// precise CPU reading is not required.
 #[must_use]
-pub fn probe(pid: Option<u32>, stored_host: Option<&str>) -> ProcessReport {
-    probe_with(pid, stored_host, true)
+pub fn probe(pid: Option<u32>, stored_host: Option<&str>, harness: Option<&str>) -> ProcessReport {
+    probe_with(pid, stored_host, harness, true)
 }
 
 /// Lightweight probe for scanning many roles (e.g. `vivi board --process`).
@@ -88,11 +92,23 @@ pub fn probe(pid: Option<u32>, stored_host: Option<&str>) -> ProcessReport {
 /// instant. `cpu_percent` is `None` here — a single refresh cannot honestly
 /// report CPU. Precise CPU stays `vivi role status <name>`.
 #[must_use]
-pub fn probe_quick(pid: Option<u32>, stored_host: Option<&str>) -> ProcessReport {
-    probe_with(pid, stored_host, false)
+pub fn probe_quick(
+    pid: Option<u32>,
+    stored_host: Option<&str>,
+    harness: Option<&str>,
+) -> ProcessReport {
+    probe_with(pid, stored_host, harness, false)
 }
 
-fn probe_with(pid: Option<u32>, stored_host: Option<&str>, sample_cpu: bool) -> ProcessReport {
+fn probe_with(
+    pid: Option<u32>,
+    stored_host: Option<&str>,
+    harness: Option<&str>,
+    sample_cpu: bool,
+) -> ProcessReport {
+    if harness == Some(crate::mailspace::ROLE_HARNESS_SUBAGENT) {
+        return subagent();
+    }
     let Some(pid) = pid else {
         return not_set();
     };
@@ -124,6 +140,17 @@ fn not_set() -> ProcessReport {
 fn remote() -> ProcessReport {
     ProcessReport {
         state: ProcessState::Remote,
+        running: None,
+        name: None,
+        cpu_percent: None,
+        memory_bytes: None,
+        uptime_seconds: None,
+    }
+}
+
+fn subagent() -> ProcessReport {
+    ProcessReport {
+        state: ProcessState::Subagent,
         running: None,
         name: None,
         cpu_percent: None,
@@ -276,6 +303,7 @@ fn state_label(state: &ProcessState) -> &'static str {
         ProcessState::Alive => "alive",
         ProcessState::Zombie => "zombie",
         ProcessState::Dead => "dead",
+        ProcessState::Subagent => "subagent",
         ProcessState::Unknown => "unknown",
     }
 }
@@ -286,6 +314,7 @@ fn state_note(state: &ProcessState) -> Option<&'static str> {
         ProcessState::Remote => {
             Some("pid lives on a different host; local liveness is unavailable")
         }
+        ProcessState::Subagent => Some("subagent harness: OS pid is not a valid liveness signal"),
         ProcessState::Dead => Some("no live process with this pid on this host"),
         _ => None,
     }
@@ -331,7 +360,27 @@ mod tests {
 
     #[test]
     fn no_pid_is_not_set() {
-        assert!(matches!(probe(None, None).state, ProcessState::NotSet));
+        assert!(matches!(
+            probe(None, None, None).state,
+            ProcessState::NotSet
+        ));
+    }
+
+    #[test]
+    fn subagent_harness_ignores_pid() {
+        let report = probe(Some(1), Some("localhost"), Some("subagent"));
+        assert!(matches!(report.state, ProcessState::Subagent));
+        assert!(report.running.is_none());
+    }
+
+    #[test]
+    fn non_subagent_harness_probes_a_dead_pid() {
+        // Use a PID that is extremely unlikely to exist. The harness is not
+        // subagent, so the probe must reach the OS and report Dead. Host is
+        // unset so the probe assumes local rather than classifying remote.
+        let report = probe(Some(999_999), None, Some("tmux"));
+        assert!(matches!(report.state, ProcessState::Dead));
+        assert_eq!(report.running, Some(false));
     }
 
     #[test]

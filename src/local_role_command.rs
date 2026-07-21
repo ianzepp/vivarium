@@ -216,7 +216,7 @@ fn status_role(
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
     let view = mailspace.role_view(name)?;
-    let status = role_status::probe(view.pid, view.host.as_deref());
+    let status = role_status::probe(view.pid, view.host.as_deref(), view.harness.as_deref());
     let schedule = mailspace.schedule_report(&view.name)?;
     let outcome = role_status::RoleStatusOutcome {
         name: view.name.clone(),
