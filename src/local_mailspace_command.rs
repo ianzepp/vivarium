@@ -2,7 +2,7 @@ use vivarium::VivariumError;
 use vivarium::cli::{
     Command, CycleCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
     MailReplyCommand, MailspaceCommand, MailspaceIdentityCommand, MailspaceImportCommand,
-    MailspaceWatchCommand, MemoCommand, TaskCommand,
+    MailspaceWatchCommand, MemoCommand, TaskCommand, TraceCommand,
 };
 use vivarium::mailspace::{
     DumpFilters, MailAbsorbFilter, MailDumpRequest, Mailspace, MailspaceWatchRequest, SendRequest,
@@ -46,6 +46,10 @@ pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumE
         }
         Command::Cycle { command } => {
             handle_cycle_command(command)?;
+            Ok(true)
+        }
+        Command::Trace(command) => {
+            handle_trace_command(command)?;
             Ok(true)
         }
         _ => Ok(false),
@@ -252,6 +256,17 @@ fn print_local_thread(command: &vivarium::cli::MailThreadCommand) -> Result<(), 
         command.infer,
         command.limit,
         command.max_depth,
+        command.json,
+    )
+}
+
+fn handle_trace_command(command: &TraceCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    vivarium::mailspace::print_trace(
+        &mailspace,
+        &command.handle,
+        command.max_depth,
+        command.limit,
         command.json,
     )
 }

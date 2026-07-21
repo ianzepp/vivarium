@@ -20,6 +20,7 @@ mod reply;
 #[cfg(test)]
 mod tests;
 mod thread;
+mod trace;
 mod watch;
 
 pub use body::{read_body_arg, read_body_input};
@@ -36,6 +37,7 @@ pub use lifecycle::{
 };
 pub use merge::{MailspaceImportOptions, MailspaceImportReport, import_mailspace};
 pub use thread::{MailspaceThreadMessage, print_thread};
+pub use trace::{print_trace, print_trace_json};
 pub use watch::{MailspaceWatchRequest, run_watch};
 
 const MAILSPACE_DIR: &str = ".vivi";

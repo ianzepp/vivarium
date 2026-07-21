@@ -647,6 +647,34 @@ fn parses_local_mail_show() {
 }
 
 #[test]
+fn parses_trace_command() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "trace",
+        "abc123",
+        "--json",
+        "--max-depth",
+        "5",
+        "--limit",
+        "100",
+        "--project",
+        "/tmp/project",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Trace(command) => {
+            assert_eq!(command.handle, "abc123");
+            assert!(command.json);
+            assert_eq!(command.max_depth, 5);
+            assert_eq!(command.limit, 100);
+            assert_eq!(command.project, Some(PathBuf::from("/tmp/project")));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_local_mail_dump_filters() {
     let cli = Cli::try_parse_from([
         "vivi",

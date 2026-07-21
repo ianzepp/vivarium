@@ -1963,6 +1963,89 @@ fn role_status_reports_pid_binding_and_liveness() {
     assert_eq!(shown["host"], Value::Null);
 }
 
+#[test]
+#[allow(clippy::too_many_lines)]
+fn trace_command_reconstructs_reply_chain_and_collapses_copies() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+
+    let mail = vivi([
+        "mail",
+        "send",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "status: blocker review",
+        "--body",
+        "The release blocker is now assigned.",
+    ]);
+    assert_success(&mail);
+    let mail_stdout = stdout(&mail);
+    let delivered = handle_after(&mail_stdout, "delivered cto");
+
+    let reply = vivi([
+        "mail",
+        "reply",
+        &delivered,
+        "--project",
+        project.path().to_str().unwrap(),
+        "--from",
+        "cto",
+        "--body",
+        "I have reviewed the blocker.",
+    ]);
+    assert_success(&reply);
+    let reply_handle = handle_after(&stdout(&reply), "replied ceo");
+
+    let trace = vivi([
+        "trace",
+        &reply_handle,
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert_success(&trace);
+    let trace_stdout = stdout(&trace);
+    assert!(
+        trace_stdout.contains("status: blocker review"),
+        "{trace_stdout}"
+    );
+    assert!(
+        trace_stdout.contains("ancestor ->") && trace_stdout.contains("captured"),
+        "{trace_stdout}"
+    );
+    // The sent copy and inbox copy share a content_id and should collapse.
+    assert!(trace_stdout.contains("copies:"), "{trace_stdout}");
+
+    let trace_json = vivi([
+        "trace",
+        &reply_handle,
+        "--project",
+        project.path().to_str().unwrap(),
+        "--json",
+    ]);
+    assert_success(&trace_json);
+    let graph: Value = serde_json::from_str(&stdout(&trace_json)).unwrap();
+    let nodes = graph["nodes"].as_array().unwrap();
+    assert!(nodes.len() >= 2, "{graph}");
+    let message_handles: std::collections::HashSet<&str> = nodes
+        .iter()
+        .flat_map(|node| node["messages"].as_array().unwrap())
+        .filter_map(|message| message["handle"].as_str())
+        .collect();
+    assert!(message_handles.contains(reply_handle.as_str()), "{graph}");
+    assert!(nodes.iter().any(|node| {
+        node["edges"].as_array().unwrap().iter().any(|edge| {
+            edge["direction"] == "ancestor"
+                && edge["source"] == "captured"
+                && edge["target"].is_string()
+        })
+    }));
+}
+
 fn vivi<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,

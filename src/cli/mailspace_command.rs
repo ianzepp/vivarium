@@ -327,6 +327,28 @@ pub struct MailThreadCommand {
 }
 
 #[derive(Debug, Clone, Parser)]
+pub struct TraceCommand {
+    /// Any local mailspace handle or unambiguous prefix
+    pub handle: String,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Maximum ancestor/descendant depth to walk
+    #[arg(long, default_value = "5")]
+    pub max_depth: usize,
+
+    /// Maximum number of nodes to include
+    #[arg(long, default_value = "100")]
+    pub limit: usize,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Parser)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct MailspaceWatchCommand {
     /// Identity whose local events should wake the watcher

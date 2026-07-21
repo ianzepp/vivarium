@@ -346,6 +346,9 @@ vivi mail send --from cto --to ceo --subject "Follow-up" \
 vivi mail thread <handle> --json
 # Bound a large conversation walk when needed
 vivi mail thread <handle> --json --limit 100 --max-depth 20
+# Trace the cross-role communication tree around a task, want, or mail
+vivi trace <handle>
+vivi trace <handle> --json --max-depth 5 --limit 100
 vivi task show <handle> --json
 ```
 
@@ -353,6 +356,12 @@ Lifecycle `--note` values remain in the event ledger and also become normal
 captured replies. `mail thread --infer` enables a read-only best-effort view of
 older messages using handle citations and reply subjects; inferred links are
 marked separately and never replace captured links.
+
+`vivi trace` builds a cross-role tree around any local handle: it walks captured
+reply links, `tasked` lifecycle events, and inferred body-citation links, and it
+collapses same-content copies (e.g., sender `sent` and recipient `inbox`) into a
+single logical node. Use `--json` for agent consumption and `--max-depth` /
+`--limit` to keep large mailspaces bounded.
 
 Needs and wants are also local messages with stable handles. Wants are parked in
 `Wants` for later prioritization. Promoting a want moves it to `Needs`, where it

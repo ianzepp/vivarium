@@ -19,7 +19,8 @@ pub use mailspace_command::{
     CycleCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
     MailReplyCommand, MailThreadCommand, MailspaceCommand, MailspaceIdentityCommand,
     MailspaceImportCommand, MailspaceWatchCommand, MemoCommand, NeedCommand, TaskCommand,
-    TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand, TaskStatus, WantCommand, WantStatus,
+    TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand, TaskStatus, TraceCommand, WantCommand,
+    WantStatus,
 };
 pub use proton_command::ProtonCommand;
 pub use render_command::{RenderCommand, RenderFormat};
@@ -303,6 +304,9 @@ pub enum Command {
         #[arg(long, default_value = "50")]
         limit: usize,
     },
+
+    /// Trace the cross-role communication tree around a handle
+    Trace(TraceCommand),
 
     /// Create a reply draft for a message
     Reply(ReplyCommand),

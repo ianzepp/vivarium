@@ -138,7 +138,8 @@ impl Runtime {
             | Command::Want { .. }
             | Command::Memo { .. }
             | Command::Role { .. }
-            | Command::Cycle { .. } => unreachable!(),
+            | Command::Cycle { .. }
+            | Command::Trace { .. } => unreachable!(),
             Command::Show { message_ids, json } => self.show(&message_ids, json),
             Command::Thread {
                 message_id,
