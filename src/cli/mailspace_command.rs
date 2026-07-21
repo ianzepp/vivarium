@@ -28,6 +28,17 @@ pub enum MailspaceCommand {
         json: bool,
     },
 
+    /// Show or set the mailspace description
+    Description {
+        /// Project root to inspect
+        #[arg(long)]
+        project: Option<PathBuf>,
+
+        /// Set a new description; omit to show current
+        #[arg(long)]
+        set: Option<String>,
+    },
+
     /// Wait for project-local mailspace events; this is not IMAP watch
     Watch(Box<MailspaceWatchCommand>),
 

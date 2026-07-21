@@ -79,36 +79,56 @@ fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumEr
                 vivarium::mailspace::print_status(&status);
             }
         }
+        MailspaceCommand::Description { project, set } => {
+            let mut mailspace = Mailspace::discover(project.as_deref())?;
+            match set {
+                Some(description) => {
+                    mailspace.set_description(Some(description.clone()))?;
+                    println!("description set");
+                }
+                None => {
+                    let description = mailspace.config.description.as_deref().unwrap_or("(none)");
+                    println!("{description}");
+                }
+            }
+        }
         MailspaceCommand::Watch(command) => run_watch(command, None)?,
         MailspaceCommand::Import(command) | MailspaceCommand::Merge(command) => {
             import_mailspace(command)?;
         }
-        MailspaceCommand::Identity { command } => match command {
-            MailspaceIdentityCommand::Add { identity, project } => {
-                let mut mailspace = Mailspace::discover(project.as_deref())?;
-                let address = mailspace.add_identity(identity)?;
-                println!("added {address}");
-            }
-            MailspaceIdentityCommand::List { project } => {
-                let mailspace = Mailspace::discover(project.as_deref())?;
-                for identity in &mailspace.config.identities {
-                    println!(
-                        "{} {}",
-                        identity.name,
-                        mailspace.address_for(&identity.name)
-                    );
-                    if !identity.aliases.is_empty() {
-                        println!("  formerly: {}", identity.aliases.join(", "));
-                    }
+        MailspaceCommand::Identity { command } => handle_mailspace_identity_command(command)?,
+    }
+    Ok(())
+}
+
+fn handle_mailspace_identity_command(
+    command: &MailspaceIdentityCommand,
+) -> Result<(), VivariumError> {
+    match command {
+        MailspaceIdentityCommand::Add { identity, project } => {
+            let mut mailspace = Mailspace::discover(project.as_deref())?;
+            let address = mailspace.add_identity(identity)?;
+            println!("added {address}");
+        }
+        MailspaceIdentityCommand::List { project } => {
+            let mailspace = Mailspace::discover(project.as_deref())?;
+            for identity in &mailspace.config.identities {
+                println!(
+                    "{} {}",
+                    identity.name,
+                    mailspace.address_for(&identity.name)
+                );
+                if !identity.aliases.is_empty() {
+                    println!("  formerly: {}", identity.aliases.join(", "));
                 }
             }
-            MailspaceIdentityCommand::Rename { old, new, project } => {
-                let mut mailspace = Mailspace::discover(project.as_deref())?;
-                let address = mailspace.rename_identity(old, new)?;
-                println!("renamed {old} -> {new} ({address})");
-                println!("historical mail sent as {old} still resolves under {new}");
-            }
-        },
+        }
+        MailspaceIdentityCommand::Rename { old, new, project } => {
+            let mut mailspace = Mailspace::discover(project.as_deref())?;
+            let address = mailspace.rename_identity(old, new)?;
+            println!("renamed {old} -> {new} ({address})");
+            println!("historical mail sent as {old} still resolves under {new}");
+        }
     }
     Ok(())
 }

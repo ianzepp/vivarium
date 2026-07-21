@@ -54,6 +54,8 @@ pub struct Mailspace {
 pub struct MailspaceConfig {
     pub name: String,
     #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
     pub identities: Vec<LocalIdentity>,
 }
 
@@ -61,6 +63,8 @@ pub struct MailspaceConfig {
 pub struct MailspaceStatus {
     pub found: bool,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub root: PathBuf,
     pub store: PathBuf,
     pub identities: Vec<IdentityStatus>,
@@ -135,6 +139,7 @@ impl Mailspace {
         }
         let config = MailspaceConfig {
             name: default_name(&root),
+            description: None,
             identities: Vec::new(),
         };
         write_config(&path, &config)?;
@@ -194,6 +199,16 @@ impl Mailspace {
         Storage::open_mailspace(&self.dir)
     }
 
+    /// Set the mailspace description.
+    ///
+    /// # Errors
+    /// Returns an error if the config cannot be written.
+    pub fn set_description(&mut self, description: Option<String>) -> Result<(), VivariumError> {
+        self.config.description = description;
+        let path = self.dir.join(MAILSPACE_CONFIG);
+        write_config(&path, &self.config)
+    }
+
     /// Return a status summary for the mailspace and all identities.
     ///
     /// # Errors
@@ -242,6 +257,7 @@ impl Mailspace {
         Ok(MailspaceStatus {
             found: true,
             name: self.config.name.clone(),
+            description: self.config.description.clone(),
             root: self.root.clone(),
             store: self.store_path(),
             identities,
@@ -252,6 +268,9 @@ impl Mailspace {
 
 pub fn print_status(status: &MailspaceStatus) {
     println!("mailspace {}", status.name);
+    if let Some(description) = &status.description {
+        println!("descr     {description}");
+    }
     println!("root      {}", status.root.display());
     println!("store     {}", status.store.display());
     println!();
