@@ -63,6 +63,10 @@ pub enum RoleCommand {
         #[arg(long = "label")]
         labels: Vec<String>,
 
+        /// Desired maximum silence between outbound signals (e.g. 15m, 1h)
+        #[arg(long)]
+        cadence: Option<String>,
+
         /// Project root to update
         #[arg(long)]
         project: Option<PathBuf>,
@@ -129,6 +133,14 @@ pub enum RoleCommand {
         #[arg(long)]
         clear_host: bool,
 
+        /// Desired maximum silence between outbound signals (e.g. 15m, 1h)
+        #[arg(long)]
+        cadence: Option<String>,
+
+        /// Clear cadence (role is not on a schedule)
+        #[arg(long)]
+        clear_cadence: bool,
+
         /// Lifecycle status
         #[arg(long)]
         status: Option<String>,
@@ -159,7 +171,7 @@ pub enum RoleCommand {
         project: Option<PathBuf>,
     },
 
-    /// Show live process status for a role (liveness, CPU, memory, uptime)
+    /// Show live process status and schedule health for a role
     Status {
         /// Role name (local-part) or alias
         name: String,

@@ -20,6 +20,7 @@ pub(crate) fn handle_role_command(command: &RoleCommand) -> Result<(), VivariumE
             thinking,
             status,
             labels,
+            cadence,
             project,
         } => add_role(&AddRoleArgs {
             name,
@@ -30,6 +31,7 @@ pub(crate) fn handle_role_command(command: &RoleCommand) -> Result<(), VivariumE
             thinking: thinking.as_deref(),
             status: status.as_deref(),
             labels,
+            cadence: cadence.as_deref(),
             project: project.as_deref(),
         }),
         RoleCommand::Set {
@@ -48,6 +50,8 @@ pub(crate) fn handle_role_command(command: &RoleCommand) -> Result<(), VivariumE
             clear_pid,
             host,
             clear_host,
+            cadence,
+            clear_cadence,
             status,
             labels,
             clear_labels,
@@ -69,6 +73,8 @@ pub(crate) fn handle_role_command(command: &RoleCommand) -> Result<(), VivariumE
                 clear_pid: *clear_pid,
                 host: host.clone(),
                 clear_host: *clear_host,
+                cadence: cadence.clone(),
+                clear_cadence: *clear_cadence,
                 status: status.clone(),
                 labels: labels.clone(),
                 clear_labels: clear_labels.clone(),
@@ -94,6 +100,7 @@ struct AddRoleArgs<'a> {
     thinking: Option<&'a str>,
     status: Option<&'a str>,
     labels: &'a [String],
+    cadence: Option<&'a str>,
     project: Option<&'a std::path::Path>,
 }
 
@@ -113,6 +120,8 @@ struct RoleSetArgs {
     clear_pid: bool,
     host: Option<String>,
     clear_host: bool,
+    cadence: Option<String>,
+    clear_cadence: bool,
     status: Option<String>,
     labels: Vec<String>,
     clear_labels: Vec<String>,
@@ -165,6 +174,7 @@ fn build_add_update(args: &AddRoleArgs<'_>) -> RoleUpdate {
         provider: args.provider.map(|value| Some(value.to_string())),
         model: args.model.map(|value| Some(value.to_string())),
         thinking: args.thinking.map(|value| Some(value.to_string())),
+        cadence: args.cadence.map(|value| Some(value.to_string())),
         add_labels: args.labels.iter().map(String::clone).collect(),
         ..RoleUpdate::default()
     }
@@ -207,12 +217,14 @@ fn status_role(
     let mailspace = Mailspace::discover(project)?;
     let view = mailspace.role_view(name)?;
     let status = role_status::probe(view.pid, view.host.as_deref());
+    let schedule = mailspace.schedule_report(&view.name)?;
     let outcome = role_status::RoleStatusOutcome {
         name: view.name.clone(),
         address: view.address.clone(),
         pid: view.pid,
         host: view.host.clone(),
         status,
+        schedule,
     };
     if json {
         print_json(&outcome)?;
@@ -304,6 +316,11 @@ fn build_role_update(args: &RoleSetArgs) -> RoleUpdate {
         args.clear_thinking,
         args.thinking.as_ref(),
     );
+    set_optional_field(
+        &mut update.cadence,
+        args.clear_cadence,
+        args.cadence.as_ref(),
+    );
     apply_pid_update(
         &mut update.pid,
         &mut update.host,
@@ -370,6 +387,7 @@ fn update_has_fields(update: &RoleUpdate) -> bool {
         || update.thinking.is_some()
         || update.pid.is_some()
         || update.host.is_some()
+        || update.cadence.is_some()
         || !update.add_labels.is_empty()
         || !update.clear_labels.is_empty()
 }
@@ -396,6 +414,7 @@ fn print_role_text(view: &RoleView, full: bool) {
     println!("  thinking:  {}", display_opt(view.thinking.as_deref()));
     println!("  pid:       {}", display_pid(view.pid));
     println!("  host:      {}", display_opt(view.host.as_deref()));
+    println!("  cadence:   {}", display_opt(view.cadence.as_deref()));
     if view.labels.is_empty() {
         println!("  labels:    (none)");
     } else {

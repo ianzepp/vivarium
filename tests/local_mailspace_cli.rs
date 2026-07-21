@@ -1745,6 +1745,111 @@ fn send_work(project: &std::path::Path, kind: &str, to: &str, subject: &str, bod
 }
 
 #[test]
+fn role_cadence_and_schedule_status_from_outbound_mail() {
+    let project = tempfile::tempdir().unwrap();
+    let p = project.path().to_str().unwrap();
+    assert_success(&vivi(["mailspace", "init", "--project", p]));
+    assert_success(&vivi([
+        "role",
+        "add",
+        "head-ceo",
+        "--kind",
+        "head",
+        "--cadence",
+        "15m",
+        "--project",
+        p,
+    ]));
+    assert_success(&vivi([
+        "role",
+        "add",
+        "mind",
+        "--kind",
+        "mind",
+        "--project",
+        p,
+    ]));
+
+    // No outbound signal yet → schedule never.
+    let status = vivi(["role", "status", "head-ceo", "--json", "--project", p]);
+    assert_success(&status);
+    let v: Value = serde_json::from_str(&stdout(&status)).unwrap();
+    assert_eq!(v["schedule"]["state"], "never");
+    assert_eq!(v["schedule"]["cadence"], "15m");
+    assert_eq!(v["schedule"]["cadence_seconds"], 900);
+
+    // Reject invalid cadence units.
+    let bad = vivi(["role", "set", "head-ceo", "--cadence", "1d", "--project", p]);
+    assert!(!bad.status.success(), "{}", stderr(&bad));
+
+    // Outbound mail establishes a signal → ok (just now).
+    assert_success(&vivi([
+        "mail",
+        "send",
+        "--project",
+        p,
+        "--from",
+        "head-ceo",
+        "--to",
+        "mind",
+        "--subject",
+        "cycle report",
+        "--body",
+        "done",
+    ]));
+    let status = vivi(["role", "status", "head-ceo", "--json", "--project", p]);
+    assert_success(&status);
+    let v: Value = serde_json::from_str(&stdout(&status)).unwrap();
+    assert_eq!(v["schedule"]["state"], "ok");
+    assert!(
+        v["schedule"]["last_signal_handle"].as_str().is_some(),
+        "{v}"
+    );
+    assert!(v["schedule"]["age_seconds"].as_u64().is_some(), "{v}");
+
+    // Board surfaces schedule for roles with cadence.
+    let board: Value = serde_json::from_str(&stdout(&vivi([
+        "board",
+        "--for",
+        "head-ceo",
+        "--json",
+        "--project",
+        p,
+    ])))
+    .unwrap();
+    assert_eq!(board["identities"][0]["schedule"]["state"], "ok");
+    assert_eq!(board["identities"][0]["schedule"]["cadence"], "15m");
+
+    let text = stdout(&vivi(["board", "--for", "head-ceo", "--project", p]));
+    assert!(text.contains("schedule: ok"), "{text}");
+    assert!(text.contains("cadence 15m"), "{text}");
+
+    // Clear cadence → none.
+    assert_success(&vivi([
+        "role",
+        "set",
+        "head-ceo",
+        "--clear-cadence",
+        "--project",
+        p,
+    ]));
+    let shown: Value = serde_json::from_str(&stdout(&vivi([
+        "role",
+        "show",
+        "head-ceo",
+        "--json",
+        "--project",
+        p,
+    ])))
+    .unwrap();
+    assert_eq!(shown["cadence"], Value::Null);
+    let status = vivi(["role", "status", "head-ceo", "--json", "--project", p]);
+    assert_success(&status);
+    let v: Value = serde_json::from_str(&stdout(&status)).unwrap();
+    assert_eq!(v["schedule"]["state"], "none");
+}
+
+#[test]
 fn role_status_reports_pid_binding_and_liveness() {
     let project = tempfile::tempdir().unwrap();
     assert_success(&vivi([

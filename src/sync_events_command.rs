@@ -115,44 +115,15 @@ impl From<ProtonEventSyncReport> for SyncEventsReport {
 }
 
 fn parse_interval(value: &str) -> Result<Duration, VivariumError> {
-    let value = value.trim();
-    let Some((number, unit)) = split_interval(value) else {
-        return Err(VivariumError::Config(format!(
-            "invalid --interval '{value}'; use values like 30s, 5m, or 1h"
-        )));
-    };
-    let amount = number.parse::<u64>().map_err(|_| {
-        VivariumError::Config(format!(
-            "invalid --interval '{value}'; use values like 30s, 5m, or 1h"
-        ))
-    })?;
-    if amount == 0 {
-        return Err(VivariumError::Config(
-            "--interval must be greater than zero".into(),
-        ));
-    }
-    let seconds = match unit {
-        "" | "s" => amount,
-        "m" => amount.saturating_mul(60),
-        "h" => amount.saturating_mul(60 * 60),
-        _ => {
-            return Err(VivariumError::Config(format!(
-                "invalid --interval unit '{unit}'; use s, m, or h"
-            )));
+    vivarium::duration::parse_duration(value).map_err(|err| match err {
+        VivariumError::Config(message) if message.contains("greater than zero") => {
+            VivariumError::Config("--interval must be greater than zero".into())
         }
-    };
-    Ok(Duration::from_secs(seconds))
-}
-
-fn split_interval(value: &str) -> Option<(&str, &str)> {
-    let first_unit = value
-        .char_indices()
-        .find_map(|(index, ch)| (!ch.is_ascii_digit()).then_some(index))
-        .unwrap_or(value.len());
-    if first_unit == 0 {
-        return None;
-    }
-    Some((&value[..first_unit], &value[first_unit..]))
+        VivariumError::Config(_) => VivariumError::Config(format!(
+            "invalid --interval '{value}'; use values like 30s, 5m, or 1h"
+        )),
+        other => other,
+    })
 }
 
 fn print_report(report: &SyncEventsReport) {

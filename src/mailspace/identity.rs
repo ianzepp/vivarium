@@ -4,8 +4,12 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use chrono::{DateTime, Utc};
+
 use super::{MAILSPACE_CONFIG, Mailspace, write_config};
+use crate::duration::parse_duration_secs;
 use crate::error::VivariumError;
+use crate::role_schedule::{self, LastSignal, ScheduleReport};
 
 /// Preferred lifecycle values; freeform strings are still accepted.
 pub const ROLE_STATUS_ACTIVE: &str = "active";
@@ -52,6 +56,9 @@ pub struct LocalIdentity {
     /// Host where `pid` lives. Defaults to the local hostname when `pid` is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    /// Desired maximum silence between outbound signals (`5m`, `30m`, `2h`, …).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cadence: Option<String>,
 }
 
 fn default_role_status() -> String {
@@ -69,6 +76,7 @@ pub struct RoleUpdate {
     pub thinking: Option<Option<String>>,
     pub pid: Option<Option<u32>>,
     pub host: Option<Option<String>>,
+    pub cadence: Option<Option<String>>,
     pub add_labels: Vec<String>,
     pub clear_labels: Vec<String>,
 }
@@ -88,6 +96,7 @@ pub struct RoleView {
     pub thinking: Option<String>,
     pub pid: Option<u32>,
     pub host: Option<String>,
+    pub cadence: Option<String>,
     pub charter: String,
     pub has_charter: bool,
 }
@@ -106,6 +115,7 @@ impl LocalIdentity {
             thinking: None,
             pid: None,
             host: None,
+            cadence: None,
         }
     }
 }
@@ -275,6 +285,7 @@ impl Mailspace {
             thinking: role.thinking.clone(),
             pid: role.pid,
             host: role.host.clone(),
+            cadence: role.cadence.clone(),
             has_charter: !charter.is_empty(),
             charter,
         })
@@ -290,6 +301,47 @@ impl Mailspace {
             views.push(self.role_view(&role.name)?);
         }
         Ok(views)
+    }
+
+    /// Schedule health for a role: cadence vs age of latest outbound message.
+    ///
+    /// Does not read charter files. Memos do not count as signals.
+    ///
+    /// # Errors
+    /// Returns an error if the role is unknown or storage cannot be queried.
+    pub fn schedule_report(&self, name: &str) -> Result<ScheduleReport, VivariumError> {
+        let canonical = self.resolve_identity(name)?;
+        let cadence = self
+            .find_role_by_name_or_alias(&canonical)
+            .and_then(|role| role.cadence.as_deref());
+        let signal = self.last_outbound_signal(&canonical)?;
+        Ok(role_schedule::evaluate(
+            cadence,
+            signal.as_ref(),
+            Utc::now(),
+        ))
+    }
+
+    fn last_outbound_signal(&self, role_name: &str) -> Result<Option<LastSignal>, VivariumError> {
+        let names = self.identity_names(role_name);
+        let mut addresses: Vec<String> = names.iter().map(|name| self.address_for(name)).collect();
+        addresses.sort();
+        addresses.dedup();
+        let storage = self.storage()?;
+        let Some(message) = storage.latest_message_from_addresses(&addresses)? else {
+            return Ok(None);
+        };
+        let at = DateTime::parse_from_rfc3339(&message.date)
+            .ok()
+            .map_or_else(
+                || DateTime::from_timestamp(0, 0).unwrap_or_else(Utc::now),
+                |date| date.with_timezone(&Utc),
+            );
+        Ok(Some(LastSignal {
+            at,
+            handle: message.handle,
+            local_role: message.local_role,
+        }))
     }
 
     /// Write a charter body for a role.
@@ -403,6 +455,9 @@ fn apply_role_update(role: &mut LocalIdentity, update: RoleUpdate) -> Result<(),
     if let Some(host) = update.host {
         role.host = optional_host(host)?;
     }
+    if let Some(cadence) = update.cadence {
+        role.cadence = optional_cadence(cadence)?;
+    }
     for label in update.add_labels {
         let label = sanitize_label(&label)?;
         if !role.labels.iter().any(|known| known == &label) {
@@ -439,6 +494,17 @@ fn optional_host(value: Option<String>) -> Result<Option<String>, VivariumError>
     match value {
         Some(value) if !value.trim().is_empty() => {
             Ok(Some(sanitize_freeform_field("host", &value)?))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn optional_cadence(value: Option<String>) -> Result<Option<String>, VivariumError> {
+    match value {
+        Some(value) if !value.trim().is_empty() => {
+            let trimmed = value.trim();
+            parse_duration_secs(trimmed)?;
+            Ok(Some(trimmed.to_string()))
         }
         _ => Ok(None),
     }

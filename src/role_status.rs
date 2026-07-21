@@ -14,6 +14,8 @@ use std::time::Duration;
 use serde::Serialize;
 use sysinfo::{Pid, Process, ProcessStatus, ProcessesToUpdate, System};
 
+use crate::role_schedule::ScheduleReport;
+
 /// Minimum interval for a meaningful CPU delta. Matches sysinfo's
 /// `MINIMUM_CPU_UPDATE_INTERVAL` on Linux; applied only when a live local pid
 /// is probed.
@@ -25,7 +27,7 @@ pub fn local_host_name() -> Option<String> {
     System::host_name()
 }
 
-/// Full status outcome for `vivi role status`: the binding plus the live report.
+/// Full status outcome for `vivi role status`: process binding plus schedule.
 #[derive(Debug, Clone, Serialize)]
 pub struct RoleStatusOutcome {
     pub name: String,
@@ -33,6 +35,7 @@ pub struct RoleStatusOutcome {
     pub pid: Option<u32>,
     pub host: Option<String>,
     pub status: ProcessReport,
+    pub schedule: ScheduleReport,
 }
 
 /// Computed liveness and resource context. All fields are observed, never stored.
@@ -232,6 +235,30 @@ impl RoleStatusOutcome {
         if let Some(note) = state_note(&self.status.state) {
             println!("  {note}");
         }
+        self.print_schedule();
+    }
+
+    fn print_schedule(&self) {
+        use crate::role_schedule::{ScheduleState, state_label};
+        let schedule = &self.schedule;
+        print!("  schedule: {}", state_label(schedule.state));
+        if matches!(schedule.state, ScheduleState::None) {
+            println!();
+            return;
+        }
+        if let Some(cadence) = &schedule.cadence {
+            print!("  cadence {cadence}");
+        }
+        if let Some(age) = schedule.age_seconds {
+            print!("  last signal {}", format_duration(age));
+            print!(" ago");
+        } else if matches!(schedule.state, ScheduleState::Never) {
+            print!("  (no outbound signal)");
+        }
+        if let Some(handle) = &schedule.last_signal_handle {
+            print!("  {handle}");
+        }
+        println!();
     }
 
     fn pid_or_unset(&self) -> String {

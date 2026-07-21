@@ -229,6 +229,7 @@ durable metadata used by multi-agent fleets (especially sub-agent spawns):
 | `harness` | Execution home (`subagent`, `tmux`, `vivi_pty`, …) |
 | `provider` / `model` / `thinking` | Desired capacity (not process liveness) |
 | `pid` / `host` | Live process binding; self-set by the role at boot (PID-file semantics). `host` defaults to the local hostname when `pid` is set |
+| `cadence` | Optional maximum silence between outbound signals (`15m`, `1h`, …). General-purpose; often used for heads/stewards |
 | `charter` | Standing prompt body for the seat (stored under `.vivi/charters/`) |
 | `address` | Derived: `{name}@{mailspace}.local` |
 
@@ -236,12 +237,13 @@ durable metadata used by multi-agent fleets (especially sub-agent spawns):
 vivi role list --json
 vivi role show head-ceo --json
 vivi role set hand-1 --provider zai --model glm-5.2 --thinking low
-vivi role set head-ceo --harness subagent
+vivi role set head-ceo --harness subagent --cadence 15m
+vivi role set head-ceo --clear-cadence
 vivi role charter set head-ceo --file personas/ceo.md
 vivi role charter show head-ceo
 ```
 
-### Process status (liveness by role name)
+### Process status and schedule (by role name)
 
 A role self-registers its live process at boot so any agent can ask "is this
 seat's process alive?" by role name alone, without knowing the pid or the
@@ -255,13 +257,28 @@ vivi role set hand-1 --pid $$ --project <root>
 vivi role status hand-1 --project <root> [--json]
 ```
 
-`role status` reports `state` (`alive`, `zombie`, `dead`, `not_set`, `remote`,
-`unknown`), `running`, and — for a live local pid — `name`, `cpu_percent`,
-`memory_bytes`, and `uptime_seconds`. If the stored `host` differs from the
-local host, it reports `remote` rather than probing the local table (so a pid
-on `pharos` is not falsely read as dead from another host). CPU is sampled with
-a short two-read interval, so a live pid costs ~200 ms. Clearing the pid also
-clears the host.
+`role status` reports process `state` (`alive`, `zombie`, `dead`, `not_set`,
+`remote`, `unknown`), `running`, and — for a live local pid — `name`,
+`cpu_percent`, `memory_bytes`, and `uptime_seconds`. If the stored `host`
+differs from the local host, it reports `remote` rather than probing the local
+table (so a pid on `pharos` is not falsely read as dead from another host). CPU
+is sampled with a short two-read interval, so a live pid costs ~200 ms. Clearing
+the pid also clears the host.
+
+When a role has `cadence`, `role status` also reports **schedule** health from
+the age of that role's latest outbound mailspace message (memos excluded):
+
+| Schedule state | Meaning |
+| --- | --- |
+| `none` | No cadence configured |
+| `never` | Cadence set, no outbound signal yet |
+| `ok` | Last signal younger than one cadence (+10% grace) |
+| `due` | Silence between one and two cadences |
+| `overdue` | Silence at or beyond two cadences |
+
+Schedule is advisory visibility for the Mind — not an execution contract. Board
+JSON always includes a `schedule` block per identity; text output prints a
+schedule line when state is not `none`.
 
 ```sh
 # Bulk capacity flips stay outside vivi (one role per mutation):

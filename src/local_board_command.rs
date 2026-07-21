@@ -8,6 +8,7 @@ use serde::Serialize;
 use vivarium::VivariumError;
 use vivarium::cli::BoardCommand;
 use vivarium::mailspace::Mailspace;
+use vivarium::role_schedule::{ScheduleReport, ScheduleState, state_label as schedule_state_label};
 use vivarium::role_status::ProcessReport;
 use vivarium::storage::{MailspaceEvent, Storage, StoredMessageView};
 
@@ -41,6 +42,8 @@ struct IdentityBoard {
     /// Live process status. Present only when the board is run with `--process`.
     #[serde(skip_serializing_if = "Option::is_none")]
     process: Option<ProcessReport>,
+    /// Schedule health from role cadence and latest outbound signal.
+    schedule: ScheduleReport,
 }
 
 #[derive(Debug, Serialize)]
@@ -236,10 +239,17 @@ fn build_identity_board(
         actionable_open: tasks.len() + needs.len(),
         wants_hidden: wants_count.saturating_sub(wants.len()),
         process: role_process_status(mailspace, identity, with_process),
+        schedule: role_schedule_status(mailspace, identity),
         tasks,
         needs,
         wants,
     }
+}
+
+fn role_schedule_status(mailspace: &Mailspace, identity: &str) -> ScheduleReport {
+    mailspace
+        .schedule_report(identity)
+        .unwrap_or_else(|_| vivarium::role_schedule::evaluate(None, None, Utc::now()))
 }
 
 /// Look up a role's pid/host binding and probe it when `with_process` is set.
@@ -448,6 +458,7 @@ fn print_identity(identity: &IdentityBoard) {
             running
         );
     }
+    print_schedule_line(&identity.schedule);
     print_items("tasks", &identity.tasks);
     print_items("needs", &identity.needs);
     print_items("wants", &identity.wants);
@@ -466,6 +477,28 @@ fn role_status_state_label(state: &vivarium::role_status::ProcessState) -> &'sta
         ProcessState::Dead => "dead",
         ProcessState::Unknown => "unknown",
     }
+}
+
+fn print_schedule_line(schedule: &ScheduleReport) {
+    if matches!(schedule.state, ScheduleState::None) {
+        return;
+    }
+    print!("  schedule: {}", schedule_state_label(schedule.state));
+    if let Some(cadence) = &schedule.cadence {
+        print!("  cadence {cadence}");
+    }
+    match schedule.state {
+        ScheduleState::Never => print!("  (no outbound signal)"),
+        _ => {
+            if let Some(age) = schedule.age_seconds {
+                print!("  last signal {age}s ago");
+            }
+        }
+    }
+    if let Some(handle) = &schedule.last_signal_handle {
+        print!("  {handle}");
+    }
+    println!();
 }
 
 fn print_items(label: &str, items: &[BoardItem]) {
