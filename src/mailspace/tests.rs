@@ -109,7 +109,9 @@ fn task_move_keeps_handle_stable() {
         .unwrap();
     let handle = sent.delivered[0].handle.clone();
 
-    let done = mailspace.move_task("cto", &handle, "done", None).unwrap();
+    let done = mailspace
+        .move_task("cto", &handle, "done", None, None, &[], &[])
+        .unwrap();
     let open = mailspace.list("cto", "tasks").unwrap();
     let closed = mailspace.list("cto", "done").unwrap();
 
@@ -117,6 +119,50 @@ fn task_move_keeps_handle_stable() {
     assert!(open.is_empty());
     assert_eq!(closed.len(), 1);
     assert_eq!(closed[0].handle, handle);
+}
+
+#[test]
+fn task_done_records_verdict_and_tips() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("ceo").unwrap();
+    mailspace.add_identity("cto").unwrap();
+    let sent = mailspace
+        .send(SendRequest {
+            from: "ceo".into(),
+            to: vec!["cto".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "task".into(),
+            body: "do it".into(),
+            role: "tasks".into(),
+            kind: Some("task".into()),
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap();
+    let handle = sent.delivered[0].handle.clone();
+
+    let repos = vec!["examples".into(), "hosts".into()];
+    let tips = vec!["e968cc3".into(), "0de5c36".into()];
+    mailspace
+        .move_task(
+            "cto",
+            &handle,
+            "done",
+            Some("P2: minor"),
+            Some("residual"),
+            &repos,
+            &tips,
+        )
+        .unwrap();
+
+    let storage = mailspace.storage().unwrap();
+    let resolved = storage.resolve_message_token(&handle).unwrap();
+    let metadata = storage.item_metadata(&resolved).unwrap();
+    assert_eq!(metadata.get("verdict"), Some(&"residual".into()));
+    assert_eq!(metadata.get("repo:examples"), Some(&"e968cc3".into()));
+    assert_eq!(metadata.get("repo:hosts"), Some(&"0de5c36".into()));
 }
 
 #[test]
@@ -161,7 +207,9 @@ fn rename_identity_keeps_historical_mail_and_old_alias_working() {
     // The old name still resolves for future commands.
     assert_eq!(mailspace.resolve_identity("cto").unwrap(), "cro");
 
-    let done = mailspace.move_task("cro", &handle, "done", None).unwrap();
+    let done = mailspace
+        .move_task("cro", &handle, "done", None, None, &[], &[])
+        .unwrap();
     assert_eq!(done, handle);
     assert!(mailspace.list("cro", "tasks").unwrap().is_empty());
     assert_eq!(mailspace.list("cro", "done").unwrap().len(), 1);

@@ -317,6 +317,7 @@ fn move_item(
         role,
         note.map(String::as_str),
         command,
+        None,
     )?;
     println!("{verb} {handle}");
     Ok(())

@@ -400,8 +400,58 @@ impl Mailspace {
         handle: &str,
         role: &str,
         note: Option<&str>,
+        verdict: Option<&str>,
+        repo: &[String],
+        tip: &[String],
     ) -> Result<String, VivariumError> {
-        self.move_item(identity, handle, role, note, move_command("task", role))
+        if repo.len() != tip.len() {
+            return Err(VivariumError::Other(
+                "--repo and --tip must be provided in matching pairs".into(),
+            ));
+        }
+        let mut metadata = std::collections::BTreeMap::new();
+        if let Some(verdict) = verdict {
+            metadata.insert("verdict".into(), verdict.into());
+        }
+        for (repo, tip) in repo.iter().zip(tip.iter()) {
+            metadata.insert(format!("repo:{repo}"), tip.clone());
+        }
+        self.move_item(
+            identity,
+            handle,
+            role,
+            note,
+            move_command("task", role),
+            if metadata.is_empty() {
+                None
+            } else {
+                Some(&metadata)
+            },
+        )
+    }
+
+    fn move_event(
+        command: &str,
+        identity: &str,
+        account: &str,
+        before: &StoredMessageView,
+        role: &str,
+        note: &str,
+    ) -> MailspaceEventInput {
+        MailspaceEventInput {
+            command: command.into(),
+            event_type: "moved".into(),
+            actor_identity: Some(identity.into()),
+            account: account.into(),
+            message_id: before.message_id.clone(),
+            content_id: before.content_id.clone(),
+            from_role: Some(before.local_role.clone()),
+            to_role: Some(role.into()),
+            from_identity: Some(identity.into()),
+            to_identity: Some(identity.into()),
+            subject: before.subject.clone(),
+            note: Some(note.into()),
+        }
     }
 
     /// Move a message to a new role with an optional note reply.
@@ -416,6 +466,7 @@ impl Mailspace {
         role: &str,
         note: Option<&str>,
         command: &str,
+        metadata: Option<&std::collections::BTreeMap<String, String>>,
     ) -> Result<String, VivariumError> {
         let identity = self.resolve_identity(identity)?;
         let names = sorted_identity_names(self.identity_names(&identity));
@@ -438,20 +489,7 @@ impl Mailspace {
         let account = before.account.clone();
         if let Some(note) = note {
             let reply = self.note_reply(&storage, &identity, &before, note)?;
-            let event = MailspaceEventInput {
-                command: command.into(),
-                event_type: "moved".into(),
-                actor_identity: Some(identity.clone()),
-                account: account.clone(),
-                message_id: before.message_id.clone(),
-                content_id: before.content_id.clone(),
-                from_role: Some(before.local_role.clone()),
-                to_role: Some(role.clone()),
-                from_identity: Some(identity.clone()),
-                to_identity: Some(identity.clone()),
-                subject: before.subject.clone(),
-                note: Some(note.into()),
-            };
+            let event = Self::move_event(command, &identity, &account, &before, &role, note);
             storage.move_message_with_reply(&MailspaceMoveWithReply {
                 account: &account,
                 message_id: &resolved,
@@ -464,6 +502,9 @@ impl Mailspace {
         } else {
             storage.move_message_to_role(&account, &resolved, &role)?;
             log_move_event(&storage, &identity, &role, &before, command, None)?;
+        }
+        if let Some(metadata) = metadata {
+            storage.set_item_metadata(&resolved, metadata)?;
         }
         storage.display_handle(&resolved)
     }

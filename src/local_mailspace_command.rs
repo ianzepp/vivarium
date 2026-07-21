@@ -333,7 +333,8 @@ fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
             project,
         } => {
             let mailspace = Mailspace::discover(project.as_deref())?;
-            let handle = mailspace.move_item(for_identity, handle, "trash", None, "memo delete")?;
+            let handle =
+                mailspace.move_item(for_identity, handle, "trash", None, "memo delete", None)?;
             println!("deleted {handle}");
         }
         MemoCommand::List {
@@ -460,32 +461,49 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             handle,
             for_identity,
             note,
+            verdict,
+            repo,
+            tip,
             project,
-        } => {
-            move_task(
-                handle,
-                for_identity,
-                note.as_ref(),
-                project.as_deref(),
-                "done",
-            )?;
-        }
+        } => done_task(handle, for_identity, note, verdict, repo, tip, project)?,
         TaskCommand::Reopen {
             handle,
             for_identity,
             note,
             project,
-        } => {
-            move_task(
-                handle,
-                for_identity,
-                note.as_ref(),
-                project.as_deref(),
-                "tasks",
-            )?;
-        }
+        } => move_task(
+            handle,
+            for_identity,
+            note.as_ref(),
+            project.as_deref(),
+            "tasks",
+            None,
+            &[],
+            &[],
+        )?,
     }
     Ok(())
+}
+
+fn done_task(
+    handle: &str,
+    for_identity: &str,
+    note: &Option<String>,
+    verdict: &Option<String>,
+    repo: &[String],
+    tip: &[String],
+    project: &Option<std::path::PathBuf>,
+) -> Result<(), VivariumError> {
+    move_task(
+        handle,
+        for_identity,
+        note.as_ref(),
+        project.as_deref(),
+        "done",
+        verdict.as_deref(),
+        repo,
+        tip,
+    )
 }
 
 fn list_tasks_command(
@@ -682,9 +700,25 @@ fn move_task(
     note: Option<&String>,
     project: Option<&std::path::Path>,
     role: &str,
+    verdict: Option<&str>,
+    repo: &[String],
+    tip: &[String],
 ) -> Result<(), VivariumError> {
+    if repo.len() != tip.len() {
+        return Err(VivariumError::Other(
+            "--repo and --tip must be provided in matching pairs".into(),
+        ));
+    }
     let mailspace = Mailspace::discover(project)?;
-    let handle = mailspace.move_task(for_identity, handle, role, note.map(String::as_str))?;
+    let handle = mailspace.move_task(
+        for_identity,
+        handle,
+        role,
+        note.map(String::as_str),
+        verdict,
+        repo,
+        tip,
+    )?;
     let verb = if role == "done" { "done" } else { "reopened" };
     println!("{verb} {handle}");
     Ok(())

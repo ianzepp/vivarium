@@ -541,6 +541,18 @@ pub enum TaskCommand {
         #[arg(long)]
         note: Option<String>,
 
+        /// Optional close verdict (e.g. clean_pass, residual, block_ship)
+        #[arg(long)]
+        verdict: Option<String>,
+
+        /// Repository name; repeatable and paired with --tip
+        #[arg(long)]
+        repo: Vec<String>,
+
+        /// Tip commit SHA; repeatable and paired with --repo
+        #[arg(long)]
+        tip: Vec<String>,
+
         /// Project root to use
         #[arg(long)]
         project: Option<PathBuf>,

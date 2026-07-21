@@ -721,12 +721,67 @@ fn parses_task_done() {
                     handle,
                     for_identity,
                     note,
+                    verdict,
+                    repo,
+                    tip,
                     project,
                 },
         } => {
             assert_eq!(handle, "abc123");
             assert_eq!(for_identity, "cto");
             assert_eq!(note, None);
+            assert_eq!(verdict, None);
+            assert!(repo.is_empty());
+            assert!(tip.is_empty());
+            assert_eq!(project, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_task_done_with_verdict_and_tips() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "task",
+        "done",
+        "abc123",
+        "--for",
+        "auditor-1",
+        "--verdict",
+        "clean_pass",
+        "--repo",
+        "examples",
+        "--tip",
+        "e968cc3",
+        "--repo",
+        "hosts",
+        "--tip",
+        "0de5c36",
+        "--note",
+        "P2: minor lint",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Task {
+            command:
+                TaskCommand::Done {
+                    handle,
+                    for_identity,
+                    note,
+                    verdict,
+                    repo,
+                    tip,
+                    project,
+                },
+        } => {
+            assert_eq!(handle, "abc123");
+            assert_eq!(for_identity, "auditor-1");
+            assert_eq!(note.as_deref(), Some("P2: minor lint"));
+            assert_eq!(verdict.as_deref(), Some("clean_pass"));
+            assert_eq!(repo, vec!["examples", "hosts"]);
+            assert_eq!(tip, vec!["e968cc3", "0de5c36"]);
             assert_eq!(project, None);
         }
         other => panic!("unexpected command: {other:?}"),
