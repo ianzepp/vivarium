@@ -1735,7 +1735,125 @@ fn role_add_on_existing_identity_errors_instead_of_silently_dropping_flags() {
     assert_eq!(value["labels"][0], "floater");
 }
 
+#[test]
+fn memo_search_filters_by_subject_and_body() {
+    let project = tempfile::tempdir().unwrap();
+    assert_success(&vivi([
+        "mailspace",
+        "init",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]));
+    assert_success(&vivi([
+        "mailspace",
+        "identity",
+        "add",
+        "mind",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]));
+    let p = project.path().to_str().unwrap();
+
+    // Save three memos: subject match, body match, and no match.
+    assert_success(&vivi([
+        "memo",
+        "save",
+        "--for",
+        "mind",
+        "--subject",
+        "railway deploy paused",
+        "--body",
+        "The deployment is paused until Monday.",
+        "--project",
+        p,
+    ]));
+    assert_success(&vivi([
+        "memo",
+        "save",
+        "--for",
+        "mind",
+        "--subject",
+        "Weekly standup notes",
+        "--body",
+        "Discuss railway deploy issues and swarm capacity.",
+        "--project",
+        p,
+    ]));
+    assert_success(&vivi([
+        "memo",
+        "save",
+        "--for",
+        "mind",
+        "--subject",
+        "Grocery list",
+        "--body",
+        "Milk, eggs, bread.",
+        "--project",
+        p,
+    ]));
+
+    let out = vivi(["memo", "search", "railway", "--for", "mind", "--project", p]);
+    assert_success(&out);
+    let text = stdout(&out);
+    assert!(text.contains("railway deploy paused"), "{text}");
+    assert!(text.contains("Weekly standup notes"), "{text}");
+    assert!(!text.contains("Grocery list"), "{text}");
+
+    // Subject-only search should only match the first memo.
+    let out = vivi([
+        "memo",
+        "search",
+        "railway",
+        "--for",
+        "mind",
+        "--subject",
+        "--project",
+        p,
+    ]);
+    assert_success(&out);
+    let text = stdout(&out);
+    assert!(text.contains("railway deploy paused"), "{text}");
+    assert!(!text.contains("Weekly standup notes"), "{text}");
+    assert!(!text.contains("Grocery list"), "{text}");
+
+    // Body-only search should match the second memo.
+    let out = vivi(["memo", "search", "swarm", "--for", "mind", "--project", p]);
+    assert_success(&out);
+    let text = stdout(&out);
+    assert!(!text.contains("railway deploy paused"), "{text}");
+    assert!(text.contains("Weekly standup notes"), "{text}");
+    assert!(!text.contains("Grocery list"), "{text}");
+
+    // JSON output preserves the list shape.
+    let out = vivi([
+        "memo",
+        "search",
+        "railway",
+        "--for",
+        "mind",
+        "--json",
+        "--project",
+        p,
+    ]);
+    assert_success(&out);
+    let v: Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let items = v.as_array().unwrap();
+    assert_eq!(items.len(), 2, "{v}");
+    let subjects: Vec<&str> = items
+        .iter()
+        .map(|item| item["subject"].as_str().unwrap())
+        .collect();
+    assert!(subjects.contains(&"railway deploy paused"));
+    assert!(subjects.contains(&"Weekly standup notes"));
+}
+
 fn init_roster(project: &std::path::Path) {
+    assert_success(&vivi([
+        "mailspace",
+        "init",
+        "--project",
+        project.to_str().unwrap(),
+    ]));
     assert_success(&vivi([
         "mailspace",
         "init",

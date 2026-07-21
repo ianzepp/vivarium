@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use clap::Parser;
 use vivarium::cli::{
     AgentCommand, Cli, Command, CycleCommand, EnqueueCommand, ExecCommand, IndexCommand,
-    MailAbsorbStatus, MailCommand, MailspaceCommand, MailspaceIdentityCommand, NeedCommand,
-    ProtonCommand, QueueCommand, TaskCommand, TaskDumpStatusArg, TaskStatus, WantCommand,
+    MailAbsorbStatus, MailCommand, MailspaceCommand, MailspaceIdentityCommand, MemoCommand,
+    NeedCommand, ProtonCommand, QueueCommand, TaskCommand, TaskDumpStatusArg, TaskStatus,
+    WantCommand,
 };
 
 #[test]
@@ -1729,6 +1730,65 @@ fn parses_cycle_intake() {
             assert_eq!(for_identity, "mind");
             assert_eq!(cursor_file, Some(PathBuf::from(".vivi/mind.cursor")));
             assert!(write_cursor);
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_memo_search_command() {
+    let cli =
+        Cli::try_parse_from(["vivi", "memo", "search", "railway deploy", "--for", "mind"]).unwrap();
+
+    match cli.command {
+        Command::Memo {
+            command:
+                MemoCommand::Search {
+                    query,
+                    for_identity,
+                    subject,
+                    json,
+                    ..
+                },
+        } => {
+            assert_eq!(query, "railway deploy");
+            assert_eq!(for_identity, "mind");
+            assert!(!subject);
+            assert!(!json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_memo_search_subject_only() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "memo",
+        "search",
+        "ACCEPT*",
+        "--for",
+        "mind",
+        "--subject",
+        "--json",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Memo {
+            command:
+                MemoCommand::Search {
+                    query,
+                    for_identity,
+                    subject,
+                    json,
+                    ..
+                },
+        } => {
+            assert_eq!(query, "ACCEPT*");
+            assert_eq!(for_identity, "mind");
+            assert!(subject);
             assert!(json);
         }
         other => panic!("unexpected command: {other:?}"),

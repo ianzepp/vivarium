@@ -9,6 +9,7 @@ use vivarium::mailspace::{
     SourceTaskRequest,
 };
 use vivarium::message;
+use vivarium::storage::StoredMessageView;
 
 pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumError> {
     match command {
@@ -343,6 +344,17 @@ fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
             let mailspace = Mailspace::discover(project.as_deref())?;
             print_memo_list(&mailspace, for_identity, *json)?;
         }
+        MemoCommand::Search {
+            query,
+            for_identity,
+            subject,
+            json,
+            project,
+        } => {
+            let mailspace = Mailspace::discover(project.as_deref())?;
+            let memos = mailspace.search_memos(for_identity, query, *subject)?;
+            print_memo_list_items(&memos, *json)?;
+        }
         MemoCommand::Show {
             handle,
             json,
@@ -363,6 +375,10 @@ fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
 
 fn print_memo_list(mailspace: &Mailspace, identity: &str, json: bool) -> Result<(), VivariumError> {
     let memos = mailspace.list_kind(identity, "memos", "memo")?;
+    print_memo_list_items(&memos, json)
+}
+
+fn print_memo_list_items(memos: &[StoredMessageView], json: bool) -> Result<(), VivariumError> {
     if json {
         let items: Vec<serde_json::Value> = memos
             .iter()
@@ -386,7 +402,7 @@ fn print_memo_list(mailspace: &Mailspace, identity: &str, json: bool) -> Result<
         return Ok(());
     }
     println!("  handle  date  subject");
-    for memo in &memos {
+    for memo in memos {
         println!("  {}  {}  {}", memo.handle, memo.date, memo.subject);
     }
     Ok(())

@@ -262,6 +262,45 @@ impl Mailspace {
         Ok(messages)
     }
 
+    /// Search memos for an identity by query.
+    ///
+    /// Matches subject and body (unless `subject_only` is true). Search is
+    /// case-insensitive. Only memos whose subject does not already match are
+    /// parsed for body text, so the common case is cheap.
+    ///
+    /// # Errors
+    /// Returns an error if the identity cannot be resolved, a storage
+    /// operation fails, or a memo blob cannot be parsed.
+    pub fn search_memos(
+        &self,
+        identity: &str,
+        query: &str,
+        subject_only: bool,
+    ) -> Result<Vec<StoredMessageView>, VivariumError> {
+        let query = query.to_lowercase();
+        let memos = self.list_kind(identity, "memos", "memo")?;
+        if subject_only {
+            return Ok(memos
+                .into_iter()
+                .filter(|memo| memo.subject.to_lowercase().contains(&query))
+                .collect());
+        }
+        let storage = self.storage()?;
+        let mut matched = Vec::new();
+        for memo in memos {
+            if memo.subject.to_lowercase().contains(&query) {
+                matched.push(memo);
+                continue;
+            }
+            let data = storage.read_message(&memo.message_id)?;
+            let extracted = crate::extract::extract_text(&data)?;
+            if extracted.body_text.to_lowercase().contains(&query) {
+                matched.push(memo);
+            }
+        }
+        Ok(matched)
+    }
+
     /// Move a task message to a new role (e.g. `done`, `tasks`). If `note` is
     /// provided, a reply message is also created.
     ///

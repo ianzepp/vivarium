@@ -67,6 +67,28 @@ pub enum MemoCommand {
         project: Option<PathBuf>,
     },
 
+    /// Search memos by keyword in subject and body
+    Search {
+        /// Search query (case-insensitive substring)
+        query: String,
+
+        /// Identity whose memos should be searched
+        #[arg(long = "for")]
+        for_identity: String,
+
+        /// Search subject only
+        #[arg(long)]
+        subject: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+
     /// Show a single memo in full detail
     Show {
         /// Memo handle or unambiguous prefix
