@@ -111,40 +111,35 @@ impl LocalIdentity {
 }
 
 impl Mailspace {
-    /// Add a new identity (role) with default values.
+    /// Add a thin identity with default role values (no kind, labels, or harness).
+    ///
+    /// Errors if the name already exists. To create a full role seat in one
+    /// step with metadata, use [`Self::add_role`] with a populated [`RoleUpdate`].
     ///
     /// # Errors
-    /// Returns an error if the identity name is invalid or config persistence
-    /// fails.
+    /// Returns an error if the identity name is invalid, already exists, or
+    /// config persistence fails.
     pub fn add_identity(&mut self, identity: &str) -> Result<String, VivariumError> {
-        self.add_role(identity, None, &[])
+        self.add_role(identity, RoleUpdate::default())
     }
 
-    /// Add a role seat. Idempotent on name: existing name is left unchanged.
+    /// Add a role seat: create the identity and apply `update` in one write.
+    ///
+    /// Errors if the name already exists; update an existing role with
+    /// [`Self::set_role`] instead.
     ///
     /// # Errors
-    /// Returns an error if the name, kind, or any label is invalid, or if
-    /// config persistence fails.
-    pub fn add_role(
-        &mut self,
-        name: &str,
-        kind: Option<&str>,
-        labels: &[&str],
-    ) -> Result<String, VivariumError> {
+    /// Returns an error if the name is invalid, the name already exists, a
+    /// field value is invalid, or config persistence fails.
+    pub fn add_role(&mut self, name: &str, update: RoleUpdate) -> Result<String, VivariumError> {
         let name = sanitize_identity(name)?;
         if self.find_role_index(&name).is_some() {
-            return Ok(self.address_for(&name));
+            return Err(VivariumError::Message(format!(
+                "local role '{name}' already exists; update it with `vivi role set {name} <fields>`"
+            )));
         }
         let mut role = LocalIdentity::new(name.clone());
-        if let Some(kind) = kind {
-            role.kind = Some(sanitize_freeform_field("kind", kind)?);
-        }
-        for label in labels {
-            let label = sanitize_label(label)?;
-            if !role.labels.iter().any(|known| known == &label) {
-                role.labels.push(label);
-            }
-        }
+        apply_role_update(&mut role, update)?;
         self.config.identities.push(role);
         self.sort_roles();
         self.persist_config()?;

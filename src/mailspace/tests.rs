@@ -186,6 +186,41 @@ fn rename_identity_rejects_unknown_or_colliding_names() {
 }
 
 #[test]
+fn add_role_applies_all_fields_and_rejects_duplicate_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+
+    let update = RoleUpdate {
+        kind: Some(Some("hand".into())),
+        status: Some("active".into()),
+        harness: Some(Some("subagent".into())),
+        provider: Some(Some("zai".into())),
+        add_labels: vec!["floater".into()],
+        ..RoleUpdate::default()
+    };
+    let address = mailspace.add_role("hand-1", update).unwrap();
+    assert!(address.contains("hand-1@"), "{address}");
+
+    let view = mailspace.role_view("hand-1").unwrap();
+    assert_eq!(view.kind.as_deref(), Some("hand"));
+    assert_eq!(view.harness.as_deref(), Some("subagent"));
+    assert_eq!(view.provider.as_deref(), Some("zai"));
+    assert!(view.labels.iter().any(|label| label == "floater"));
+
+    // A duplicate add must error, not silently no-op.
+    let err = mailspace
+        .add_role("hand-1", RoleUpdate::default())
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("already exists"), "{msg}");
+    assert!(msg.contains("role set"), "{msg}");
+
+    // The rejected add must not have mutated the original role.
+    let unchanged = mailspace.role_view("hand-1").unwrap();
+    assert_eq!(unchanged.kind.as_deref(), Some("hand"));
+}
+
+#[test]
 fn explicit_thread_skips_unrelated_messages() {
     let (_tmp, mailspace, handle) = fixture_with_noise(80);
     let messages = mailspace.thread(&handle, false, 50, 50).unwrap();

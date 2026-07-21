@@ -66,7 +66,8 @@ pub struct MailspaceImportCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum MailspaceIdentityCommand {
-    /// Add a local identity, such as ceo or cto
+    /// Add a thin local identity (no role metadata). For a full role seat in
+    /// one step with kind/labels/harness, prefer `vivi role add`.
     Add {
         /// Identity name
         identity: String,

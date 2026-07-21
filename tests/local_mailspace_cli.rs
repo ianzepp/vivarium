@@ -1639,6 +1639,73 @@ fn role_add_set_charter_show_and_rename() {
     assert!(listed.as_array().unwrap().len() >= 2, "{listed}");
 }
 
+#[test]
+fn role_add_on_existing_identity_errors_instead_of_silently_dropping_flags() {
+    let project = tempfile::tempdir().unwrap();
+    assert_success(&vivi([
+        "mailspace",
+        "init",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]));
+
+    // One-step create applies every flag.
+    let first = vivi([
+        "role",
+        "add",
+        "hand-1",
+        "--kind",
+        "hand",
+        "--harness",
+        "subagent",
+        "--label",
+        "floater",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert_success(&first);
+    assert!(stdout(&first).contains("hand-1@"), "{}", stdout(&first));
+
+    // Re-adding the same name must error, not report success while dropping flags.
+    let dup = vivi([
+        "role",
+        "add",
+        "hand-1",
+        "--kind",
+        "head",
+        "--label",
+        "executive",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert!(
+        !dup.status.success(),
+        "re-add should fail, not silently no-op: {}",
+        stderr(&dup)
+    );
+    let err = stderr(&dup);
+    assert!(err.contains("already exists"), "{err}");
+    assert!(
+        err.contains("role set"),
+        "error should point to role set: {err}"
+    );
+
+    // The failed re-add must not have mutated the original role.
+    let show = vivi([
+        "role",
+        "show",
+        "hand-1",
+        "--json",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]);
+    assert_success(&show);
+    let value: Value = serde_json::from_str(&stdout(&show)).unwrap();
+    assert_eq!(value["kind"], "hand");
+    assert_eq!(value["harness"], "subagent");
+    assert_eq!(value["labels"][0], "floater");
+}
+
 fn init_roster(project: &std::path::Path) {
     assert_success(&vivi([
         "mailspace",

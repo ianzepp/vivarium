@@ -148,25 +148,26 @@ fn show_role(
 
 fn add_role(args: &AddRoleArgs<'_>) -> Result<(), VivariumError> {
     let mut mailspace = Mailspace::discover(args.project)?;
-    let label_refs: Vec<&str> = args.labels.iter().map(String::as_str).collect();
-    let address = mailspace.add_role(args.name, args.kind, &label_refs)?;
-    let update = RoleUpdate {
-        kind: None,
-        status: args.status.map(str::to_string),
-        harness: args.harness.map(|v| Some(v.to_string())),
-        provider: args.provider.map(|v| Some(v.to_string())),
-        model: args.model.map(|v| Some(v.to_string())),
-        thinking: args.thinking.map(|v| Some(v.to_string())),
-        pid: None,
-        host: None,
-        add_labels: Vec::new(),
-        clear_labels: Vec::new(),
-    };
-    if update_has_fields(&update) {
-        mailspace.set_role(args.name, update)?;
-    }
+    let update = build_add_update(args);
+    let address = mailspace.add_role(args.name, update)?;
     println!("added {address}");
     Ok(())
+}
+
+/// Build the full-field `RoleUpdate` for a `role add`. No clears and no
+/// pid/host: those are self-set live-process bindings, set later via
+/// `role set`, not at roster-creation time.
+fn build_add_update(args: &AddRoleArgs<'_>) -> RoleUpdate {
+    RoleUpdate {
+        kind: args.kind.map(|value| Some(value.to_string())),
+        status: args.status.map(str::to_string),
+        harness: args.harness.map(|value| Some(value.to_string())),
+        provider: args.provider.map(|value| Some(value.to_string())),
+        model: args.model.map(|value| Some(value.to_string())),
+        thinking: args.thinking.map(|value| Some(value.to_string())),
+        add_labels: args.labels.iter().map(String::clone).collect(),
+        ..RoleUpdate::default()
+    }
 }
 
 fn set_role(
