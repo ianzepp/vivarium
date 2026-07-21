@@ -21,13 +21,18 @@ impl Runtime {
         &self,
         command: QueuedCommand,
         json: bool,
+        dry_run: bool,
     ) -> Result<(), VivariumError> {
         match command {
             QueuedCommand::Archive { handles } => {
                 self.run_mutations(
                     handles,
                     |_| Ok(MutationAction::Archive),
-                    options(false, json),
+                    MutationRunOptions {
+                        dry_run,
+                        json,
+                        confirm: false,
+                    },
                 )
                 .await?;
             }
@@ -45,7 +50,7 @@ impl Runtime {
                     handles,
                     |_| Ok(action.clone()),
                     MutationRunOptions {
-                        dry_run: false,
+                        dry_run,
                         json,
                         confirm,
                     },
@@ -60,7 +65,11 @@ impl Runtime {
                             folder: folder.clone(),
                         })
                     },
-                    options(false, json),
+                    MutationRunOptions {
+                        dry_run,
+                        json,
+                        confirm: false,
+                    },
                 )
                 .await?;
             }
@@ -79,7 +88,11 @@ impl Runtime {
                             mutation: mutation.clone(),
                         })
                     },
-                    options(false, json),
+                    MutationRunOptions {
+                        dry_run,
+                        json,
+                        confirm: false,
+                    },
                 )
                 .await?;
             }
@@ -164,14 +177,6 @@ impl Runtime {
                 Err(err)
             }
         }
-    }
-}
-
-fn options(dry_run: bool, json: bool) -> MutationRunOptions {
-    MutationRunOptions {
-        dry_run,
-        json,
-        confirm: false,
     }
 }
 

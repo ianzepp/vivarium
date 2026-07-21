@@ -1287,7 +1287,7 @@ fn parses_enqueue_archive_batch() {
 
 #[test]
 fn rejects_unknown_agent_subcommand() {
-    let err = Cli::try_parse_from(["vivi", "agent", "archive", "one"]).unwrap_err();
+    let err = Cli::try_parse_from(["vivi", "agent", "bogus"]).unwrap_err();
 
     assert_eq!(err.kind(), clap::error::ErrorKind::InvalidSubcommand);
 }
@@ -1314,6 +1314,140 @@ fn parses_agent_poll_defaults() {
             assert!(!json);
             assert_eq!(codex_command, "codex");
             assert_eq!(codex_args, vec!["exec", "-"]);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_agent_archive_plan() {
+    let cli = Cli::try_parse_from(["vivi", "agent", "archive", "one", "two"]).unwrap();
+
+    match cli.command {
+        Command::Agent {
+            command:
+                AgentCommand::Archive {
+                    handles,
+                    execute,
+                    json,
+                },
+        } => {
+            assert_eq!(handles, vec!["one", "two"]);
+            assert!(!execute);
+            assert!(!json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_agent_archive_execute() {
+    let cli =
+        Cli::try_parse_from(["vivi", "agent", "archive", "one", "--execute", "--json"]).unwrap();
+
+    match cli.command {
+        Command::Agent {
+            command:
+                AgentCommand::Archive {
+                    handles,
+                    execute,
+                    json,
+                },
+        } => {
+            assert_eq!(handles, vec!["one"]);
+            assert!(execute);
+            assert!(json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_agent_delete_execute() {
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "agent",
+        "delete",
+        "one",
+        "two",
+        "--expunge",
+        "--confirm",
+        "--execute",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Agent {
+            command:
+                AgentCommand::Delete {
+                    handles,
+                    expunge,
+                    confirm,
+                    execute,
+                    ..
+                },
+        } => {
+            assert_eq!(handles, vec!["one", "two"]);
+            assert!(expunge);
+            assert!(confirm);
+            assert!(execute);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_agent_move_and_flag() {
+    let cli = Cli::try_parse_from(["vivi", "agent", "move", "h", "trash", "--execute"]).unwrap();
+
+    match cli.command {
+        Command::Agent {
+            command:
+                AgentCommand::Move {
+                    handle,
+                    folder,
+                    execute,
+                    ..
+                },
+        } => {
+            assert_eq!(handle, "h");
+            assert_eq!(folder, "trash");
+            assert!(execute);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let cli = Cli::try_parse_from([
+        "vivi",
+        "agent",
+        "flag",
+        "h",
+        "--star",
+        "--execute",
+        "--json",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Agent {
+            command:
+                AgentCommand::Flag {
+                    handle,
+                    read,
+                    unread,
+                    star,
+                    unstar,
+                    execute,
+                    json,
+                },
+        } => {
+            assert_eq!(handle, "h");
+            assert!(star);
+            assert!(!read);
+            assert!(!unread);
+            assert!(!unstar);
+            assert!(execute);
+            assert!(json);
         }
         other => panic!("unexpected command: {other:?}"),
     }

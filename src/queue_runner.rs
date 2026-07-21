@@ -1,5 +1,5 @@
 use vivarium::VivariumError;
-use vivarium::cli::{Command, EnqueueCommand, ExecCommand, QueueCommand};
+use vivarium::cli::{AgentCommand, Command, EnqueueCommand, ExecCommand, QueueCommand};
 use vivarium::policy;
 use vivarium::queue::{self, QueueItem, QueueStatus, QueuedCommand};
 
@@ -20,9 +20,21 @@ impl Runtime {
             Command::Exec { command } => self.exec(command).await?,
             Command::Enqueue { command } => self.enqueue(command)?,
             Command::Queue { command } => self.queue(command).await?,
+            Command::Agent { command: agent } if is_agent_mutation(&agent) => {
+                self.run_agent_mutation_command(agent).await?;
+            }
             other => return Ok(QueueDispatch::Unhandled(Box::new(other))),
         }
         Ok(QueueDispatch::Handled)
+    }
+
+    async fn run_agent_mutation_command(&self, command: AgentCommand) -> Result<(), VivariumError> {
+        let (queued, json, execute) = queued_from_agent(command)?;
+        if execute {
+            self.execute_queued(queued, json).await
+        } else {
+            self.plan_queued(queued, json).await
+        }
     }
 
     async fn exec(&self, command: ExecCommand) -> Result<(), VivariumError> {
@@ -149,10 +161,88 @@ impl Runtime {
             QueuedCommand::Archive { .. }
             | QueuedCommand::Delete { .. }
             | QueuedCommand::Move { .. }
-            | QueuedCommand::Flag { .. } => self.run_queued_mutation(command, json).await,
+            | QueuedCommand::Flag { .. } => self.run_queued_mutation(command, json, false).await,
             QueuedCommand::Send { path, from } => self.send_path(&path, from.as_deref()).await,
             QueuedCommand::Reply { handle, body } => self.reply_body(&handle, body).await,
         }
+    }
+
+    async fn plan_queued(&self, command: QueuedCommand, json: bool) -> Result<(), VivariumError> {
+        let acct = self.resolve_account(self.account.clone())?;
+        policy::authorize(&acct, &command)?;
+        match command {
+            QueuedCommand::Archive { .. }
+            | QueuedCommand::Delete { .. }
+            | QueuedCommand::Move { .. }
+            | QueuedCommand::Flag { .. } => self.run_queued_mutation(command, json, true).await,
+            QueuedCommand::Send { .. } | QueuedCommand::Reply { .. } => {
+                Err(VivariumError::Message("agent plan not supported".into()))
+            }
+        }
+    }
+}
+
+fn is_agent_mutation(command: &AgentCommand) -> bool {
+    matches!(
+        command,
+        AgentCommand::Archive { .. }
+            | AgentCommand::Delete { .. }
+            | AgentCommand::Move { .. }
+            | AgentCommand::Flag { .. }
+    )
+}
+
+fn queued_from_agent(command: AgentCommand) -> Result<(QueuedCommand, bool, bool), VivariumError> {
+    match command {
+        AgentCommand::Archive {
+            handles,
+            execute,
+            json,
+        } => Ok((QueuedCommand::Archive { handles }, json, execute)),
+        AgentCommand::Delete {
+            handles,
+            trash: _,
+            expunge,
+            confirm,
+            execute,
+            json,
+        } => Ok((
+            QueuedCommand::Delete {
+                handles,
+                expunge,
+                confirm,
+            },
+            json,
+            execute,
+        )),
+        AgentCommand::Move {
+            handle,
+            folder,
+            execute,
+            json,
+        } => Ok((QueuedCommand::Move { handle, folder }, json, execute)),
+        AgentCommand::Flag {
+            handle,
+            read,
+            unread,
+            star,
+            unstar,
+            execute,
+            json,
+        } => Ok((
+            QueuedCommand::Flag {
+                handle,
+                read,
+                unread,
+                star,
+                unstar,
+            },
+            json,
+            execute,
+        )),
+        AgentCommand::Poll { .. } => Err(VivariumError::Message(
+            "agent poll is not a mutation command".into(),
+        )),
     }
 }
 

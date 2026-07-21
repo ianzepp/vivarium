@@ -47,6 +47,12 @@ impl AgentRunner for AgentContext<'_> {
                 )?;
                 Ok(AgentDispatch::Handled)
             }
+            AgentCommand::Archive { .. }
+            | AgentCommand::Delete { .. }
+            | AgentCommand::Move { .. }
+            | AgentCommand::Flag { .. } => Ok(AgentDispatch::Unhandled(Box::new(Command::Agent {
+                command,
+            }))),
         }
     }
 }
