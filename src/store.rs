@@ -45,14 +45,14 @@ pub struct MessageLocation {
 }
 
 impl MailStore {
-    #[must_use] 
+    #[must_use]
     pub fn new(root: &Path) -> Self {
         Self {
             root: root.to_path_buf(),
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -76,7 +76,7 @@ impl MailStore {
     }
 
     /// Path to a specific folder.
-    #[must_use] 
+    #[must_use]
     pub fn folder_path(&self, folder: &str) -> PathBuf {
         self.root.join(canonical_folder(folder).unwrap_or(folder))
     }
@@ -265,7 +265,7 @@ impl MailStore {
     }
 
     /// Check if an RFC 5322 Message-ID exists in the index with a matching size.
-    #[must_use] 
+    #[must_use]
     pub fn rfc_index_lookup(
         &self,
         index: &HashMap<String, (u32, u64)>,
@@ -278,7 +278,7 @@ impl MailStore {
     }
 
     /// Check if an RFC 5322 Message-ID exists in the index.
-    #[must_use] 
+    #[must_use]
     pub fn rfc_index_contains(
         &self,
         index: &HashMap<String, (u32, u64)>,

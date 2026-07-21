@@ -1,12 +1,10 @@
 use super::{
-    body_decryptor, direct_sync_storage_supported, ingest_body, ingest_header, local_message_id,
-    ProtonRawMessageCache,
+    ProtonRawMessageCache, body_decryptor, direct_sync_storage_supported, ingest_body,
+    ingest_header, local_message_id,
 };
 use crate::config::Account;
 use crate::error::VivariumError;
-use crate::proton_api::{
-    ProtonApiClient, ProtonFullMessage, ProtonSessionStore,
-};
+use crate::proton_api::{ProtonApiClient, ProtonFullMessage, ProtonSessionStore};
 use crate::storage::Storage;
 use crate::store::MailStore;
 use crate::sync::SyncResult;

@@ -1,6 +1,6 @@
 use super::*;
-use crate::imap::identity::remote_identity_candidates;
 use crate::config::{Auth, MutationPolicy};
+use crate::imap::identity::remote_identity_candidates;
 
 #[test]
 fn inbox_watch_plan_has_no_sent_or_outbound_folder() {

@@ -40,7 +40,7 @@ impl std::fmt::Display for RemoteMutation {
 ///
 /// Aliases normalized: `"trash"`, `"deleted"` (case-insensitive), and the
 /// account's configured provider trash folder name all classify as trash.
-#[must_use] 
+#[must_use]
 pub fn classifies_as_trash(account: &Account, folder: &str) -> bool {
     let lower = folder.to_ascii_lowercase();
     lower == "trash" || lower == "deleted" || lower == account.trash_folder().to_ascii_lowercase()
@@ -50,7 +50,7 @@ pub fn classifies_as_trash(account: &Account, folder: &str) -> bool {
 ///
 /// Returns `None` for commands that cause no remote side effects (e.g. local
 /// reply draft creation) and are therefore not subject to mutation policy.
-#[must_use] 
+#[must_use]
 pub fn classify(account: &Account, command: &QueuedCommand) -> Option<RemoteMutation> {
     match command {
         QueuedCommand::Archive { .. } => Some(RemoteMutation::Archive),
@@ -108,7 +108,7 @@ pub fn authorize_mutation(
 }
 
 /// Whether a given policy permits a given remote mutation.
-#[must_use] 
+#[must_use]
 pub fn policy_allows(policy: MutationPolicy, mutation: RemoteMutation) -> bool {
     match policy {
         MutationPolicy::FullWrite => true,

@@ -134,7 +134,7 @@ pub struct ProviderOAuthConfig {
 
 impl Provider {
     /// Return the OAuth configuration for this provider.
-    #[must_use] 
+    #[must_use]
     pub fn oauth_config(&self) -> Option<ProviderOAuthConfig> {
         match self {
             Provider::Gmail => Some(ProviderOAuthConfig {

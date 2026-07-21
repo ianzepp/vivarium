@@ -177,14 +177,15 @@ fn sender_address(value: &str) -> Option<String> {
 }
 
 fn entry_event_id(entry: &crate::catalog::CatalogEntry) -> String {
-    entry
-        .remote
-        .as_ref().map_or_else(|| format!("message:{}:{}", entry.account, entry.handle), |remote| {
+    entry.remote.as_ref().map_or_else(
+        || format!("message:{}:{}", entry.account, entry.handle),
+        |remote| {
             format!(
                 "imap:{}:{}:{}",
                 remote.remote_mailbox, remote.uidvalidity, remote.uid
             )
-        })
+        },
+    )
 }
 
 #[cfg(test)]

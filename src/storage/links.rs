@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use super::{params, Storage, VivariumError, OptionalExtension, StoredMessageView, message_query, raw_stored_message_from_row};
+use super::{
+    OptionalExtension, Storage, StoredMessageView, VivariumError, message_query, params,
+    raw_stored_message_from_row,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct MailspaceLink {

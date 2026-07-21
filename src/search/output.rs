@@ -12,7 +12,7 @@ pub struct SearchOutput<'a> {
 }
 
 /// Search result in JSON-friendly format.
-#[must_use] 
+#[must_use]
 pub fn to_json_result(result: &SearchResult) -> serde_json::Value {
     serde_json::json!({
         "handle": result.handle,

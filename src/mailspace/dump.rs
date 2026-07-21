@@ -287,7 +287,8 @@ impl Mailspace {
         let value = participant?;
         let resolved = self.resolve_identity(value).ok();
         let text = resolved
-            .as_deref().map_or_else(|| value.to_string(), |identity| self.address_for(identity));
+            .as_deref()
+            .map_or_else(|| value.to_string(), |identity| self.address_for(identity));
         let identity = resolved.map(|identity| self.identity_names(&identity));
         Some(ParticipantFilter {
             identity,

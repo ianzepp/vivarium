@@ -328,14 +328,7 @@ fn parses_role_set_pid_host_and_status() {
     use vivarium::cli::RoleCommand;
 
     let set = Cli::try_parse_from([
-        "vivi",
-        "role",
-        "set",
-        "hand-1",
-        "--pid",
-        "12345",
-        "--host",
-        "pharos",
+        "vivi", "role", "set", "hand-1", "--pid", "12345", "--host", "pharos",
     ])
     .unwrap();
     match set.command {
@@ -359,11 +352,12 @@ fn parses_role_set_pid_host_and_status() {
         other => panic!("unexpected command: {other:?}"),
     }
 
-    let clear = Cli::try_parse_from(["vivi", "role", "set", "hand-1", "--clear-pid"])
-        .unwrap();
+    let clear = Cli::try_parse_from(["vivi", "role", "set", "hand-1", "--clear-pid"]).unwrap();
     match clear.command {
         Command::Role {
-            command: RoleCommand::Set { name, clear_pid, .. },
+            command: RoleCommand::Set {
+                name, clear_pid, ..
+            },
         } => {
             assert_eq!(name, "hand-1");
             assert!(clear_pid);
@@ -371,8 +365,7 @@ fn parses_role_set_pid_host_and_status() {
         other => panic!("unexpected command: {other:?}"),
     }
 
-    let status = Cli::try_parse_from(["vivi", "role", "status", "hand-1", "--json"])
-        .unwrap();
+    let status = Cli::try_parse_from(["vivi", "role", "status", "hand-1", "--json"]).unwrap();
     match status.command {
         Command::Role {
             command: RoleCommand::Status { name, json, .. },

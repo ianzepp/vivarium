@@ -38,12 +38,12 @@ impl SyncWindow {
         })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.since.is_none() && self.before.is_none()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn contains_datetime(&self, date: DateTime<Utc>) -> bool {
         let date = date.date_naive();
         self.since.is_none_or(|since| date >= since)
@@ -251,7 +251,8 @@ fn resolved_managed_root(config: &Config) -> std::path::PathBuf {
     let root = config
         .defaults
         .mail_root
-        .as_deref().map_or_else(Config::default_mail_root, crate::config::expand_tilde);
+        .as_deref()
+        .map_or_else(Config::default_mail_root, crate::config::expand_tilde);
     root.canonicalize().unwrap_or(root)
 }
 

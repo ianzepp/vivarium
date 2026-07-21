@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rusqlite::Transaction;
 
-use super::{params, Storage, MailspaceEventInput, VivariumError, Utc, MailspaceEvent};
+use super::{MailspaceEvent, MailspaceEventInput, Storage, Utc, VivariumError, params};
 
 impl Storage {
     /// Append a mailspace event with the current timestamp.

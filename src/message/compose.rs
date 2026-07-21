@@ -233,7 +233,7 @@ fn reply_html_body(html_body: &str, parsed: &mail_parser::Message<'_>) -> String
     html
 }
 
-#[must_use] 
+#[must_use]
 pub fn auto_html_body(body: &str) -> String {
     format!("<div dir=\"ltr\">{}</div>\n", plain_text_to_html(body))
 }

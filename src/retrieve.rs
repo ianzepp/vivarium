@@ -66,7 +66,7 @@ pub fn json_message(
     Ok(value)
 }
 
-#[must_use] 
+#[must_use]
 pub fn citation_json(handle: &str, account: &str, location: &MessageLocation) -> serde_json::Value {
     let mut citation = serde_json::json!({
         "handle": handle,

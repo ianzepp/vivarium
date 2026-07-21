@@ -18,7 +18,7 @@ pub struct OllamaEmbeddingProvider {
 }
 
 impl OllamaEmbeddingProvider {
-    #[must_use] 
+    #[must_use]
     pub fn new(provider: String, model: String, endpoint: String) -> Self {
         Self {
             provider,

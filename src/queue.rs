@@ -64,7 +64,7 @@ pub enum QueuedCommand {
 }
 
 impl QueueItem {
-    #[must_use] 
+    #[must_use]
     pub fn new(account: String, command: QueuedCommand) -> Self {
         let now = Utc::now();
         let timestamp = now.to_rfc3339();

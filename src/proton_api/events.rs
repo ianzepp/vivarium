@@ -14,7 +14,7 @@ pub struct ProtonEvent {
 }
 
 impl ProtonEvent {
-    #[must_use] 
+    #[must_use]
     pub fn requires_mail_refresh(&self) -> bool {
         self.refresh & REFRESH_MAIL != 0 || self.refresh == REFRESH_ALL
     }

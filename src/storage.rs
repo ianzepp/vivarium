@@ -358,10 +358,7 @@ fn remote_binding_from_catalog(remote: &RemoteIdentity) -> RemoteBindingInput {
 }
 
 impl Storage {
-    fn catalog_entry_from_view(
-        &self,
-        message: StoredMessageView,
-    ) -> CatalogEntry {
+    fn catalog_entry_from_view(&self, message: StoredMessageView) -> CatalogEntry {
         let remote = message.remote.as_ref().map(|binding| RemoteIdentity {
             account: binding.account.clone(),
             provider: binding.provider.clone(),

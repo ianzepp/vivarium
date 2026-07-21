@@ -235,7 +235,10 @@ fn handle_charter(command: &RoleCharterCommand) -> Result<(), VivariumError> {
             file,
             project,
         } => {
-            let path = body_file.as_ref().or(file.as_ref()).map(std::path::PathBuf::as_path);
+            let path = body_file
+                .as_ref()
+                .or(file.as_ref())
+                .map(std::path::PathBuf::as_path);
             let charter = read_body_input(body.as_deref(), path)?;
             let mut mailspace = Mailspace::discover(project.as_deref())?;
             mailspace.set_charter(name, &charter)?;

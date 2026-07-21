@@ -40,7 +40,7 @@ impl AuthInfo {
             .map_err(|e| VivariumError::Other(format!("Proton SRP proof generation failed: {e}")))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn summary(&self) -> AuthInfoSummary {
         AuthInfoSummary {
             version: self.version,

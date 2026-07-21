@@ -4,7 +4,9 @@ use sha2::{Digest, Sha256};
 use crate::catalog::CatalogEntry;
 use crate::config::Account;
 use crate::error::VivariumError;
-use crate::proton_api::{ProtonAddress, ProtonApiClient, ProtonFullMessage, ProtonMessage, ProtonSessionStore};
+use crate::proton_api::{
+    ProtonAddress, ProtonApiClient, ProtonFullMessage, ProtonMessage, ProtonSessionStore,
+};
 use crate::proton_decrypt::ProtonBodyDecryptor;
 use crate::storage::{MessageIngestRequest, Storage};
 use crate::store::MailStore;
@@ -208,7 +210,10 @@ fn ingest_body(
     if decrypted.is_err() {
         result.decryption_errors += 1;
     }
-    let bytes = decrypted.map_or_else(|_| decryption_failure_bytes(&message.metadata), |body| body_bytes(message, &body));
+    let bytes = decrypted.map_or_else(
+        |_| decryption_failure_bytes(&message.metadata),
+        |body| body_bytes(message, &body),
+    );
     let message_id = local_message_id(&message.metadata.id);
     let existed = storage.catalog_entry(&account.name, &message_id)?.is_some();
     let stored = storage.ingest_message(

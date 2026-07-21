@@ -34,7 +34,10 @@ fn vivi_home_dir_from(vivi_home: Option<std::ffi::OsString>, home: Option<PathBu
         return path;
     }
 
-    home.map_or_else(|| PathBuf::from(DEFAULT_VIVI_HOME), |path| path.join(DEFAULT_VIVI_HOME))
+    home.map_or_else(
+        || PathBuf::from(DEFAULT_VIVI_HOME),
+        |path| path.join(DEFAULT_VIVI_HOME),
+    )
 }
 
 fn config_dir() -> PathBuf {
@@ -108,17 +111,17 @@ impl Config {
             .map_err(|e| VivariumError::Config(format!("failed to parse config: {e}")))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn default_path() -> PathBuf {
         config_dir().join("config.toml")
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn default_dir() -> PathBuf {
         config_dir()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn default_mail_root() -> PathBuf {
         let home = dirs::home_dir();
         default_mail_root_from(
@@ -158,7 +161,7 @@ impl AccountsFile {
             .map_err(|e| VivariumError::Config(format!("failed to parse accounts: {e}")))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn default_path() -> PathBuf {
         config_dir().join("accounts.toml")
     }
@@ -196,7 +199,7 @@ fn check_permissions(path: &Path, ignore_permissions: bool) -> Result<(), Vivari
     Ok(())
 }
 
-#[must_use] 
+#[must_use]
 pub fn expand_tilde(path: &str) -> PathBuf {
     expand_tilde_with_home(path, dirs::home_dir().as_deref())
 }

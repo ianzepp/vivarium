@@ -38,12 +38,15 @@ impl MessageEntry {
             .parse(&data)
             .ok_or_else(|| VivariumError::Parse(format!("failed to parse {}", path.display())))?;
 
-        let from = parsed
-            .from()
-            .and_then(|a| a.first())
-            .map_or_else(|| "unknown".to_string(), |a| {
-                a.name().map_or_else(|| a.address().unwrap_or("unknown").to_string(), String::from)
-            });
+        let from = parsed.from().and_then(|a| a.first()).map_or_else(
+            || "unknown".to_string(),
+            |a| {
+                a.name().map_or_else(
+                    || a.address().unwrap_or("unknown").to_string(),
+                    String::from,
+                )
+            },
+        );
 
         let subject = parsed.subject().unwrap_or("(no subject)").to_string();
 
@@ -80,13 +83,13 @@ impl fmt::Display for MessageEntry {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn message_id_from_bytes(data: &[u8]) -> Option<String> {
     let parsed = mail_parser::MessageParser::default().parse(data)?;
     normalize_message_id(parsed.message_id()?)
 }
 
-#[must_use] 
+#[must_use]
 pub fn normalize_message_id(message_id: &str) -> Option<String> {
     let trimmed = message_id
         .trim()
@@ -108,9 +111,9 @@ pub fn render_message(data: &[u8]) -> Result<String, VivariumError> {
         .parse(data)
         .ok_or_else(|| VivariumError::Parse("failed to parse message".into()))?;
 
-    let from = parsed
-        .from()
-        .and_then(|a| a.first()).map_or_else(|| "unknown".to_string(), |a| {
+    let from = parsed.from().and_then(|a| a.first()).map_or_else(
+        || "unknown".to_string(),
+        |a| {
             let name = a.name().unwrap_or("");
             let addr = a.address().unwrap_or("");
             if name.is_empty() {
@@ -118,11 +121,12 @@ pub fn render_message(data: &[u8]) -> Result<String, VivariumError> {
             } else {
                 format!("{name} <{addr}>")
             }
-        });
+        },
+    );
 
-    let to = parsed
-        .to()
-        .and_then(|a| a.first()).map_or_else(|| "unknown".to_string(), |a| {
+    let to = parsed.to().and_then(|a| a.first()).map_or_else(
+        || "unknown".to_string(),
+        |a| {
             let name = a.name().unwrap_or("");
             let addr = a.address().unwrap_or("");
             if name.is_empty() {
@@ -130,15 +134,21 @@ pub fn render_message(data: &[u8]) -> Result<String, VivariumError> {
             } else {
                 format!("{name} <{addr}>")
             }
-        });
+        },
+    );
 
     let subject = parsed.subject().unwrap_or("(no subject)");
     let msg_date = parsed
         .date()
-        .and_then(|d| DateTime::from_timestamp(d.to_timestamp(), 0)).map_or_else(|| "unknown".to_string(), |dt| dt.format("%Y-%m-%d %H:%M %Z").to_string());
+        .and_then(|d| DateTime::from_timestamp(d.to_timestamp(), 0))
+        .map_or_else(
+            || "unknown".to_string(),
+            |dt| dt.format("%Y-%m-%d %H:%M %Z").to_string(),
+        );
 
     let body = parsed
-        .body_text(0).map_or_else(|| "(no text body)".to_string(), |s| s.to_string());
+        .body_text(0)
+        .map_or_else(|| "(no text body)".to_string(), |s| s.to_string());
 
     Ok(format!(
         "From:    {from}\nTo:      {to}\nDate:    {msg_date}\nSubject: {subject}\n\n{body}"

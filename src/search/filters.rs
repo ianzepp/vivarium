@@ -8,7 +8,7 @@ pub struct SearchFilters<'a> {
 }
 
 impl<'a> SearchFilters<'a> {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         folder: Option<&'a str>,
         from_addr: Option<&'a str>,

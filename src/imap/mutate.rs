@@ -102,7 +102,7 @@ pub fn plan_move(
     ))
 }
 
-#[must_use] 
+#[must_use]
 pub fn plan_flag(mutation: FlagMutation) -> MutationPlan {
     let store_query = match mutation {
         FlagMutation::Read => "+FLAGS.SILENT (\\Seen)",

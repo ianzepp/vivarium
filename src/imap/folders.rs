@@ -86,7 +86,7 @@ pub async fn discover_folders(
     })
 }
 
-#[must_use] 
+#[must_use]
 pub fn resolved_folders(account: &Account) -> ResolvedFolders {
     ResolvedFolders {
         inbox: account.inbox_folder(),

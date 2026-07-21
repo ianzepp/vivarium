@@ -1,4 +1,6 @@
-use super::{params, Storage, VivariumError, short_handle_map, HashMap, StoredMessageView, OptionalExtension};
+use super::{
+    HashMap, OptionalExtension, Storage, StoredMessageView, VivariumError, params, short_handle_map,
+};
 
 impl Storage {
     /// Resolve a message token (full ID, short handle, or ID prefix) to a

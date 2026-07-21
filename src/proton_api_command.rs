@@ -269,11 +269,7 @@ fn print_identity_report(report: &IdentityReport, as_json: bool) {
     });
 }
 
-pub(super) fn print_report<T: Serialize>(
-    report: &T,
-    as_json: bool,
-    print_text: impl FnOnce(&T),
-) {
+pub(super) fn print_report<T: Serialize>(report: &T, as_json: bool, print_text: impl FnOnce(&T)) {
     if as_json {
         println!(
             "{}",
@@ -284,11 +280,7 @@ pub(super) fn print_report<T: Serialize>(
     }
 }
 
-fn print_session_report(
-    title: &str,
-    report: &SessionReport,
-    as_json: bool,
-) {
+fn print_session_report(title: &str, report: &SessionReport, as_json: bool) {
     print_report(report, as_json, |report| {
         println!("{title}: {}", report.account);
         println!("provider  {}", report.provider);

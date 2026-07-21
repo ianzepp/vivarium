@@ -283,14 +283,11 @@ fn first_address(
         .ok_or_else(|| VivariumError::Message(format!("message has no {label} address")))
 }
 
-fn address_list(
-    list: Option<&mail_parser::Address<'_>>,
-) -> Vec<ProtonAddress> {
+fn address_list(list: Option<&mail_parser::Address<'_>>) -> Vec<ProtonAddress> {
     let Some(list) = list else {
         return Vec::new();
     };
-    list
-        .iter()
+    list.iter()
         .filter_map(|address| {
             Some(ProtonAddress {
                 name: address.name().unwrap_or_default().to_string(),

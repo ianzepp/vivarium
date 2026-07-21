@@ -51,18 +51,15 @@ impl EmbeddingOptions {
         endpoint: Option<&str>,
     ) -> Result<Self, VivariumError> {
         let provider = required_embedding_setting(
-            provider
-                .or(config.defaults.embedding_provider.as_deref()),
+            provider.or(config.defaults.embedding_provider.as_deref()),
             "embedding_provider",
         )?;
         let model = required_embedding_setting(
-            model
-                .or(config.defaults.embedding_model.as_deref()),
+            model.or(config.defaults.embedding_model.as_deref()),
             "embedding_model",
         )?;
         let endpoint = required_embedding_setting(
-            endpoint
-                .or(config.defaults.embedding_endpoint.as_deref()),
+            endpoint.or(config.defaults.embedding_endpoint.as_deref()),
             "embedding_endpoint",
         )?;
         Ok(Self {
@@ -268,15 +265,14 @@ async fn index_message<P: provider::EmbeddingProvider + Sync>(
     })
 }
 
-fn message_chunks(
-    message: &IndexedMessage,
-    stats: &mut EmbeddingStats,
-) -> Option<Vec<EmailChunk>> {
+fn message_chunks(message: &IndexedMessage, stats: &mut EmbeddingStats) -> Option<Vec<EmailChunk>> {
     let Ok(data) = fs::read(&message.blob_path) else {
         stats.errors += 1;
         return None;
     };
-    if let Ok(chunks) = chunk::chunks_for_message(message, &data) { Some(chunks) } else {
+    if let Ok(chunks) = chunk::chunks_for_message(message, &data) {
+        Some(chunks)
+    } else {
         stats.errors += 1;
         None
     }

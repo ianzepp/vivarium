@@ -205,14 +205,14 @@ impl Catalog {
 }
 
 /// Build a stable handle from raw message bytes.
-#[must_use] 
+#[must_use]
 pub fn handle_from_bytes(data: &[u8]) -> String {
     let hash = Sha256::digest(data);
     hex::encode(&hash[..HANDLE_LENGTH / 2]).clone()
 }
 
 /// Compute SHA-256 fingerprint of raw bytes.
-#[must_use] 
+#[must_use]
 pub fn fingerprint(data: &[u8]) -> String {
     let hash = Sha256::digest(data);
     hex::encode(hash)

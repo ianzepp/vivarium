@@ -178,7 +178,7 @@ impl Mailspace {
         Ok(Self { root, dir, config })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn store_path(&self) -> PathBuf {
         self.dir.join("mail.sqlite")
     }

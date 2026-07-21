@@ -39,11 +39,7 @@ impl ProtonBodyDecryptor {
     pub fn decrypt_body(&self, armored_body: &str) -> Result<Vec<u8>, VivariumError> {
         for address_key in &self.address_keys {
             let password = Password::from(address_key.password.as_slice());
-            if let Ok(bytes) = decrypt_armored_message(
-                armored_body,
-                &password,
-                &address_key.key,
-            ) {
+            if let Ok(bytes) = decrypt_armored_message(armored_body, &password, &address_key.key) {
                 return Ok(bytes);
             }
         }
@@ -69,7 +65,8 @@ pub(crate) fn unlock_address_keys(
             diagnostics.user_keys_without_salt += 1;
             continue;
         };
-        let Ok(mailbox_password) = derive_mailbox_password(&key_salt.key_salt, login_password) else {
+        let Ok(mailbox_password) = derive_mailbox_password(&key_salt.key_salt, login_password)
+        else {
             diagnostics.mailbox_hash_failures += 1;
             continue;
         };

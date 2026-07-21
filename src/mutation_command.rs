@@ -130,7 +130,7 @@ pub fn reconcile_success(
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn output_json(
     preview: &MutationPreview,
     status: &str,

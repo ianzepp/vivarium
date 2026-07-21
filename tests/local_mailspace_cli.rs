@@ -665,18 +665,37 @@ fn board_process_reports_liveness_per_role() {
 
     // ceo self-registers a live pid; cto has no binding.
     let pid = std::process::id();
-    assert_success(&vivi(["role", "set", "ceo", "--pid", &pid.to_string(), "--project", p]));
+    assert_success(&vivi([
+        "role",
+        "set",
+        "ceo",
+        "--pid",
+        &pid.to_string(),
+        "--project",
+        p,
+    ]));
 
     // Default board has no process block.
-    let plain: Value =
-        serde_json::from_str(&stdout(&vivi(["board", "--for", "ceo", "--json", "--project", p])))
-            .unwrap();
+    let plain: Value = serde_json::from_str(&stdout(&vivi([
+        "board",
+        "--for",
+        "ceo",
+        "--json",
+        "--project",
+        p,
+    ])))
+    .unwrap();
     assert!(plain["identities"][0].get("process").is_none(), "{plain}");
 
     // --process adds a process block per role.
-    let board: Value =
-        serde_json::from_str(&stdout(&vivi(["board", "--process", "--json", "--project", p])))
-            .unwrap();
+    let board: Value = serde_json::from_str(&stdout(&vivi([
+        "board",
+        "--process",
+        "--json",
+        "--project",
+        p,
+    ])))
+    .unwrap();
     let by_name: std::collections::HashMap<&str, &Value> = board["identities"]
         .as_array()
         .unwrap()
@@ -1751,7 +1770,14 @@ fn role_status_reports_pid_binding_and_liveness() {
     assert_eq!(v["host"], "zzz-remote-host-not-local-999");
 
     // Clearing the pid also clears the host (no binding without a pid).
-    assert_success(&vivi(["role", "set", "hand-1", "--clear-pid", "--project", p]));
+    assert_success(&vivi([
+        "role",
+        "set",
+        "hand-1",
+        "--clear-pid",
+        "--project",
+        p,
+    ]));
     let shown: Value = serde_json::from_str(&stdout(&vivi([
         "role",
         "show",

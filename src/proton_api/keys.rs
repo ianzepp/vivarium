@@ -43,7 +43,7 @@ pub struct ProtonPublicKey {
 pub struct ProtonRecipientType(pub u8);
 
 impl ProtonPublicKey {
-    #[must_use] 
+    #[must_use]
     pub fn is_active(&self) -> bool {
         self.flags & 2 != 0
     }

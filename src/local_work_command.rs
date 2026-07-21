@@ -198,9 +198,7 @@ fn list_wants(
             "  {}  {}  {}  {}  {}  {}  {}  {}",
             item.handle,
             item.status,
-            item.metadata
-                .get("priority")
-                .map_or("-", String::as_str),
+            item.metadata.get("priority").map_or("-", String::as_str),
             item.metadata.get("rank").map_or("-", String::as_str),
             item.metadata.get("repo").map_or("-", String::as_str),
             item.metadata.get("lane").map_or("-", String::as_str),
@@ -312,7 +310,13 @@ fn move_item(
     verb: &str,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    let handle = mailspace.move_item(for_identity, handle, role, note.map(String::as_str), command)?;
+    let handle = mailspace.move_item(
+        for_identity,
+        handle,
+        role,
+        note.map(String::as_str),
+        command,
+    )?;
     println!("{verb} {handle}");
     Ok(())
 }

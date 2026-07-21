@@ -1,8 +1,12 @@
 use super::events::append_event_tx;
 use super::metadata::ParsedMetadata;
-use super::{params, Storage, MessageIngestRequest, StoredMessage, VivariumError, sha256_hex, blob_relpath, write_blob_if_absent, parse_metadata, Utc, MailspaceEventInput, remote_bound_message_id, fallback_message_id, RemoteBindingInput};
 #[cfg(test)]
 use super::{CatalogEntry, request_from_catalog_entry};
+use super::{
+    MailspaceEventInput, MessageIngestRequest, RemoteBindingInput, Storage, StoredMessage, Utc,
+    VivariumError, blob_relpath, fallback_message_id, params, parse_metadata,
+    remote_bound_message_id, sha256_hex, write_blob_if_absent,
+};
 use rusqlite::Transaction;
 
 impl Storage {
@@ -178,11 +182,12 @@ impl Storage {
 
 pub(super) fn ingest_message_id(request: &MessageIngestRequest, content_id: &str) -> String {
     request.message_id_hint.clone().unwrap_or_else(|| {
-        request
-            .remote
-            .as_ref().map_or_else(|| fallback_message_id(request, content_id), |remote| {
+        request.remote.as_ref().map_or_else(
+            || fallback_message_id(request, content_id),
+            |remote| {
                 remote_bound_message_id(&request.account, &request.local_role, content_id, remote)
-            })
+            },
+        )
     })
 }
 

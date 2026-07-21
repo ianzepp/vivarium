@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::{params, Storage, VivariumError, Utc};
+use super::{Storage, Utc, VivariumError, params};
 
 impl Storage {
     /// Set metadata key-value pairs for a message.

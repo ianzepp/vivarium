@@ -44,7 +44,7 @@ pub struct IndexedMessage {
 }
 
 impl IndexedMessage {
-    #[must_use] 
+    #[must_use]
     pub fn location(&self) -> MessageLocation {
         MessageLocation {
             message_id: Some(self.message_id.clone()),

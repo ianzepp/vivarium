@@ -1,5 +1,8 @@
 use super::ingest::{ingest_message_id, upsert_blob_row, upsert_message_row, upsert_metadata_row};
-use super::{params, MailspaceEventInput, MessageIngestRequest, Storage, StoredMessage, VivariumError, Utc, metadata, Path, sha256_hex, blob_relpath, write_blob_if_absent, parse_metadata};
+use super::{
+    MailspaceEventInput, MessageIngestRequest, Path, Storage, StoredMessage, Utc, VivariumError,
+    blob_relpath, metadata, params, parse_metadata, sha256_hex, write_blob_if_absent,
+};
 
 pub struct MailspaceMoveWithReply<'a> {
     pub account: &'a str,

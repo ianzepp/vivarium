@@ -194,10 +194,7 @@ fn prepare_filters(
                 )
             })
             .transpose()?,
-        match_from: request
-            .match_from
-            .as_deref()
-            .map(str::to_ascii_lowercase),
+        match_from: request.match_from.as_deref().map(str::to_ascii_lowercase),
         subject_prefix: request.match_subject_prefix.clone(),
         content_id,
     })

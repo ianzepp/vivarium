@@ -201,12 +201,12 @@ impl Mailspace {
         Ok(self.address_for(&new))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn address_for(&self, identity: &str) -> String {
         format!("{identity}@{}.local", self.config.name)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn identity_names(&self, canonical: &str) -> HashSet<String> {
         let mut names = HashSet::new();
         names.insert(canonical.to_string());

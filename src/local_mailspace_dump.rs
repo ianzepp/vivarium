@@ -99,7 +99,11 @@ fn push_events(out: &mut String, record: &DumpRecord) {
     }
     out.push_str("Events:\n");
     for event in &record.events {
-        let _ = write!(out, "- {} {} {}", event.occurred_at, event.command, event.event_type);
+        let _ = write!(
+            out,
+            "- {} {} {}",
+            event.occurred_at, event.command, event.event_type
+        );
         if let Some(actor) = &event.actor_identity {
             let _ = write!(out, " by {actor}");
         }

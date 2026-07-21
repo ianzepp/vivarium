@@ -56,7 +56,7 @@ pub fn append_audit(
     Ok(path)
 }
 
-#[must_use] 
+#[must_use]
 pub fn audit_record(
     prepared: &PreparedMutation,
     status: &str,

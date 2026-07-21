@@ -145,7 +145,10 @@ fn search_filter_sql(filters: Option<SearchFilters<'_>>) -> (String, Vec<String>
             clauses.push(format!("m.local_role = ?{}", values.len() + 2));
         }
         if let Some(from_addr) = filters.from_addr {
-            values.push(format!("%{}%", escape_like(&from_addr.to_ascii_lowercase())));
+            values.push(format!(
+                "%{}%",
+                escape_like(&from_addr.to_ascii_lowercase())
+            ));
             clauses.push(format!(
                 "LOWER(md.from_addr) LIKE ?{} ESCAPE '\\'",
                 values.len() + 2

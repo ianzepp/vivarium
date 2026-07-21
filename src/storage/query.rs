@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use super::{params, Storage, VivariumError, fs, StoredMessageView, OptionalExtension, message_query, raw_stored_message_from_row, CatalogEntry};
+use super::{
+    CatalogEntry, OptionalExtension, Storage, StoredMessageView, VivariumError, fs, message_query,
+    params, raw_stored_message_from_row,
+};
 
 impl Storage {
     /// Read the raw bytes of a stored blob by content hash.

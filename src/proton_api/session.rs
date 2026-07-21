@@ -24,7 +24,7 @@ pub struct ProtonSession {
 }
 
 impl ProtonSession {
-    #[must_use] 
+    #[must_use]
     pub fn check(&self) -> LoginCheck {
         LoginCheck {
             uid_present: !self.uid.is_empty(),
@@ -58,14 +58,14 @@ pub struct ProtonSessionStore {
 }
 
 impl ProtonSessionStore {
-    #[must_use] 
+    #[must_use]
     pub fn new(mail_root: &Path) -> Self {
         Self {
             path: mail_root.join(".vivarium").join("proton-session.json"),
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
     }

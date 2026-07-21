@@ -20,7 +20,7 @@ pub enum LabelOperation {
     Remove,
 }
 
-#[must_use] 
+#[must_use]
 pub fn support(account: &Account) -> LabelSupport {
     let label_roots = account.label_roots();
     let (mode, reason) = match account.provider {
@@ -53,7 +53,7 @@ pub fn support(account: &Account) -> LabelSupport {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn plan_json(
     account: &Account,
     handle: &str,
@@ -74,7 +74,7 @@ pub fn plan_json(
     })
 }
 
-#[must_use] 
+#[must_use]
 pub fn unsupported_error(account: &Account, label: &str) -> VivariumError {
     let support = support(account);
     VivariumError::Message(format!(
@@ -83,7 +83,7 @@ pub fn unsupported_error(account: &Account, label: &str) -> VivariumError {
     ))
 }
 
-#[must_use] 
+#[must_use]
 pub fn operation_name(operation: &LabelOperation) -> &'static str {
     match operation {
         LabelOperation::Add => "label_add",

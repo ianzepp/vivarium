@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use crate::message::MessageEntry;
 use crate::sync::SyncWindow;
 
-#[must_use] 
+#[must_use]
 pub fn filter_entries(
     entries: Vec<MessageEntry>,
     window: SyncWindow,
