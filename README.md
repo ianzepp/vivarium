@@ -374,19 +374,35 @@ collapses same-content copies (e.g., sender `sent` and recipient `inbox`) into a
 single logical node. Use `--json` for agent consumption and `--max-depth` /
 `--limit` to keep large mailspaces bounded.
 
-`vivi graph` stores executable work topology separately from `trace`. Import a
-narrow Mermaid `flowchart` / `graph` with `-->` edges; Vivi assigns immutable
-handles, keeps the Mermaid source as revision evidence, and reports the ready
+### Executable work graphs
+
+`vivi graph` stores **executable work topology** separately from `vivi trace`
+(communication tree) and from task-only `--depends-on` filters.
+
+| Concern | Authority |
+| --- | --- |
+| Planning topology + ready frontier | `vivi graph` (project `mail.sqlite`) |
+| Communication history | `vivi trace` |
+| Standalone task deps (6.4) | `task send --depends-on` / `task list --blocked` |
+| Who to spawn / when | Mind + Fleet (`prepare --node` → claim → settle) |
+
+Import a narrow Mermaid `flowchart` / `graph` with `-->` edges; Vivi assigns
+immutable handles, keeps Mermaid as revision evidence, and reports the ready
 frontier (open roots). Use `--check` to validate without writing. Re-importing
 identical source is idempotent. Later revisions use `graph apply` (source-id
 reconciliation, freezes active/done prerequisites, allows new successors).
-`graph complete` marks a node done, recalculates readiness, and emits
-`node_ready` events for newly unlocked successors (no agent spawn).
-`graph activate --task` binds a task attempt to a ready open node and marks it
-active. `board --graph` adds a `graphs[]` frontier projection (codes, state,
-blocked-by handles, successors) without removing existing board fields.
-`graph export` emits normalized Mermaid with optional state classes. Watch can
-include graph lifecycle with `--kinds graph --events node_ready`.
+
+| Command | Effect |
+| --- | --- |
+| `graph import --code … --file …` | First create (or idempotent re-import) |
+| `graph apply <code> --file …` | Additive revision of an existing graph |
+| `graph show` / `export` | Topology + readiness; Mermaid with optional state classes |
+| `graph complete <code>:<id>` | Mark done; unlock successors; emit `node_ready` (no spawn) |
+| `graph activate <code>:<id> --task <h>` | Bind task attempt; set node active (ready open only) |
+| `board --graph` | Frontier on the board JSON/text surface |
+
+Watch graph lifecycle with `--kinds graph --events node_ready` (also
+`node_state`, `attempt_bound`, `revision_imported`, `revision_applied`).
 
 Needs and wants are also local messages with stable handles. Wants are parked in
 `Wants` for later prioritization. Promoting a want moves it to `Needs`, where it
@@ -436,6 +452,12 @@ with no binding reads `not_set`, which is the "available to assign" signal:
 vivi board --process --project /path/to/project --json
 vivi board --process --for hand-1 --project /path/to/project
 ```
+
+`vivi board --graph` adds a `graphs[]` field (text section + JSON) for
+executable work-graph frontiers without removing existing board fields. Each
+node entry includes lifecycle state, readiness, blocked-by **handles**, and
+successor handles. Use it with `--json` for agent intake of ready work across
+campaigns.
 
 Agent-cycle bookkeeping can mark ordinary advisory mail as absorbed without
 moving it into the task/need/want lifecycle. Absorb means dispositioned signal,
@@ -646,8 +668,9 @@ Folder aliases are normalized before classification: `trash`, `deleted`, and
 provider-specific trash folder names all classify as a denied move-to-trash
 under read-only and archive policies.
 
-Local project mailspace operations (board, task, need, want, mail, memo, role) are
-separate from external account mutation policy and are never restricted by it.
+Local project mailspace operations (board, task, need, want, mail, memo, role,
+graph) are separate from external account mutation policy and are never
+restricted by it.
 
 Check the effective policy with `vivi doctor --account <name>` (text or JSON).
 
