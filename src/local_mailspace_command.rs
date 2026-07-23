@@ -91,13 +91,14 @@ fn handle_graph_apply(command: &GraphApplyCommand) -> Result<(), VivariumError> 
 
 fn handle_graph_show(command: &GraphShowCommand) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
-    if command.mermaid {
-        let mermaid = mailspace.graph_export_mermaid(&command.graph, command.include_state)?;
-        print!("{mermaid}");
-        return Ok(());
+    if command.json {
+        let show = mailspace.graph_show(&command.graph)?;
+        return vivarium::mailspace::print_graph_show(&show, true);
     }
-    let show = mailspace.graph_show(&command.graph)?;
-    vivarium::mailspace::print_graph_show(&show, command.json)
+    // Mermaid is the default analysis surface — compact topology, not a JSON dump.
+    let mermaid = mailspace.graph_export_mermaid(&command.graph, command.include_state)?;
+    print!("{mermaid}");
+    Ok(())
 }
 
 fn handle_graph_export(command: &GraphExportCommand) -> Result<(), VivariumError> {

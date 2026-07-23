@@ -2338,6 +2338,21 @@ flowchart LR
     assert_eq!(again_v["graph_handle"], handle);
     assert_eq!(again_v["revision"], 1);
 
+    // Default graph show is Mermaid topology, not a JSON dump.
+    let show_mermaid = vivi([
+        "graph",
+        "show",
+        "mir-swarm-wave-2",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&show_mermaid);
+    let mermaid_out = stdout(&show_mermaid);
+    assert!(mermaid_out.contains("flowchart"), "{mermaid_out}");
+    assert!(mermaid_out.contains("verify"), "{mermaid_out}");
+    assert!(mermaid_out.contains("accept"), "{mermaid_out}");
+    assert!(mermaid_out.contains("-->"), "{mermaid_out}");
+
     let show = vivi([
         "graph",
         "show",

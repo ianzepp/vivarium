@@ -352,6 +352,10 @@ vivi trace <handle> --json --max-depth 5 --limit 100
 # Import an executable Mermaid work graph (project-local topology)
 vivi graph import --code mir-swarm-wave-2 --file wave.mmd --check --json
 vivi graph import --code mir-swarm-wave-2 --file wave.mmd --json
+# Default show is Mermaid topology (use --include-state for readiness classes)
+vivi graph show mir-swarm-wave-2
+vivi graph show mir-swarm-wave-2 --include-state
+# Structured ready/blocked only when you need machine fields
 vivi graph show mir-swarm-wave-2 --json
 vivi graph apply mir-swarm-wave-2 --file wave-v2.mmd --json
 vivi graph complete mir-swarm-wave-2:verify --json
@@ -396,7 +400,7 @@ reconciliation, freezes active/done prerequisites, allows new successors).
 | --- | --- |
 | `graph import --code … --file …` | First create (or idempotent re-import) |
 | `graph apply <code> --file …` | Additive revision of an existing graph |
-| `graph show` / `export` | Topology + readiness; Mermaid with optional state classes |
+| `graph show` / `export` | Mermaid topology by default; `--include-state` / `--json` opt-in |
 | `graph complete <code>:<id>` | Mark done; unlock successors; emit `node_ready` (no spawn) |
 | `graph activate <code>:<id> --task <h>` | Bind task attempt; set node active (ready open only) |
 | `board --graph` | Frontier on the board JSON/text surface |

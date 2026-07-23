@@ -444,20 +444,19 @@ pub struct GraphApplyCommand {
 }
 
 /// Show a stored work graph.
+///
+/// Default output is Mermaid topology (the compact form for graph analysis).
+/// Pass `--json` only when a structured ready/blocked projection is required.
 #[derive(Debug, Clone, Parser)]
 pub struct GraphShowCommand {
     /// Graph code or immutable handle
     pub graph: String,
 
-    /// Output as JSON
+    /// Output structured JSON (ready/blocked projection) instead of Mermaid
     #[arg(long)]
     pub json: bool,
 
-    /// Output as Mermaid instead of text/JSON topology
-    #[arg(long)]
-    pub mermaid: bool,
-
-    /// When exporting Mermaid, include state styling classes
+    /// When printing Mermaid, include readiness/state styling classes
     #[arg(long)]
     pub include_state: bool,
 

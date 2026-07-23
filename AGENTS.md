@@ -28,7 +28,7 @@ normalized edges + node state.
 | Command family | Role |
 | --- | --- |
 | `vivi graph import` / `apply` | Atomic create / revise from narrow Mermaid `flowchart` |
-| `vivi graph show` / `export` | Topology + ready/blocked; Mermaid round-trip |
+| `vivi graph show` / `export` | Mermaid topology by default; `--json` for ready/blocked projection |
 | `vivi graph complete` / `activate` | Lifecycle; activate binds a task attempt |
 | `vivi board --graph` | Frontier projection without replacing task/need board items |
 | `vivi trace` | **Communication** tree — not work-graph topology |
