@@ -13,7 +13,29 @@ source of truth when these instructions drift.
 - Binary: `vivi`, defined explicitly with `autobins = false`
 - Optional feature: `outbox`
 - Storage: raw `.eml` blobs plus SQLite metadata, indexes, and embeddings
+- Project mailspaces (`.vivi/mail.sqlite`): tasks, needs, wants, mail, memos,
+  roles, and **executable work graphs** (Mermaid import, ready frontier,
+  task-attempt binding)
 - Providers: standard IMAP/SMTP, Proton Bridge-style config, and direct Proton API paths
+
+## Work Graphs (project mailspace)
+
+Executable topology lives in project-local `mail.sqlite` tables
+(`work_graphs`, `work_graph_nodes`, `work_graph_edges`, revisions, events,
+attempts). Mermaid is import/export evidence; readiness is derived from
+normalized edges + node state.
+
+| Command family | Role |
+| --- | --- |
+| `vivi graph import` / `apply` | Atomic create / revise from narrow Mermaid `flowchart` |
+| `vivi graph show` / `export` | Topology + ready/blocked; Mermaid round-trip |
+| `vivi graph complete` / `activate` | Lifecycle; activate binds a task attempt |
+| `vivi board --graph` | Frontier projection without replacing task/need board items |
+| `vivi trace` | **Communication** tree — not work-graph topology |
+
+Invariant: Vivi decides which graph nodes are eligible (ready). The Mind
+dispatches. Fleet (`prepare --node` → claim → activate) proves execution.
+Do not encode Fleet roles inside Vivi core.
 
 ## Coding Standards
 - Prefer existing modules and helper APIs before adding new abstractions.
