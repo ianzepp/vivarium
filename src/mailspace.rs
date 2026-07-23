@@ -13,6 +13,7 @@ mod delivery;
 mod dump;
 mod event_log;
 mod graph;
+mod graph_mutate;
 mod identity;
 mod kind;
 mod lifecycle;
@@ -30,6 +31,7 @@ pub use dump::{
     DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
 };
 pub use graph::{print_graph_show, print_import_report};
+pub use graph_mutate::print_apply_report;
 pub use identity::{
     LocalIdentity, ROLE_HARNESS_SUBAGENT, ROLE_STATUS_ACTIVE, ROLE_STATUS_PARKED,
     ROLE_STATUS_RETIRED, RoleUpdate, RoleView,

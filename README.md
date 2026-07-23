@@ -353,6 +353,11 @@ vivi trace <handle> --json --max-depth 5 --limit 100
 vivi graph import --code mir-swarm-wave-2 --file wave.mmd --check --json
 vivi graph import --code mir-swarm-wave-2 --file wave.mmd --json
 vivi graph show mir-swarm-wave-2 --json
+vivi graph apply mir-swarm-wave-2 --file wave-v2.mmd --json
+vivi graph complete mir-swarm-wave-2:verify --json
+vivi graph export mir-swarm-wave-2 --include-state
+vivi graph node add --graph mir-swarm-wave-2 --id u4 --label "G-P-10/U4"
+vivi graph edge add --graph mir-swarm-wave-2 --from accept --to u4
 vivi task show <handle> --json
 ```
 
@@ -371,8 +376,10 @@ single logical node. Use `--json` for agent consumption and `--max-depth` /
 narrow Mermaid `flowchart` / `graph` with `-->` edges; Vivi assigns immutable
 handles, keeps the Mermaid source as revision evidence, and reports the ready
 frontier (open roots). Use `--check` to validate without writing. Re-importing
-identical source is idempotent; a different source for the same code is rejected
-until `graph apply` lands in a later phase.
+identical source is idempotent. Later revisions use `graph apply` (source-id
+reconciliation, freezes active/done prerequisites, allows new successors).
+`graph complete` marks a node done and recalculates readiness; `graph export`
+emits normalized Mermaid with optional state classes.
 
 Needs and wants are also local messages with stable handles. Wants are parked in
 `Wants` for later prioritization. Promoting a want moves it to `Needs`, where it

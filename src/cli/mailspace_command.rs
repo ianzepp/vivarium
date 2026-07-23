@@ -374,8 +374,24 @@ pub struct TraceCommand {
 pub enum GraphCommand {
     /// Import a Mermaid flowchart as a work graph
     Import(GraphImportCommand),
+    /// Apply a Mermaid revision onto an existing work graph
+    Apply(GraphApplyCommand),
     /// Show a work graph by code or handle
     Show(GraphShowCommand),
+    /// Export a work graph as Mermaid
+    Export(GraphExportCommand),
+    /// Mark a graph node done
+    Complete(GraphCompleteCommand),
+    /// Graph node subcommands
+    Node {
+        #[command(subcommand)]
+        command: GraphNodeCommand,
+    },
+    /// Graph edge subcommands
+    Edge {
+        #[command(subcommand)]
+        command: GraphEdgeCommand,
+    },
 }
 
 /// Import a Mermaid flowchart into the project mailspace.
@@ -402,11 +418,146 @@ pub struct GraphImportCommand {
     pub project: Option<PathBuf>,
 }
 
+/// Apply a Mermaid revision to an existing graph.
+#[derive(Debug, Clone, Parser)]
+pub struct GraphApplyCommand {
+    /// Graph code or handle
+    pub graph: String,
+
+    /// Path to a Mermaid flowchart file
+    #[arg(long)]
+    pub file: PathBuf,
+
+    /// Validate and preview without writing
+    #[arg(long)]
+    pub check: bool,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
 /// Show a stored work graph.
 #[derive(Debug, Clone, Parser)]
 pub struct GraphShowCommand {
     /// Graph code or immutable handle
     pub graph: String,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Output as Mermaid instead of text/JSON topology
+    #[arg(long)]
+    pub mermaid: bool,
+
+    /// When exporting Mermaid, include state styling classes
+    #[arg(long)]
+    pub include_state: bool,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
+/// Export a work graph as Mermaid.
+#[derive(Debug, Clone, Parser)]
+pub struct GraphExportCommand {
+    /// Graph code or immutable handle
+    pub graph: String,
+
+    /// Include state styling classes
+    #[arg(long)]
+    pub include_state: bool,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
+/// Complete (mark done) a graph node.
+#[derive(Debug, Clone, Parser)]
+pub struct GraphCompleteCommand {
+    /// Node as `graph:source-id` or source-id with --graph
+    pub node: String,
+
+    /// Graph code when `node` is only a source id
+    #[arg(long)]
+    pub graph: Option<String>,
+
+    /// Optional completion note
+    #[arg(long)]
+    pub note: Option<String>,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
+/// Node mutations.
+#[derive(Debug, Subcommand)]
+pub enum GraphNodeCommand {
+    /// Add an open node
+    Add(GraphNodeAddCommand),
+}
+
+/// Edge mutations.
+#[derive(Debug, Subcommand)]
+pub enum GraphEdgeCommand {
+    /// Add a dependency edge
+    Add(GraphEdgeAddCommand),
+}
+
+/// Add one open node to a graph.
+#[derive(Debug, Clone, Parser)]
+pub struct GraphNodeAddCommand {
+    /// Graph code or handle
+    #[arg(long)]
+    pub graph: String,
+
+    /// Mermaid source id
+    #[arg(long)]
+    pub id: String,
+
+    /// Display label (defaults to id)
+    #[arg(long)]
+    pub label: Option<String>,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
+/// Add one dependency edge.
+#[derive(Debug, Clone, Parser)]
+pub struct GraphEdgeAddCommand {
+    /// Graph code or handle
+    #[arg(long)]
+    pub graph: String,
+
+    /// Prerequisite source id
+    #[arg(long = "from")]
+    pub from: String,
+
+    /// Dependent source id
+    #[arg(long = "to")]
+    pub to: String,
+
+    /// Optional edge label
+    #[arg(long)]
+    pub label: Option<String>,
 
     /// Output as JSON
     #[arg(long)]

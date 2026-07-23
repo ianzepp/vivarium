@@ -2345,6 +2345,83 @@ fn graph_import_rejects_cycle_without_writes() {
     assert!(!show.status.success());
 }
 
+#[test]
+fn graph_apply_complete_and_export() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let base = project.path().join("base.mmd");
+    std::fs::write(
+        &base,
+        "flowchart LR\nverify[\"v\"]\naccept[\"a\"]\nverify --> accept\n",
+    )
+    .unwrap();
+    assert_success(&vivi([
+        "graph",
+        "import",
+        "--code",
+        "wave",
+        "--file",
+        base.to_str().unwrap(),
+        "--project",
+        project_s,
+    ]));
+
+    let complete = vivi([
+        "graph",
+        "complete",
+        "wave:verify",
+        "--json",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&complete);
+    let completed: Value = serde_json::from_str(&stdout(&complete)).unwrap();
+    assert_eq!(completed["ready"][0]["source_id"], "accept");
+
+    let expanded = project.path().join("expanded.mmd");
+    std::fs::write(
+        &expanded,
+        "flowchart LR\nverify[\"v\"]\naccept[\"a\"]\nu2[\"U2\"]\nverify --> accept\naccept --> u2\n",
+    )
+    .unwrap();
+    let apply = vivi([
+        "graph",
+        "apply",
+        "wave",
+        "--file",
+        expanded.to_str().unwrap(),
+        "--json",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&apply);
+    let applied: Value = serde_json::from_str(&stdout(&apply)).unwrap();
+    assert_eq!(applied["revision"], 2);
+    assert!(
+        applied["nodes_added"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n == "u2"),
+        "{applied}"
+    );
+
+    let export = vivi([
+        "graph",
+        "export",
+        "wave",
+        "--include-state",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&export);
+    let mermaid = stdout(&export);
+    assert!(mermaid.contains("flowchart"), "{mermaid}");
+    assert!(mermaid.contains("verify"), "{mermaid}");
+    assert!(mermaid.contains("classDef"), "{mermaid}");
+}
+
 fn vivi<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,

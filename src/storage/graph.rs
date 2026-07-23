@@ -194,6 +194,85 @@ impl Storage {
             .map_err(|e| VivariumError::Other(format!("failed to commit graph import: {e}")))?;
         Ok(commit)
     }
+
+    /// Apply a validated mutation plan in one transaction.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the transaction fails.
+    pub fn apply_work_graph_plan(
+        &mut self,
+        plan: &WorkGraphApplyPlan,
+    ) -> Result<WorkGraphRow, VivariumError> {
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|e| VivariumError::Other(format!("failed to begin graph apply: {e}")))?;
+        let graph = execute_apply_plan(&tx, plan)?;
+        tx.commit()
+            .map_err(|e| VivariumError::Other(format!("failed to commit graph apply: {e}")))?;
+        Ok(graph)
+    }
+
+    /// Mark a node state (e.g. `done`) and append a graph event.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the update fails.
+    pub fn set_work_graph_node_state(
+        &mut self,
+        graph_handle: &str,
+        node_handle: &str,
+        state: &str,
+        note: Option<&str>,
+    ) -> Result<(), VivariumError> {
+        let now = Utc::now().to_rfc3339();
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|e| VivariumError::Other(format!("failed to begin node state tx: {e}")))?;
+        let changed = tx
+            .execute(
+                "UPDATE work_graph_nodes SET state = ?1, updated_at = ?2
+                 WHERE handle = ?3 AND graph_handle = ?4",
+                params![state, now, node_handle, graph_handle],
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to update node state: {e}")))?;
+        if changed == 0 {
+            return Err(VivariumError::Message(format!(
+                "graph node not found: {node_handle}"
+            )));
+        }
+        tx.execute(
+            "UPDATE work_graphs SET updated_at = ?1 WHERE handle = ?2",
+            params![now, graph_handle],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to touch graph: {e}")))?;
+        tx.execute(
+            "INSERT INTO work_graph_events
+               (graph_handle, occurred_at, event_type, node_handle, note)
+             VALUES (?1, ?2, 'node_state', ?3, ?4)",
+            params![graph_handle, now, node_handle, note],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to insert node state event: {e}")))?;
+        tx.commit()
+            .map_err(|e| VivariumError::Other(format!("failed to commit node state: {e}")))?;
+        Ok(())
+    }
+}
+
+/// Validated apply mutation ready for a single transaction.
+#[derive(Debug, Clone)]
+pub struct WorkGraphApplyPlan {
+    pub graph_handle: String,
+    pub code: String,
+    pub next_revision: i64,
+    pub mermaid_source: String,
+    pub content_hash: String,
+    pub nodes_add: Vec<WorkGraphNodeInput>,
+    pub nodes_update: Vec<WorkGraphNodeInput>,
+    pub nodes_remove: Vec<String>,
+    pub edges_add: Vec<WorkGraphEdgeInput>,
+    pub edges_remove: Vec<(String, String)>,
+    pub event_note: String,
 }
 
 /// Deterministic graph handle from project-unique code.
@@ -391,4 +470,98 @@ where
         out.push(row.map_err(|e| VivariumError::Other(format!("failed to read {label}: {e}")))?);
     }
     Ok(out)
+}
+
+fn execute_apply_plan(
+    tx: &Transaction<'_>,
+    plan: &WorkGraphApplyPlan,
+) -> Result<WorkGraphRow, VivariumError> {
+    let now = Utc::now().to_rfc3339();
+    apply_removals(tx, plan)?;
+    insert_nodes(tx, &plan.graph_handle, &plan.nodes_add, &now)?;
+    apply_node_updates(tx, plan, &now)?;
+    insert_edges(tx, &plan.graph_handle, &plan.edges_add, &now)?;
+    record_apply_revision(tx, plan, &now)?;
+    tx.query_row(
+        "SELECT handle, code, status, current_revision, created_at, updated_at
+         FROM work_graphs WHERE handle = ?1",
+        params![plan.graph_handle],
+        map_graph_row,
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to reload graph after apply: {e}")))
+}
+
+fn apply_removals(tx: &Transaction<'_>, plan: &WorkGraphApplyPlan) -> Result<(), VivariumError> {
+    for source_id in &plan.nodes_remove {
+        let handle = node_handle_for(&plan.graph_handle, source_id);
+        tx.execute(
+            "DELETE FROM work_graph_nodes WHERE handle = ?1",
+            params![handle],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to remove graph node: {e}")))?;
+    }
+    for (from_id, to_id) in &plan.edges_remove {
+        let from_node = node_handle_for(&plan.graph_handle, from_id);
+        let to_node = node_handle_for(&plan.graph_handle, to_id);
+        tx.execute(
+            "DELETE FROM work_graph_edges
+             WHERE graph_handle = ?1 AND from_node = ?2 AND to_node = ?3",
+            params![plan.graph_handle, from_node, to_node],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to remove graph edge: {e}")))?;
+    }
+    Ok(())
+}
+
+fn apply_node_updates(
+    tx: &Transaction<'_>,
+    plan: &WorkGraphApplyPlan,
+    now: &str,
+) -> Result<(), VivariumError> {
+    for node in &plan.nodes_update {
+        let handle = node_handle_for(&plan.graph_handle, &node.source_id);
+        tx.execute(
+            "UPDATE work_graph_nodes
+             SET label = ?1, subgraph = ?2, updated_at = ?3
+             WHERE handle = ?4",
+            params![node.label, node.subgraph, now, handle],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to update graph node: {e}")))?;
+    }
+    Ok(())
+}
+
+fn record_apply_revision(
+    tx: &Transaction<'_>,
+    plan: &WorkGraphApplyPlan,
+    now: &str,
+) -> Result<(), VivariumError> {
+    tx.execute(
+        "INSERT INTO work_graph_revisions
+           (graph_handle, revision, mermaid_source, content_hash, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            plan.graph_handle,
+            plan.next_revision,
+            plan.mermaid_source,
+            plan.content_hash,
+            now
+        ],
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to insert apply revision: {e}")))?;
+    tx.execute(
+        "UPDATE work_graphs
+         SET current_revision = ?1, updated_at = ?2
+         WHERE handle = ?3",
+        params![plan.next_revision, now, plan.graph_handle],
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to bump graph revision: {e}")))?;
+    tx.execute(
+        "INSERT INTO work_graph_events
+           (graph_handle, occurred_at, event_type, node_handle, note)
+         VALUES (?1, ?2, 'revision_applied', NULL, ?3)",
+        params![plan.graph_handle, now, plan.event_note],
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to insert apply event: {e}")))?;
+    Ok(())
 }

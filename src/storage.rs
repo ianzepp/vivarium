@@ -28,9 +28,9 @@ mod schema;
 mod tests;
 
 pub use graph::{
-    WorkGraphEdgeInput, WorkGraphEdgeRow, WorkGraphImportCommit, WorkGraphImportInput,
-    WorkGraphNodeInput, WorkGraphNodeRow, WorkGraphRow, edge_handle_for, graph_handle_for_code,
-    node_handle_for,
+    WorkGraphApplyPlan, WorkGraphEdgeInput, WorkGraphEdgeRow, WorkGraphImportCommit,
+    WorkGraphImportInput, WorkGraphNodeInput, WorkGraphNodeRow, WorkGraphRow, edge_handle_for,
+    graph_handle_for_code, node_handle_for,
 };
 pub use links::MailspaceLink;
 use metadata::parse_metadata;

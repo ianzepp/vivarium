@@ -413,7 +413,7 @@ fn resolve_graph(storage: &Storage, code_or_handle: &str) -> Result<WorkGraphRow
     )))
 }
 
-fn project_nodes(
+pub(super) fn project_nodes(
     nodes: &[WorkGraphNodeRow],
     edges: &[WorkGraphEdgeRow],
 ) -> (Vec<GraphNodeView>, Vec<GraphNodeView>, Vec<GraphNodeView>) {
@@ -495,7 +495,10 @@ fn node_view(
     }
 }
 
-fn project_edges(nodes: &[WorkGraphNodeRow], edges: &[WorkGraphEdgeRow]) -> Vec<GraphEdgeView> {
+pub(super) fn project_edges(
+    nodes: &[WorkGraphNodeRow],
+    edges: &[WorkGraphEdgeRow],
+) -> Vec<GraphEdgeView> {
     let by_handle: HashMap<&str, &WorkGraphNodeRow> =
         nodes.iter().map(|n| (n.handle.as_str(), n)).collect();
     let mut out: Vec<GraphEdgeView> = edges
