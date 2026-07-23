@@ -309,18 +309,6 @@ fn write_blob_if_absent(path: &Path, data: &[u8]) -> Result<bool, VivariumError>
     }
 }
 
-#[cfg(test)]
-fn local_role(folder: &str) -> String {
-    match folder {
-        "INBOX" | "Inbox" | "inbox" => "inbox".into(),
-        "Archive" | "archive" => "archive".into(),
-        "Trash" | "trash" => "trash".into(),
-        "Sent" | "sent" => "sent".into(),
-        "Drafts" | "drafts" => "drafts".into(),
-        other => other.to_ascii_lowercase(),
-    }
-}
-
 fn remote_bound_message_id(
     account: &str,
     local_role: &str,

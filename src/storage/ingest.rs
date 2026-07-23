@@ -1,7 +1,5 @@
 use super::events::append_event_tx;
 use super::metadata::ParsedMetadata;
-#[cfg(test)]
-use super::{CatalogEntry, request_from_catalog_entry};
 use super::{
     MailspaceEventInput, MessageIngestRequest, RemoteBindingInput, Storage, StoredMessage, Utc,
     VivariumError, blob_relpath, fallback_message_id, params, parse_metadata,
@@ -85,7 +83,8 @@ impl Storage {
     /// rolls back completely (no partial rows or events).
     ///
     /// # Errors
-    /// Returns an error if the database transaction fails.
+    /// Returns an error if the database transaction fails or after the
+    /// injected failure point.
     #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn deliver_raw_batch_fail_after(
@@ -168,15 +167,6 @@ impl Storage {
         })?;
         self.invalidate_handle_cache();
         Ok(stored)
-    }
-
-    #[cfg(test)]
-    pub(super) fn store_catalog_entry(
-        &mut self,
-        entry: &CatalogEntry,
-        data: &[u8],
-    ) -> Result<StoredMessage, VivariumError> {
-        self.ingest_message(&request_from_catalog_entry(entry), data)
     }
 }
 

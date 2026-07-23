@@ -84,18 +84,6 @@ fn required_embedding_setting(value: Option<&str>, key: &str) -> Result<String, 
         })
 }
 
-#[cfg(test)]
-fn test_embedding_options() -> EmbeddingOptions {
-    EmbeddingOptions {
-        provider: SUPPORTED_PROVIDER.to_string(),
-        model: "test-embedding".to_string(),
-        endpoint: "http://127.0.0.1:0/api/embed".to_string(),
-        rebuild: false,
-        limit: None,
-        catalog_handles: None,
-    }
-}
-
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EmbeddingStats {
     pub scanned: usize,

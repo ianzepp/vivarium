@@ -179,27 +179,6 @@ impl Storage {
         Ok(messages)
     }
 
-    #[cfg(test)]
-    pub(super) fn blob_count(&self) -> Result<usize, VivariumError> {
-        self.conn
-            .query_row("SELECT COUNT(*) FROM blobs", [], |row| row.get(0))
-            .map_err(|e| VivariumError::Other(format!("failed to count blobs: {e}")))
-    }
-
-    #[cfg(test)]
-    pub(super) fn message_count(&self) -> Result<usize, VivariumError> {
-        self.conn
-            .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
-            .map_err(|e| VivariumError::Other(format!("failed to count messages: {e}")))
-    }
-
-    #[cfg(test)]
-    pub(super) fn remote_binding_count(&self) -> Result<usize, VivariumError> {
-        self.conn
-            .query_row("SELECT COUNT(*) FROM remote_bindings", [], |row| row.get(0))
-            .map_err(|e| VivariumError::Other(format!("failed to count remote bindings: {e}")))
-    }
-
     fn active_message_ids(&self) -> Result<Vec<String>, VivariumError> {
         let mut stmt = self
             .conn

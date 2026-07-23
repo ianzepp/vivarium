@@ -58,8 +58,12 @@ fn fallback_message_ids_are_stable_for_unbound_entries() {
     let entry = catalog_entry("acct", "draft-handle", &path, "Drafts", None);
 
     let mut storage = Storage::open(tmp.path()).unwrap();
-    let first = storage.store_catalog_entry(&entry, &raw).unwrap();
-    let second = storage.store_catalog_entry(&entry, &raw).unwrap();
+    let first = storage
+        .ingest_message(&request_from_catalog_entry(&entry), &raw)
+        .unwrap();
+    let second = storage
+        .ingest_message(&request_from_catalog_entry(&entry), &raw)
+        .unwrap();
 
     assert_eq!(first.message_id, second.message_id);
     assert_eq!(storage.message_count().unwrap(), 1);
@@ -350,4 +354,39 @@ fn mark_message_deleted_is_idempotent() {
             .mark_message_deleted("acct", &stored.message_id)
             .unwrap()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers extracted from production modules
+// ---------------------------------------------------------------------------
+
+fn local_role(folder: &str) -> String {
+    match folder {
+        "INBOX" | "Inbox" | "inbox" => "inbox".into(),
+        "Archive" | "archive" => "archive".into(),
+        "Trash" | "trash" => "trash".into(),
+        "Sent" | "sent" => "sent".into(),
+        "Drafts" | "drafts" => "drafts".into(),
+        other => other.to_ascii_lowercase(),
+    }
+}
+
+impl Storage {
+    fn blob_count(&self) -> Result<usize, VivariumError> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM blobs", [], |row| row.get(0))
+            .map_err(|e| VivariumError::Other(format!("failed to count blobs: {e}")))
+    }
+
+    fn message_count(&self) -> Result<usize, VivariumError> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
+            .map_err(|e| VivariumError::Other(format!("failed to count messages: {e}")))
+    }
+
+    fn remote_binding_count(&self) -> Result<usize, VivariumError> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM remote_bindings", [], |row| row.get(0))
+            .map_err(|e| VivariumError::Other(format!("failed to count remote bindings: {e}")))
+    }
 }

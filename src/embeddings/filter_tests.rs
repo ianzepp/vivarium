@@ -4,8 +4,20 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 
 use super::provider::EmbeddingProvider;
-use super::{EmbeddingOptions, index_embeddings_with_provider, test_embedding_options};
+use super::{EmbeddingOptions, index_embeddings_with_provider};
 use crate::catalog::{Catalog, CatalogEntry};
+use crate::embeddings::SUPPORTED_PROVIDER;
+
+fn test_embedding_options() -> EmbeddingOptions {
+    EmbeddingOptions {
+        provider: SUPPORTED_PROVIDER.to_string(),
+        model: "test-embedding".to_string(),
+        endpoint: "http://127.0.0.1:0/api/embed".to_string(),
+        rebuild: false,
+        limit: None,
+        catalog_handles: None,
+    }
+}
 use crate::email_index;
 use crate::error::VivariumError;
 use crate::store::MailStore;

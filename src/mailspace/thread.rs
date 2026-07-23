@@ -323,16 +323,5 @@ fn reply_prefix_colon(after_re: &str) -> Option<usize> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn strips_stacked_reply_prefixes() {
-        assert_eq!(strip_reply_prefix("Re: Re[2]: status"), "status");
-    }
-
-    #[test]
-    fn reply_prefix_is_case_insensitive() {
-        assert_eq!(strip_reply_prefix("rE: Status"), "status");
-    }
-}
+#[path = "thread_test.rs"]
+mod tests;

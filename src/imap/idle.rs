@@ -56,11 +56,5 @@ pub async fn wait_for_inbox_change(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wait_modes_are_explicitly_inbound_only() {
-        assert_ne!(InboxWaitMode::ImapIdle, InboxWaitMode::Poll);
-    }
-}
+#[path = "idle_test.rs"]
+mod tests;
