@@ -521,7 +521,9 @@ printf "Long residual evidence\n" | vivi need send --from cto --to ceo --subject
 ```
 
 Use dumps for audits or export. Work dumps default to open tasks or needs;
-include `--status all` only when you intentionally want done history:
+include `--status all` only when you intentionally want done history.
+Stdout dumps over 25 records or 64 KiB refuse unless you pass
+`--confirm-large` (or write the result with `--output <path>`):
 
 ```sh
 
@@ -530,6 +532,7 @@ vivi mail dump --participant mind --since 2026-07-14T03:44:00 \
   --status unabsorbed --json
 vivi task dump --participant cto --body blocker --json
 vivi need dump --participant ceo --status all --json --output audit-needs.json
+vivi task dump --for cto --status all --confirm-large
 vivi want list --for ceo --json
 ```
 

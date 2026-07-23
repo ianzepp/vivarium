@@ -117,6 +117,10 @@ pub enum MemoCommand {
         #[arg(long)]
         output: Option<PathBuf>,
 
+        /// Allow large dumps to stdout (over 25 records or 64 KiB)
+        #[arg(long = "confirm-large")]
+        confirm_large: bool,
+
         /// Project root to use
         #[arg(long)]
         project: Option<PathBuf>,
@@ -420,6 +424,10 @@ pub struct MailDumpCommand {
     #[arg(long)]
     pub output: Option<PathBuf>,
 
+    /// Allow large dumps to stdout (over 25 records or 64 KiB)
+    #[arg(long = "confirm-large")]
+    pub confirm_large: bool,
+
     /// Project root to use
     #[arg(long)]
     pub project: Option<PathBuf>,
@@ -470,6 +478,10 @@ pub struct TaskDumpCommand {
     /// Write dump output to a file instead of stdout
     #[arg(long)]
     pub output: Option<PathBuf>,
+
+    /// Allow large dumps to stdout (over 25 records or 64 KiB)
+    #[arg(long = "confirm-large")]
+    pub confirm_large: bool,
 
     /// Project root to use
     #[arg(long)]

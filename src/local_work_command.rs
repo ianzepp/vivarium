@@ -255,6 +255,7 @@ fn dump_work_items(
         &records,
         command.json,
         command.output.as_deref(),
+        command.confirm_large,
     )
 }
 
@@ -269,6 +270,7 @@ fn dump_wants(command: &MailDumpCommand) -> Result<(), VivariumError> {
         &records,
         command.json,
         command.output.as_deref(),
+        command.confirm_large,
     )
 }
 

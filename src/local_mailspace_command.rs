@@ -369,6 +369,7 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
                 &records,
                 command.json,
                 command.output.as_deref(),
+                command.confirm_large,
             )?;
         }
     }
@@ -494,8 +495,15 @@ fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
             for_identity,
             json,
             output,
+            confirm_large,
             project,
-        } => dump_memos(for_identity, *json, output.as_deref(), project.as_deref())?,
+        } => dump_memos(
+            for_identity,
+            *json,
+            output.as_deref(),
+            *confirm_large,
+            project.as_deref(),
+        )?,
     }
     Ok(())
 }
@@ -539,6 +547,7 @@ fn dump_memos(
     for_identity: &str,
     json: bool,
     output: Option<&std::path::Path>,
+    confirm_large: bool,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
@@ -551,7 +560,13 @@ fn dump_memos(
         },
     };
     let records = mailspace.dump_mail(request)?;
-    crate::local_mailspace_dump::write_dump("Vivi Memo Dump", &records, json, output)
+    crate::local_mailspace_dump::write_dump(
+        "Vivi Memo Dump",
+        &records,
+        json,
+        output,
+        confirm_large,
+    )
 }
 
 fn send_local_mail(command: &LocalSendCommand) -> Result<(), VivariumError> {

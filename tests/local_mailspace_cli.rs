@@ -403,7 +403,7 @@ fn dump_commands_filter_mail_and_tasks_for_board_review() {
 }
 
 #[test]
-fn human_stdout_dump_refuses_large_work_exports() {
+fn stdout_dump_refuses_large_work_exports_without_confirm() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());
 
@@ -434,9 +434,47 @@ fn human_stdout_dump_refuses_large_work_exports() {
     ]);
     assert!(!dump.status.success(), "{}", stdout(&dump));
     assert!(
-        stderr(&dump).contains("refusing large human stdout dump"),
+        stderr(&dump).contains("refusing large stdout dump"),
         "{}",
         stderr(&dump)
+    );
+    assert!(
+        stderr(&dump).contains("--confirm-large"),
+        "{}",
+        stderr(&dump)
+    );
+
+    // JSON stdout is also guarded; --json alone must not bypass the limit.
+    let json_dump = vivi([
+        "task",
+        "dump",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--json",
+    ]);
+    assert!(!json_dump.status.success(), "{}", stdout(&json_dump));
+    assert!(
+        stderr(&json_dump).contains("refusing large stdout dump"),
+        "{}",
+        stderr(&json_dump)
+    );
+
+    let confirmed = vivi([
+        "task",
+        "dump",
+        "--project",
+        project.path().to_str().unwrap(),
+        "--for",
+        "cto",
+        "--confirm-large",
+    ]);
+    assert_success(&confirmed);
+    let confirmed_stdout = stdout(&confirmed);
+    assert!(
+        confirmed_stdout.contains("count: 26"),
+        "{confirmed_stdout}"
     );
 
     let output_path = project.path().join("tasks.md");

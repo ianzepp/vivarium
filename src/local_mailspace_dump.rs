@@ -12,6 +12,7 @@ pub(crate) fn write_dump(
     records: &[DumpRecord],
     json: bool,
     output: Option<&Path>,
+    confirm_large: bool,
 ) -> Result<(), VivariumError> {
     let rendered = if json {
         serde_json::to_string_pretty(records)
@@ -19,7 +20,10 @@ pub(crate) fn write_dump(
     } else {
         render_markdown(title, records)
     };
-    if !json && output.is_none() {
+    // File exports are intentional. Stdout dumps (human or JSON) need an
+    // explicit --confirm-large when the result is large, so agents cannot
+    // accidentally flood context with a broad dump.
+    if output.is_none() && !confirm_large {
         enforce_stdout_limit(title, records, rendered.len())?;
     }
     if let Some(path) = output {
@@ -39,9 +43,10 @@ fn enforce_stdout_limit(
         return Ok(());
     }
     Err(VivariumError::Message(format!(
-        "{title} matched {} records and {} bytes; refusing large human stdout dump. \
+        "{title} matched {} records and {} bytes; refusing large stdout dump. \
          Narrow it with --status open, --since, --before, --subject, or --body, \
-         or export the full result with --json or --output <path>.",
+         pass --confirm-large if you really want the full result on stdout, \
+         or write it with --output <path>.",
         records.len(),
         rendered_len
     )))
