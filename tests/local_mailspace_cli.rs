@@ -2420,6 +2420,95 @@ fn graph_apply_complete_and_export() {
     assert!(mermaid.contains("flowchart"), "{mermaid}");
     assert!(mermaid.contains("verify"), "{mermaid}");
     assert!(mermaid.contains("classDef"), "{mermaid}");
+
+    // complete accept so nothing blocked on verify; re-import ready frontier for board
+    assert_success(&vivi([
+        "graph",
+        "complete",
+        "wave:accept",
+        "--project",
+        project_s,
+    ]));
+    let board = vivi(["board", "--graph", "--json", "--project", project_s]);
+    assert_success(&board);
+    let board_v: Value = serde_json::from_str(&stdout(&board)).unwrap();
+    assert!(board_v["identities"].is_array(), "{board_v}");
+    let graphs = board_v["graphs"].as_array().expect("graphs present");
+    assert!(!graphs.is_empty(), "{board_v}");
+    assert_eq!(graphs[0]["code"], "wave");
+    assert!(
+        graphs[0]["nodes"].as_array().unwrap().len() >= 2,
+        "{board_v}"
+    );
+    assert!(graphs[0]["nodes"][0]["blocked_by"].is_array());
+    assert!(graphs[0]["nodes"][0]["successors"].is_array());
+}
+
+#[test]
+fn graph_activate_binds_ready_task_and_refuses_blocked() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let mermaid = project.path().join("g.mmd");
+    std::fs::write(&mermaid, "flowchart LR\na[\"A\"]\nb[\"B\"]\na --> b\n").unwrap();
+    assert_success(&vivi([
+        "graph",
+        "import",
+        "--code",
+        "lane",
+        "--file",
+        mermaid.to_str().unwrap(),
+        "--project",
+        project_s,
+    ]));
+    let task = vivi([
+        "task",
+        "send",
+        "--project",
+        project_s,
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "do A",
+        "--body",
+        "work",
+    ]);
+    assert_success(&task);
+    let task_handle = handle_after(&stdout(&task), "created cto");
+
+    let blocked = vivi([
+        "graph",
+        "activate",
+        "lane:b",
+        "--task",
+        &task_handle,
+        "--project",
+        project_s,
+    ]);
+    assert!(!blocked.status.success());
+    assert!(stderr(&blocked).contains("blocked"), "{}", stderr(&blocked));
+
+    let activate = vivi([
+        "graph",
+        "activate",
+        "lane:a",
+        "--task",
+        &task_handle,
+        "--json",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&activate);
+    let show: Value = serde_json::from_str(&stdout(&activate)).unwrap();
+    let a = show["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["source_id"] == "a")
+        .unwrap();
+    assert_eq!(a["state"], "active");
 }
 
 fn vivi<I, S>(args: I) -> Output

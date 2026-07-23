@@ -30,7 +30,7 @@ pub use body::{read_body_arg, read_body_input};
 pub use dump::{
     DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
 };
-pub use graph::{print_graph_show, print_import_report};
+pub use graph::{GraphEdgeView, GraphNodeView, GraphShow, print_graph_show, print_import_report};
 pub use graph_mutate::print_apply_report;
 pub use identity::{
     LocalIdentity, ROLE_HARNESS_SUBAGENT, ROLE_STATUS_ACTIVE, ROLE_STATUS_PARKED,

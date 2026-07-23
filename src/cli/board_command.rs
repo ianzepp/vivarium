@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::Args;
 
 #[derive(Debug, Args)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct BoardCommand {
     /// Identity whose board should be shown
     #[arg(long = "for")]
@@ -31,6 +32,10 @@ pub struct BoardCommand {
     /// Include live process status per role (liveness, memory, uptime; no CPU)
     #[arg(long)]
     pub process: bool,
+
+    /// Include executable work-graph frontier summaries
+    #[arg(long)]
+    pub graph: bool,
 
     /// Project root that owns .vivi/ (also accepted globally: vivi --project <ROOT> board)
     #[arg(long)]

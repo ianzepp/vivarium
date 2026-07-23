@@ -18,6 +18,33 @@ struct Board {
     root: PathBuf,
     totals: BoardTotals,
     identities: Vec<IdentityBoard>,
+    /// Present when `board --graph` is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    graphs: Option<Vec<BoardGraph>>,
+}
+
+#[derive(Debug, Serialize)]
+struct BoardGraph {
+    handle: String,
+    code: String,
+    status: String,
+    revision: i64,
+    ready: Vec<BoardGraphNode>,
+    blocked: Vec<BoardGraphNode>,
+    active: Vec<BoardGraphNode>,
+    nodes: Vec<BoardGraphNode>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BoardGraphNode {
+    handle: String,
+    source_id: String,
+    code: String,
+    label: String,
+    state: String,
+    readiness: String,
+    blocked_by: Vec<String>,
+    successors: Vec<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -72,6 +99,7 @@ pub(crate) fn handle_board_command(command: &BoardCommand) -> Result<(), Vivariu
         command.wants,
         since,
         command.process,
+        command.graph,
     )?;
     if command.json {
         print_json(&board)?;
@@ -88,6 +116,7 @@ fn build_board(
     wants_cap: usize,
     since: Option<DateTime<Utc>>,
     with_process: bool,
+    with_graph: bool,
 ) -> Result<Board, VivariumError> {
     let identities = board_identities(mailspace, for_identity)?;
     let storage = mailspace.storage()?;
@@ -115,12 +144,97 @@ fn build_board(
             with_process,
         ));
     }
+    let graphs = if with_graph {
+        Some(board_graphs(mailspace)?)
+    } else {
+        None
+    };
     Ok(Board {
         name: mailspace.config.name.clone(),
         root: mailspace.root.clone(),
         totals: board_totals(&boards),
         identities: boards,
+        graphs,
     })
+}
+
+fn board_graphs(mailspace: &Mailspace) -> Result<Vec<BoardGraph>, VivariumError> {
+    let shows = mailspace.graph_board_summaries()?;
+    Ok(shows
+        .into_iter()
+        .map(|show| {
+            let nodes: Vec<BoardGraphNode> = show
+                .nodes
+                .iter()
+                .map(|n| board_graph_node(n, &show))
+                .collect();
+            let ready = nodes
+                .iter()
+                .filter(|n| n.readiness == "ready")
+                .cloned()
+                .collect();
+            let blocked = nodes
+                .iter()
+                .filter(|n| n.readiness == "blocked")
+                .cloned()
+                .collect();
+            let active = nodes
+                .iter()
+                .filter(|n| n.state == "active")
+                .cloned()
+                .collect();
+            BoardGraph {
+                handle: show.graph.handle,
+                code: show.graph.code,
+                status: show.graph.status,
+                revision: show.graph.current_revision,
+                ready,
+                blocked,
+                active,
+                nodes,
+            }
+        })
+        .collect())
+}
+
+fn board_graph_node(
+    node: &vivarium::mailspace::GraphNodeView,
+    show: &vivarium::mailspace::GraphShow,
+) -> BoardGraphNode {
+    // Map source-id blocked_by/successors to handles for agent contracts.
+    let by_source: HashMap<&str, &str> = show
+        .nodes
+        .iter()
+        .map(|n| (n.source_id.as_str(), n.handle.as_str()))
+        .collect();
+    let blocked_by = node
+        .blocked_by
+        .iter()
+        .map(|source| {
+            by_source
+                .get(source.as_str())
+                .map_or_else(|| source.clone(), |h| (*h).to_string())
+        })
+        .collect();
+    let successors = node
+        .successors
+        .iter()
+        .map(|source| {
+            by_source
+                .get(source.as_str())
+                .map_or_else(|| source.clone(), |h| (*h).to_string())
+        })
+        .collect();
+    BoardGraphNode {
+        handle: node.handle.clone(),
+        source_id: node.source_id.clone(),
+        code: node.source_id.clone(),
+        label: node.label.clone(),
+        state: node.state.clone(),
+        readiness: node.readiness.clone(),
+        blocked_by,
+        successors,
+    }
 }
 
 fn board_identities(
@@ -428,6 +542,43 @@ fn print_board(board: &Board) {
     );
     for identity in &board.identities {
         print_identity(identity);
+    }
+    if let Some(graphs) = &board.graphs {
+        print_board_graphs(graphs);
+    }
+}
+
+fn print_board_graphs(graphs: &[BoardGraph]) {
+    println!();
+    println!("graphs:");
+    if graphs.is_empty() {
+        println!("  (none)");
+        return;
+    }
+    for graph in graphs {
+        println!(
+            "  {}  handle={}  rev={}  ready={}  blocked={}  active={}",
+            graph.code,
+            graph.handle,
+            graph.revision,
+            graph.ready.len(),
+            graph.blocked.len(),
+            graph.active.len()
+        );
+        for node in &graph.ready {
+            println!(
+                "    ready  {}  {}  [{}]",
+                node.source_id, node.handle, node.state
+            );
+        }
+        for node in &graph.blocked {
+            println!(
+                "    blocked {}  {}  by={}",
+                node.source_id,
+                node.handle,
+                node.blocked_by.join(",")
+            );
+        }
     }
 }
 

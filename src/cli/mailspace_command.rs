@@ -382,6 +382,8 @@ pub enum GraphCommand {
     Export(GraphExportCommand),
     /// Mark a graph node done
     Complete(GraphCompleteCommand),
+    /// Bind a task attempt and mark a ready node active
+    Activate(GraphActivateCommand),
     /// Graph node subcommands
     Node {
         #[command(subcommand)]
@@ -490,6 +492,33 @@ pub struct GraphCompleteCommand {
     pub graph: Option<String>,
 
     /// Optional completion note
+    #[arg(long)]
+    pub note: Option<String>,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
+/// Activate a ready graph node with a bound task attempt.
+#[derive(Debug, Clone, Parser)]
+pub struct GraphActivateCommand {
+    /// Node as `graph:source-id` or source-id with --graph
+    pub node: String,
+
+    /// Graph code when `node` is only a source id
+    #[arg(long)]
+    pub graph: Option<String>,
+
+    /// Task handle to bind as this attempt
+    #[arg(long)]
+    pub task: String,
+
+    /// Optional activation note
     #[arg(long)]
     pub note: Option<String>,
 

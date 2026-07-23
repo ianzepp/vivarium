@@ -16,10 +16,10 @@ pub use board_command::BoardCommand;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
 pub use mailspace_command::{
-    CycleCommand, GraphApplyCommand, GraphCommand, GraphCompleteCommand, GraphEdgeAddCommand,
-    GraphEdgeCommand, GraphExportCommand, GraphImportCommand, GraphNodeAddCommand,
-    GraphNodeCommand, GraphShowCommand, LocalSendCommand, MailAbsorbStatus, MailCommand,
-    MailDumpCommand, MailReplyCommand, MailThreadCommand, MailspaceCommand,
+    CycleCommand, GraphActivateCommand, GraphApplyCommand, GraphCommand, GraphCompleteCommand,
+    GraphEdgeAddCommand, GraphEdgeCommand, GraphExportCommand, GraphImportCommand,
+    GraphNodeAddCommand, GraphNodeCommand, GraphShowCommand, LocalSendCommand, MailAbsorbStatus,
+    MailCommand, MailDumpCommand, MailReplyCommand, MailThreadCommand, MailspaceCommand,
     MailspaceIdentityCommand, MailspaceImportCommand, MailspaceWatchCommand, MemoCommand,
     NeedCommand, TaskCommand, TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand, TaskSendCommand,
     TaskStatus, TraceCommand, WantCommand, WantStatus,

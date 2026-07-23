@@ -355,9 +355,11 @@ vivi graph import --code mir-swarm-wave-2 --file wave.mmd --json
 vivi graph show mir-swarm-wave-2 --json
 vivi graph apply mir-swarm-wave-2 --file wave-v2.mmd --json
 vivi graph complete mir-swarm-wave-2:verify --json
+vivi graph activate mir-swarm-wave-2:verify --task <task-handle> --json
 vivi graph export mir-swarm-wave-2 --include-state
 vivi graph node add --graph mir-swarm-wave-2 --id u4 --label "G-P-10/U4"
 vivi graph edge add --graph mir-swarm-wave-2 --from accept --to u4
+vivi board --graph --json
 vivi task show <handle> --json
 ```
 
@@ -378,8 +380,13 @@ handles, keeps the Mermaid source as revision evidence, and reports the ready
 frontier (open roots). Use `--check` to validate without writing. Re-importing
 identical source is idempotent. Later revisions use `graph apply` (source-id
 reconciliation, freezes active/done prerequisites, allows new successors).
-`graph complete` marks a node done and recalculates readiness; `graph export`
-emits normalized Mermaid with optional state classes.
+`graph complete` marks a node done, recalculates readiness, and emits
+`node_ready` events for newly unlocked successors (no agent spawn).
+`graph activate --task` binds a task attempt to a ready open node and marks it
+active. `board --graph` adds a `graphs[]` frontier projection (codes, state,
+blocked-by handles, successors) without removing existing board fields.
+`graph export` emits normalized Mermaid with optional state classes. Watch can
+include graph lifecycle with `--kinds graph --events node_ready`.
 
 Needs and wants are also local messages with stable handles. Wants are parked in
 `Wants` for later prioritization. Promoting a want moves it to `Needs`, where it

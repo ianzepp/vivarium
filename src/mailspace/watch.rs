@@ -70,6 +70,7 @@ pub fn run_watch(
     let started = Instant::now();
     let mut matched = 0usize;
 
+    let mut graph_cursor = 0i64;
     loop {
         let storage = mailspace.storage()?;
         let events = storage.list_mailspace_events_after(cursor)?;
@@ -79,6 +80,16 @@ pub fn run_watch(
         if result.done {
             write_cursor(cursor_path, request.write_cursor, cursor)?;
             return Ok(());
+        }
+        if filters.kinds.contains("graph") {
+            let graph_result =
+                scan_graph_events(&storage, &filters, &request, graph_cursor, matched)?;
+            graph_cursor = graph_result.cursor;
+            matched = graph_result.matched;
+            if graph_result.done {
+                write_cursor(cursor_path, request.write_cursor, cursor)?;
+                return Ok(());
+            }
         }
         if request.once {
             if !events.is_empty() {
@@ -177,11 +188,24 @@ fn prepare_filters(
         .transpose()?;
     Ok(WatchFilters {
         identity,
-        kinds: parse_filter_set(&request.kinds, "kind", &["mail", "task", "need", "want"])?,
+        kinds: parse_filter_set(
+            &request.kinds,
+            "kind",
+            &["mail", "task", "need", "want", "graph"],
+        )?,
         events: parse_filter_set(
             &request.events,
             "event",
-            &["delivered", "moved", "sent_copy_created"],
+            &[
+                "delivered",
+                "moved",
+                "sent_copy_created",
+                "node_ready",
+                "node_state",
+                "attempt_bound",
+                "revision_imported",
+                "revision_applied",
+            ],
         )?,
         statuses: request
             .statuses
@@ -190,13 +214,58 @@ fn prepare_filters(
                 parse_filter_set(
                     value,
                     "status",
-                    &["tasks", "needs", "wants", "done", "inbox", "sent"],
+                    &["tasks", "needs", "wants", "done", "inbox", "sent", "open"],
                 )
             })
             .transpose()?,
         match_from: request.match_from.as_deref().map(str::to_ascii_lowercase),
         subject_prefix: request.match_subject_prefix.clone(),
         content_id,
+    })
+}
+
+fn scan_graph_events(
+    storage: &Storage,
+    filters: &WatchFilters,
+    request: &MailspaceWatchRequest,
+    mut cursor: i64,
+    mut matched: usize,
+) -> Result<ScanResult, VivariumError> {
+    let events = storage.list_work_graph_events_after(cursor)?;
+    for event in events {
+        cursor = event.event_id;
+        if !filters.events.contains(&event.event_type) {
+            continue;
+        }
+        let handle = event
+            .node_handle
+            .clone()
+            .unwrap_or_else(|| event.graph_handle.clone());
+        let output = MailspaceWatchEvent {
+            event: event.event_type.clone(),
+            status: "open".into(),
+            kind: "graph".into(),
+            handle,
+            for_identity: request.for_identity.clone(),
+            from: "graph".into(),
+            subject: event.note.clone().unwrap_or_default(),
+            at: event.occurred_at.clone(),
+            event_id: event.event_id,
+        };
+        emit_event(&output, request.json)?;
+        matched += 1;
+        if request.until_count > 0 && matched >= request.until_count {
+            return Ok(ScanResult {
+                cursor,
+                matched,
+                done: true,
+            });
+        }
+    }
+    Ok(ScanResult {
+        cursor,
+        matched,
+        done: false,
     })
 }
 

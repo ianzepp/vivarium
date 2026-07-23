@@ -229,34 +229,202 @@ impl Storage {
             .conn
             .transaction()
             .map_err(|e| VivariumError::Other(format!("failed to begin node state tx: {e}")))?;
-        let changed = tx
-            .execute(
-                "UPDATE work_graph_nodes SET state = ?1, updated_at = ?2
-                 WHERE handle = ?3 AND graph_handle = ?4",
-                params![state, now, node_handle, graph_handle],
-            )
-            .map_err(|e| VivariumError::Other(format!("failed to update node state: {e}")))?;
-        if changed == 0 {
-            return Err(VivariumError::Message(format!(
-                "graph node not found: {node_handle}"
-            )));
-        }
-        tx.execute(
-            "UPDATE work_graphs SET updated_at = ?1 WHERE handle = ?2",
-            params![now, graph_handle],
-        )
-        .map_err(|e| VivariumError::Other(format!("failed to touch graph: {e}")))?;
-        tx.execute(
-            "INSERT INTO work_graph_events
-               (graph_handle, occurred_at, event_type, node_handle, note)
-             VALUES (?1, ?2, 'node_state', ?3, ?4)",
-            params![graph_handle, now, node_handle, note],
-        )
-        .map_err(|e| VivariumError::Other(format!("failed to insert node state event: {e}")))?;
+        set_node_state_tx(&tx, graph_handle, node_handle, state, note, &now)?;
         tx.commit()
             .map_err(|e| VivariumError::Other(format!("failed to commit node state: {e}")))?;
         Ok(())
     }
+
+    /// List all work graphs ordered by code.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the query fails.
+    pub fn work_graphs(&self) -> Result<Vec<WorkGraphRow>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT handle, code, status, current_revision, created_at, updated_at
+                 FROM work_graphs ORDER BY code",
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to prepare work graphs: {e}")))?;
+        let rows = stmt
+            .query_map([], map_graph_row)
+            .map_err(|e| VivariumError::Other(format!("failed to query work graphs: {e}")))?;
+        collect_rows(rows, "work graphs")
+    }
+
+    /// List attempts for a node.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the query fails.
+    pub fn work_graph_attempts(
+        &self,
+        node_handle: &str,
+    ) -> Result<Vec<WorkGraphAttemptRow>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT attempt_id, graph_handle, node_handle, task_message_id, task_handle,
+                        role, state, note, created_at, updated_at
+                 FROM work_graph_attempts WHERE node_handle = ?1
+                 ORDER BY attempt_id",
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to prepare attempts: {e}")))?;
+        let rows = stmt
+            .query_map(params![node_handle], map_attempt_row)
+            .map_err(|e| VivariumError::Other(format!("failed to query attempts: {e}")))?;
+        collect_rows(rows, "graph attempts")
+    }
+
+    /// Graph lifecycle events after a cursor (exclusive).
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the query fails.
+    pub fn list_work_graph_events_after(
+        &self,
+        after_event_id: i64,
+    ) -> Result<Vec<WorkGraphEventRow>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT event_id, graph_handle, occurred_at, event_type, node_handle, note
+                 FROM work_graph_events
+                 WHERE event_id > ?1
+                 ORDER BY event_id",
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to prepare graph events: {e}")))?;
+        let rows = stmt
+            .query_map(params![after_event_id], map_graph_event_row)
+            .map_err(|e| VivariumError::Other(format!("failed to query graph events: {e}")))?;
+        collect_rows(rows, "graph events")
+    }
+
+    /// Activate a node and bind a task attempt in one transaction.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the transaction fails.
+    pub fn activate_work_graph_node(
+        &mut self,
+        input: &WorkGraphActivateInput,
+    ) -> Result<(), VivariumError> {
+        let now = Utc::now().to_rfc3339();
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|e| VivariumError::Other(format!("failed to begin activate tx: {e}")))?;
+        set_node_state_tx(
+            &tx,
+            &input.graph_handle,
+            &input.node_handle,
+            "active",
+            input.note.as_deref(),
+            &now,
+        )?;
+        tx.execute(
+            "INSERT INTO work_graph_attempts
+               (graph_handle, node_handle, task_message_id, task_handle, role, state,
+                note, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?7, ?7)",
+            params![
+                input.graph_handle,
+                input.node_handle,
+                input.task_message_id,
+                input.task_handle,
+                input.role,
+                input.note,
+                now
+            ],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to insert graph attempt: {e}")))?;
+        tx.execute(
+            "INSERT INTO work_graph_events
+               (graph_handle, occurred_at, event_type, node_handle, note)
+             VALUES (?1, ?2, 'attempt_bound', ?3, ?4)",
+            params![
+                input.graph_handle,
+                now,
+                input.node_handle,
+                format!("task={}", input.task_handle)
+            ],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to insert attempt event: {e}")))?;
+        tx.commit()
+            .map_err(|e| VivariumError::Other(format!("failed to commit activate: {e}")))?;
+        Ok(())
+    }
+
+    /// Complete a node and emit `node_ready` events for newly ready successors.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the transaction fails.
+    pub fn complete_work_graph_node(
+        &mut self,
+        graph_handle: &str,
+        node_handle: &str,
+        note: Option<&str>,
+        newly_ready_node_handles: &[String],
+    ) -> Result<(), VivariumError> {
+        let now = Utc::now().to_rfc3339();
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|e| VivariumError::Other(format!("failed to begin complete tx: {e}")))?;
+        set_node_state_tx(&tx, graph_handle, node_handle, "done", note, &now)?;
+        for ready_handle in newly_ready_node_handles {
+            tx.execute(
+                "INSERT INTO work_graph_events
+                   (graph_handle, occurred_at, event_type, node_handle, note)
+                 VALUES (?1, ?2, 'node_ready', ?3, ?4)",
+                params![
+                    graph_handle,
+                    now,
+                    ready_handle,
+                    format!("unlocked_by={node_handle}")
+                ],
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to insert ready event: {e}")))?;
+        }
+        tx.commit()
+            .map_err(|e| VivariumError::Other(format!("failed to commit complete: {e}")))?;
+        Ok(())
+    }
+}
+
+/// Task-attempt binding row.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct WorkGraphAttemptRow {
+    pub attempt_id: i64,
+    pub graph_handle: String,
+    pub node_handle: String,
+    pub task_message_id: String,
+    pub task_handle: String,
+    pub role: Option<String>,
+    pub state: String,
+    pub note: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Graph lifecycle event row.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct WorkGraphEventRow {
+    pub event_id: i64,
+    pub graph_handle: String,
+    pub occurred_at: String,
+    pub event_type: String,
+    pub node_handle: Option<String>,
+    pub note: Option<String>,
+}
+
+/// Inputs for activating a node with a bound task.
+#[derive(Debug, Clone)]
+pub struct WorkGraphActivateInput {
+    pub graph_handle: String,
+    pub node_handle: String,
+    pub task_message_id: String,
+    pub task_handle: String,
+    pub role: Option<String>,
+    pub note: Option<String>,
 }
 
 /// Validated apply mutation ready for a single transaction.
@@ -470,6 +638,67 @@ where
         out.push(row.map_err(|e| VivariumError::Other(format!("failed to read {label}: {e}")))?);
     }
     Ok(out)
+}
+
+fn set_node_state_tx(
+    tx: &Transaction<'_>,
+    graph_handle: &str,
+    node_handle: &str,
+    state: &str,
+    note: Option<&str>,
+    now: &str,
+) -> Result<(), VivariumError> {
+    let changed = tx
+        .execute(
+            "UPDATE work_graph_nodes SET state = ?1, updated_at = ?2
+             WHERE handle = ?3 AND graph_handle = ?4",
+            params![state, now, node_handle, graph_handle],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to update node state: {e}")))?;
+    if changed == 0 {
+        return Err(VivariumError::Message(format!(
+            "graph node not found: {node_handle}"
+        )));
+    }
+    tx.execute(
+        "UPDATE work_graphs SET updated_at = ?1 WHERE handle = ?2",
+        params![now, graph_handle],
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to touch graph: {e}")))?;
+    tx.execute(
+        "INSERT INTO work_graph_events
+           (graph_handle, occurred_at, event_type, node_handle, note)
+         VALUES (?1, ?2, 'node_state', ?3, ?4)",
+        params![graph_handle, now, node_handle, note],
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to insert node state event: {e}")))?;
+    Ok(())
+}
+
+fn map_attempt_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkGraphAttemptRow> {
+    Ok(WorkGraphAttemptRow {
+        attempt_id: row.get(0)?,
+        graph_handle: row.get(1)?,
+        node_handle: row.get(2)?,
+        task_message_id: row.get(3)?,
+        task_handle: row.get(4)?,
+        role: row.get(5)?,
+        state: row.get(6)?,
+        note: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
+}
+
+fn map_graph_event_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkGraphEventRow> {
+    Ok(WorkGraphEventRow {
+        event_id: row.get(0)?,
+        graph_handle: row.get(1)?,
+        occurred_at: row.get(2)?,
+        event_type: row.get(3)?,
+        node_handle: row.get(4)?,
+        note: row.get(5)?,
+    })
 }
 
 fn execute_apply_plan(

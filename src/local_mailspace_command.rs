@@ -1,10 +1,11 @@
 use vivarium::VivariumError;
 use vivarium::cli::{
-    Command, CycleCommand, GraphApplyCommand, GraphCommand, GraphCompleteCommand, GraphEdgeCommand,
-    GraphExportCommand, GraphImportCommand, GraphNodeCommand, GraphShowCommand, LocalSendCommand,
-    MailAbsorbStatus, MailCommand, MailDumpCommand, MailReplyCommand, MailspaceCommand,
-    MailspaceIdentityCommand, MailspaceImportCommand, MailspaceWatchCommand, MemoCommand,
-    TaskCommand, TaskSendCommand, TraceCommand,
+    Command, CycleCommand, GraphActivateCommand, GraphApplyCommand, GraphCommand,
+    GraphCompleteCommand, GraphEdgeCommand, GraphExportCommand, GraphImportCommand,
+    GraphNodeCommand, GraphShowCommand, LocalSendCommand, MailAbsorbStatus, MailCommand,
+    MailDumpCommand, MailReplyCommand, MailspaceCommand, MailspaceIdentityCommand,
+    MailspaceImportCommand, MailspaceWatchCommand, MemoCommand, TaskCommand, TaskSendCommand,
+    TraceCommand,
 };
 use vivarium::mailspace::{
     DumpFilters, MailAbsorbFilter, MailDumpRequest, Mailspace, MailspaceWatchRequest, SendRequest,
@@ -70,6 +71,7 @@ fn handle_graph_command(command: &GraphCommand) -> Result<(), VivariumError> {
         GraphCommand::Show(command) => handle_graph_show(command),
         GraphCommand::Export(command) => handle_graph_export(command),
         GraphCommand::Complete(command) => handle_graph_complete(command),
+        GraphCommand::Activate(command) => handle_graph_activate(command),
         GraphCommand::Node { command } => handle_graph_node_command(command),
         GraphCommand::Edge { command } => handle_graph_edge_command(command),
     }
@@ -109,6 +111,14 @@ fn handle_graph_complete(command: &GraphCompleteCommand) -> Result<(), VivariumE
     let mailspace = Mailspace::discover(command.project.as_deref())?;
     let (graph, source_id) = split_graph_node(&command.node, command.graph.as_deref())?;
     let show = mailspace.graph_complete(&graph, &source_id, command.note.as_deref())?;
+    vivarium::mailspace::print_graph_show(&show, command.json)
+}
+
+fn handle_graph_activate(command: &GraphActivateCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    let (graph, source_id) = split_graph_node(&command.node, command.graph.as_deref())?;
+    let show =
+        mailspace.graph_activate(&graph, &source_id, &command.task, command.note.as_deref())?;
     vivarium::mailspace::print_graph_show(&show, command.json)
 }
 

@@ -11,8 +11,8 @@ use super::graph::{GraphEdgeView, GraphNodeView, GraphShow, project_edges, proje
 use super::mermaid::{MermaidFlowchart, MermaidNode, parse_flowchart};
 use crate::error::VivariumError;
 use crate::storage::{
-    Storage, WorkGraphApplyPlan, WorkGraphEdgeInput, WorkGraphEdgeRow, WorkGraphNodeInput,
-    WorkGraphNodeRow, WorkGraphRow, sha256_hex,
+    Storage, WorkGraphActivateInput, WorkGraphApplyPlan, WorkGraphEdgeInput, WorkGraphEdgeRow,
+    WorkGraphNodeInput, WorkGraphNodeRow, WorkGraphRow, sha256_hex,
 };
 
 /// Diff summary for apply / check.
@@ -130,7 +130,7 @@ impl Mailspace {
         self.graph_show(code_or_handle)
     }
 
-    /// Mark a node done and refresh readiness.
+    /// Mark a node done and refresh readiness (no agent spawn).
     ///
     /// # Errors
     /// Returns not-found or storage errors.
@@ -143,6 +143,7 @@ impl Mailspace {
         let mut storage = self.storage()?;
         let graph = resolve_graph(&storage, code_or_handle)?;
         let rows = storage.work_graph_nodes(&graph.handle)?;
+        let edges = storage.work_graph_edges(&graph.handle)?;
         let target = rows
             .iter()
             .find(|n| n.source_id == source_id)
@@ -158,8 +159,79 @@ impl Mailspace {
                 target.state
             )));
         }
-        storage.set_work_graph_node_state(&graph.handle, &target.handle, "done", note)?;
+        let ready_before = ready_handles(&rows, &edges);
+        let newly_ready = newly_ready_after_done(&rows, &edges, &target.handle, &ready_before);
+        storage.complete_work_graph_node(&graph.handle, &target.handle, note, &newly_ready)?;
         self.graph_show(code_or_handle)
+    }
+
+    /// Bind a task attempt and mark a ready open node active.
+    ///
+    /// # Errors
+    /// Returns validation or storage errors.
+    pub fn graph_activate(
+        &self,
+        code_or_handle: &str,
+        source_id: &str,
+        task_token: &str,
+        note: Option<&str>,
+    ) -> Result<GraphShow, VivariumError> {
+        let mut storage = self.storage()?;
+        let graph = resolve_graph(&storage, code_or_handle)?;
+        let rows = storage.work_graph_nodes(&graph.handle)?;
+        let edges = storage.work_graph_edges(&graph.handle)?;
+        let target = rows
+            .iter()
+            .find(|n| n.source_id == source_id)
+            .ok_or_else(|| {
+                VivariumError::Message(format!("graph node source id not found: {source_id}"))
+            })?;
+        if target.state != "open" {
+            return Err(VivariumError::Message(format!(
+                "cannot activate node '{}' in state '{}'",
+                source_id, target.state
+            )));
+        }
+        let (_, ready, _) = project_nodes(&rows, &edges);
+        if !ready.iter().any(|n| n.handle == target.handle) {
+            return Err(VivariumError::Message(format!(
+                "cannot activate blocked node '{source_id}'"
+            )));
+        }
+        let task_message_id = storage.resolve_message_token(task_token)?;
+        let task_handle = storage.display_handle(&task_message_id)?;
+        let task = storage.message_by_id(&task_message_id)?.ok_or_else(|| {
+            VivariumError::Message(format!("task message not found: {task_token}"))
+        })?;
+        if task.local_role != "tasks" {
+            return Err(VivariumError::Message(format!(
+                "activate requires a task handle; got role '{}'",
+                task.local_role
+            )));
+        }
+        storage.activate_work_graph_node(&WorkGraphActivateInput {
+            graph_handle: graph.handle.clone(),
+            node_handle: target.handle.clone(),
+            task_message_id,
+            task_handle,
+            role: Some(task.account.clone()),
+            note: note.map(str::to_string),
+        })?;
+        self.graph_show(code_or_handle)
+    }
+
+    /// Summaries of all graphs for board projection.
+    ///
+    /// # Errors
+    /// Returns storage errors.
+    pub fn graph_board_summaries(&self) -> Result<Vec<GraphShow>, VivariumError> {
+        let storage = self.storage()?;
+        let graphs = storage.work_graphs()?;
+        let mut out = Vec::with_capacity(graphs.len());
+        for graph in graphs {
+            out.push(self.graph_show(&graph.code)?);
+        }
+        Ok(out)
     }
 
     /// Export normalized Mermaid (optional state classes).
@@ -513,6 +585,30 @@ fn resolve_graph(storage: &Storage, code_or_handle: &str) -> Result<WorkGraphRow
     )))
 }
 
+fn ready_handles(nodes: &[WorkGraphNodeRow], edges: &[WorkGraphEdgeRow]) -> HashSet<String> {
+    let (_, ready, _) = project_nodes(nodes, edges);
+    ready.into_iter().map(|n| n.handle).collect()
+}
+
+fn newly_ready_after_done(
+    nodes: &[WorkGraphNodeRow],
+    edges: &[WorkGraphEdgeRow],
+    completed_handle: &str,
+    ready_before: &HashSet<String>,
+) -> Vec<String> {
+    let mut projected: Vec<WorkGraphNodeRow> = nodes.to_vec();
+    for node in &mut projected {
+        if node.handle == completed_handle {
+            node.state = "done".into();
+        }
+    }
+    let ready_after = ready_handles(&projected, edges);
+    ready_after
+        .into_iter()
+        .filter(|h| !ready_before.contains(h) && h != completed_handle)
+        .collect()
+}
+
 fn validate_source_id(id: &str) -> Result<(), VivariumError> {
     if id.is_empty()
         || !id
@@ -705,5 +801,17 @@ mod tests {
         let show = ms.graph_show("demo").unwrap();
         assert_eq!(show.nodes.len(), 2);
         assert_eq!(show.edges.len(), 1);
+    }
+
+    #[test]
+    fn activate_refuses_blocked_node() {
+        let dir = tempdir().unwrap();
+        let ms = Mailspace::init(Some(dir.path())).unwrap();
+        ms.graph_import("demo", base(), false).unwrap();
+        let err = ms
+            .graph_activate("demo", "b", "deadbeef", None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("blocked"), "{err}");
     }
 }
