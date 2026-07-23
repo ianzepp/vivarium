@@ -16,11 +16,11 @@ pub use board_command::BoardCommand;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
 pub use mailspace_command::{
-    CycleCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
-    MailReplyCommand, MailThreadCommand, MailspaceCommand, MailspaceIdentityCommand,
-    MailspaceImportCommand, MailspaceWatchCommand, MemoCommand, NeedCommand, TaskCommand,
-    TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand, TaskSendCommand, TaskStatus, TraceCommand,
-    WantCommand, WantStatus,
+    CycleCommand, GraphCommand, GraphImportCommand, GraphShowCommand, LocalSendCommand,
+    MailAbsorbStatus, MailCommand, MailDumpCommand, MailReplyCommand, MailThreadCommand,
+    MailspaceCommand, MailspaceIdentityCommand, MailspaceImportCommand, MailspaceWatchCommand,
+    MemoCommand, NeedCommand, TaskCommand, TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand,
+    TaskSendCommand, TaskStatus, TraceCommand, WantCommand, WantStatus,
 };
 pub use proton_command::ProtonCommand;
 pub use render_command::{RenderCommand, RenderFormat};
@@ -307,6 +307,12 @@ pub enum Command {
 
     /// Trace the cross-role communication tree around a handle
     Trace(TraceCommand),
+
+    /// Import and inspect executable work graphs
+    Graph {
+        #[command(subcommand)]
+        command: GraphCommand,
+    },
 
     /// Create a reply draft for a message
     Reply(ReplyCommand),

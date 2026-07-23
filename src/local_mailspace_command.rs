@@ -1,8 +1,9 @@
 use vivarium::VivariumError;
 use vivarium::cli::{
-    Command, CycleCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
-    MailReplyCommand, MailspaceCommand, MailspaceIdentityCommand, MailspaceImportCommand,
-    MailspaceWatchCommand, MemoCommand, TaskCommand, TaskSendCommand, TraceCommand,
+    Command, CycleCommand, GraphCommand, GraphImportCommand, GraphShowCommand, LocalSendCommand,
+    MailAbsorbStatus, MailCommand, MailDumpCommand, MailReplyCommand, MailspaceCommand,
+    MailspaceIdentityCommand, MailspaceImportCommand, MailspaceWatchCommand, MemoCommand,
+    TaskCommand, TaskSendCommand, TraceCommand,
 };
 use vivarium::mailspace::{
     DumpFilters, MailAbsorbFilter, MailDumpRequest, Mailspace, MailspaceWatchRequest, SendRequest,
@@ -53,8 +54,31 @@ pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumE
             handle_trace_command(command)?;
             Ok(true)
         }
+        Command::Graph { command } => {
+            handle_graph_command(command)?;
+            Ok(true)
+        }
         _ => Ok(false),
     }
+}
+
+fn handle_graph_command(command: &GraphCommand) -> Result<(), VivariumError> {
+    match command {
+        GraphCommand::Import(command) => handle_graph_import(command),
+        GraphCommand::Show(command) => handle_graph_show(command),
+    }
+}
+
+fn handle_graph_import(command: &GraphImportCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    let report = mailspace.graph_import_file(&command.code, &command.file, command.check)?;
+    vivarium::mailspace::print_import_report(&report, command.json)
+}
+
+fn handle_graph_show(command: &GraphShowCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    let show = mailspace.graph_show(&command.graph)?;
+    vivarium::mailspace::print_graph_show(&show, command.json)
 }
 
 fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumError> {
@@ -497,7 +521,7 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             for_identity,
             note,
             project,
-        } => reopen_task(handle, for_identity, note, project)?,
+        } => reopen_task(handle, for_identity, note.as_deref(), project.as_deref())?,
     }
     Ok(())
 }
@@ -526,19 +550,10 @@ fn done_task(
 fn reopen_task(
     handle: &str,
     for_identity: &str,
-    note: &Option<String>,
-    project: &Option<std::path::PathBuf>,
+    note: Option<&str>,
+    project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
-    move_task(
-        handle,
-        for_identity,
-        note.as_deref(),
-        project.as_deref(),
-        "tasks",
-        None,
-        &[],
-        &[],
-    )
+    move_task(handle, for_identity, note, project, "tasks", None, &[], &[])
 }
 
 fn list_tasks_command(

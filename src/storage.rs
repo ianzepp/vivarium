@@ -15,6 +15,7 @@ use crate::error::VivariumError;
 use crate::store::secure_create_dir_all;
 
 mod events;
+mod graph;
 mod handles;
 mod ingest;
 mod item_metadata;
@@ -26,6 +27,11 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
+pub use graph::{
+    WorkGraphEdgeInput, WorkGraphEdgeRow, WorkGraphImportCommit, WorkGraphImportInput,
+    WorkGraphNodeInput, WorkGraphNodeRow, WorkGraphRow, edge_handle_for, graph_handle_for_code,
+    node_handle_for,
+};
 pub use links::MailspaceLink;
 use metadata::parse_metadata;
 pub use mutate::MailspaceMoveWithReply;
@@ -439,7 +445,7 @@ fn handle_basis(message_id: &str) -> &str {
     message_id.strip_prefix("msg_").unwrap_or(message_id)
 }
 
-fn sha256_hex(data: &[u8]) -> String {
+pub(crate) fn sha256_hex(data: &[u8]) -> String {
     let hash = Sha256::digest(data);
     hex::encode(hash)
 }

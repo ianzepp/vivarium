@@ -2220,6 +2220,131 @@ fn trace_command_reconstructs_reply_chain_and_collapses_copies() {
     }));
 }
 
+#[test]
+fn graph_import_show_idempotent_and_check() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let mermaid = project.path().join("wave.mmd");
+    std::fs::write(
+        &mermaid,
+        r#"
+flowchart LR
+  subgraph mir["mir-swarm"]
+    verify["G-P-10/U1/reverify"]
+    accept["G-P-10/U1/accept"]
+    u2["G-P-10/U2"]
+    u3["G-P-10/U3"]
+    verify --> accept
+    accept --> u2
+    accept --> u3
+  end
+"#,
+    )
+    .unwrap();
+    let project_s = project.path().to_str().unwrap();
+    let mermaid_s = mermaid.to_str().unwrap();
+
+    let check = vivi([
+        "graph",
+        "import",
+        "--code",
+        "mir-swarm-wave-2",
+        "--file",
+        mermaid_s,
+        "--check",
+        "--json",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&check);
+    let check_v: Value = serde_json::from_str(&stdout(&check)).unwrap();
+    assert_eq!(check_v["check_only"], true);
+    assert_eq!(check_v["node_count"], 4);
+    assert_eq!(check_v["ready"][0]["source_id"], "verify");
+
+    let missing = vivi(["graph", "show", "mir-swarm-wave-2", "--project", project_s]);
+    assert!(!missing.status.success(), "check must not write graph");
+
+    let import = vivi([
+        "graph",
+        "import",
+        "--code",
+        "mir-swarm-wave-2",
+        "--file",
+        mermaid_s,
+        "--json",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&import);
+    let import_v: Value = serde_json::from_str(&stdout(&import)).unwrap();
+    assert_eq!(import_v["created"], true);
+    assert_eq!(import_v["revision"], 1);
+    assert_eq!(import_v["edge_count"], 3);
+    let handle = import_v["graph_handle"].as_str().unwrap().to_string();
+
+    let again = vivi([
+        "graph",
+        "import",
+        "--code",
+        "mir-swarm-wave-2",
+        "--file",
+        mermaid_s,
+        "--json",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&again);
+    let again_v: Value = serde_json::from_str(&stdout(&again)).unwrap();
+    assert_eq!(again_v["idempotent"], true);
+    assert_eq!(again_v["graph_handle"], handle);
+    assert_eq!(again_v["revision"], 1);
+
+    let show = vivi([
+        "graph",
+        "show",
+        "mir-swarm-wave-2",
+        "--json",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&show);
+    let show_v: Value = serde_json::from_str(&stdout(&show)).unwrap();
+    assert_eq!(show_v["graph"]["handle"], handle);
+    assert_eq!(show_v["ready"].as_array().unwrap().len(), 1);
+    assert_eq!(show_v["blocked"].as_array().unwrap().len(), 3);
+    let accept = show_v["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["source_id"] == "accept")
+        .unwrap();
+    assert_eq!(accept["blocked_by"][0], "verify");
+}
+
+#[test]
+fn graph_import_rejects_cycle_without_writes() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let mermaid = project.path().join("cycle.mmd");
+    std::fs::write(&mermaid, "flowchart TD\na --> b\nb --> a\n").unwrap();
+    let project_s = project.path().to_str().unwrap();
+    let out = vivi([
+        "graph",
+        "import",
+        "--code",
+        "bad-cycle",
+        "--file",
+        mermaid.to_str().unwrap(),
+        "--project",
+        project_s,
+    ]);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("cycle"), "{}", stderr(&out));
+    let show = vivi(["graph", "show", "bad-cycle", "--project", project_s]);
+    assert!(!show.status.success());
+}
+
 fn vivi<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,

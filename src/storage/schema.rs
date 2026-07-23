@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use crate::error::VivariumError;
 
-const STORAGE_SCHEMA_VERSION: &str = "1";
+const STORAGE_SCHEMA_VERSION: &str = "2";
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
@@ -105,6 +105,58 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
          );
          CREATE INDEX IF NOT EXISTS mailspace_links_parent_idx
            ON mailspace_links(parent_content_id, child_content_id);
+         CREATE TABLE IF NOT EXISTS work_graphs (
+           handle TEXT PRIMARY KEY,
+           code TEXT NOT NULL UNIQUE,
+           status TEXT NOT NULL DEFAULT 'open',
+           current_revision INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS work_graph_revisions (
+           graph_handle TEXT NOT NULL REFERENCES work_graphs(handle) ON DELETE CASCADE,
+           revision INTEGER NOT NULL,
+           mermaid_source TEXT NOT NULL,
+           content_hash TEXT NOT NULL,
+           created_at TEXT NOT NULL,
+           PRIMARY KEY (graph_handle, revision)
+         );
+         CREATE TABLE IF NOT EXISTS work_graph_nodes (
+           handle TEXT PRIMARY KEY,
+           graph_handle TEXT NOT NULL REFERENCES work_graphs(handle) ON DELETE CASCADE,
+           source_id TEXT NOT NULL,
+           label TEXT NOT NULL,
+           state TEXT NOT NULL DEFAULT 'open',
+           subgraph TEXT,
+           created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL,
+           UNIQUE (graph_handle, source_id)
+         );
+         CREATE INDEX IF NOT EXISTS work_graph_nodes_graph_idx
+           ON work_graph_nodes(graph_handle, state);
+         CREATE TABLE IF NOT EXISTS work_graph_edges (
+           handle TEXT PRIMARY KEY,
+           graph_handle TEXT NOT NULL REFERENCES work_graphs(handle) ON DELETE CASCADE,
+           from_node TEXT NOT NULL REFERENCES work_graph_nodes(handle) ON DELETE CASCADE,
+           to_node TEXT NOT NULL REFERENCES work_graph_nodes(handle) ON DELETE CASCADE,
+           label TEXT,
+           created_at TEXT NOT NULL,
+           UNIQUE (graph_handle, from_node, to_node)
+         );
+         CREATE INDEX IF NOT EXISTS work_graph_edges_to_idx
+           ON work_graph_edges(to_node);
+         CREATE INDEX IF NOT EXISTS work_graph_edges_from_idx
+           ON work_graph_edges(from_node);
+         CREATE TABLE IF NOT EXISTS work_graph_events (
+           event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+           graph_handle TEXT NOT NULL REFERENCES work_graphs(handle) ON DELETE CASCADE,
+           occurred_at TEXT NOT NULL,
+           event_type TEXT NOT NULL,
+           node_handle TEXT,
+           note TEXT
+         );
+         CREATE INDEX IF NOT EXISTS work_graph_events_graph_idx
+           ON work_graph_events(graph_handle, occurred_at, event_id);
          COMMIT;",
     )
     .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))?;

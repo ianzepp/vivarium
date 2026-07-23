@@ -349,6 +349,10 @@ vivi mail thread <handle> --json --limit 100 --max-depth 20
 # Trace the cross-role communication tree around a task, want, or mail
 vivi trace <handle>
 vivi trace <handle> --json --max-depth 5 --limit 100
+# Import an executable Mermaid work graph (project-local topology)
+vivi graph import --code mir-swarm-wave-2 --file wave.mmd --check --json
+vivi graph import --code mir-swarm-wave-2 --file wave.mmd --json
+vivi graph show mir-swarm-wave-2 --json
 vivi task show <handle> --json
 ```
 
@@ -362,6 +366,13 @@ reply links, `tasked` lifecycle events, and inferred body-citation links, and it
 collapses same-content copies (e.g., sender `sent` and recipient `inbox`) into a
 single logical node. Use `--json` for agent consumption and `--max-depth` /
 `--limit` to keep large mailspaces bounded.
+
+`vivi graph` stores executable work topology separately from `trace`. Import a
+narrow Mermaid `flowchart` / `graph` with `-->` edges; Vivi assigns immutable
+handles, keeps the Mermaid source as revision evidence, and reports the ready
+frontier (open roots). Use `--check` to validate without writing. Re-importing
+identical source is idempotent; a different source for the same code is rejected
+until `graph apply` lands in a later phase.
 
 Needs and wants are also local messages with stable handles. Wants are parked in
 `Wants` for later prioritization. Promoting a want moves it to `Needs`, where it

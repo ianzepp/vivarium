@@ -369,6 +369,54 @@ pub struct TraceCommand {
     pub project: Option<PathBuf>,
 }
 
+/// Executable work-graph commands (Mermaid import / show).
+#[derive(Debug, Subcommand)]
+pub enum GraphCommand {
+    /// Import a Mermaid flowchart as a work graph
+    Import(GraphImportCommand),
+    /// Show a work graph by code or handle
+    Show(GraphShowCommand),
+}
+
+/// Import a Mermaid flowchart into the project mailspace.
+#[derive(Debug, Clone, Parser)]
+pub struct GraphImportCommand {
+    /// Project-unique graph code
+    #[arg(long)]
+    pub code: String,
+
+    /// Path to a Mermaid flowchart file
+    #[arg(long)]
+    pub file: PathBuf,
+
+    /// Validate and preview without writing
+    #[arg(long)]
+    pub check: bool,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
+/// Show a stored work graph.
+#[derive(Debug, Clone, Parser)]
+pub struct GraphShowCommand {
+    /// Graph code or immutable handle
+    pub graph: String,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, Parser)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct MailspaceWatchCommand {
