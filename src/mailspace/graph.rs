@@ -137,100 +137,242 @@ impl Mailspace {
     }
 }
 
-/// Print import report as text or JSON.
+/// Compact frontier projection for status loops (never full topology).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GraphFrontier {
+    pub code: String,
+    pub handle: String,
+    pub revision: i64,
+    pub ready: Vec<String>,
+    pub blocked: Vec<String>,
+    pub active: Vec<String>,
+}
+
+/// Compact receipt after complete / activate / node|edge append.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GraphActionReceipt {
+    pub action: String,
+    pub code: String,
+    pub handle: String,
+    pub revision: i64,
+    pub node: Option<String>,
+    pub task: Option<String>,
+    pub ready: Vec<String>,
+    pub blocked: Vec<String>,
+    pub active: Vec<String>,
+}
+
+/// Compact import receipt for CLI (no full node/edge topology).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GraphImportReceipt {
+    pub check_only: bool,
+    pub created: bool,
+    pub idempotent: bool,
+    pub graph_handle: String,
+    pub code: String,
+    pub revision: i64,
+    pub content_hash: String,
+    pub node_count: usize,
+    pub edge_count: usize,
+    pub roots: Vec<String>,
+    pub ready: Vec<String>,
+}
+
+/// Build a frontier projection from a full show view.
+#[must_use]
+pub fn frontier_from_show(show: &GraphShow) -> GraphFrontier {
+    GraphFrontier {
+        code: show.graph.code.clone(),
+        handle: show.graph.handle.clone(),
+        revision: show.graph.current_revision,
+        ready: source_ids(&show.ready),
+        blocked: source_ids(&show.blocked),
+        active: show
+            .nodes
+            .iter()
+            .filter(|n| n.state == "active")
+            .map(|n| n.source_id.clone())
+            .collect(),
+    }
+}
+
+/// Build a lifecycle/mutation receipt from a show view.
+#[must_use]
+pub fn action_receipt_from_show(
+    action: &str,
+    show: &GraphShow,
+    node: Option<&str>,
+    task: Option<&str>,
+) -> GraphActionReceipt {
+    let frontier = frontier_from_show(show);
+    GraphActionReceipt {
+        action: action.into(),
+        code: frontier.code,
+        handle: frontier.handle,
+        revision: frontier.revision,
+        node: node.map(str::to_string),
+        task: task.map(str::to_string),
+        ready: frontier.ready,
+        blocked: frontier.blocked,
+        active: frontier.active,
+    }
+}
+
+/// Print import report as compact text or JSON receipt.
 ///
 /// # Errors
-/// Returns JSON encode errors.
-pub fn print_import_report(report: &GraphImportReport, json: bool) -> Result<(), VivariumError> {
+/// Returns JSON encode errors or large-stdout refusal.
+pub fn print_import_report(
+    report: &GraphImportReport,
+    json: bool,
+    confirm_large: bool,
+) -> Result<(), VivariumError> {
+    let receipt = GraphImportReceipt {
+        check_only: report.check_only,
+        created: report.created,
+        idempotent: report.idempotent,
+        graph_handle: report.graph_handle.clone(),
+        code: report.code.clone(),
+        revision: report.revision,
+        content_hash: report.content_hash.clone(),
+        node_count: report.node_count,
+        edge_count: report.edge_count,
+        roots: report.roots.clone(),
+        ready: source_ids(&report.ready),
+    };
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(report)
-                .map_err(|e| VivariumError::Other(format!("failed to encode JSON: {e}")))?
+        return crate::stdout_budget::print_pretty_json(
+            "graph import",
+            &receipt,
+            confirm_large,
+            Some(&report.code),
         );
-        return Ok(());
     }
-    let mode = if report.check_only {
+    let mode = if receipt.check_only {
         "check"
-    } else if report.idempotent {
+    } else if receipt.idempotent {
         "idempotent"
     } else {
         "imported"
     };
     println!("graph {mode}");
-    println!("  handle   {}", report.graph_handle);
-    println!("  code     {}", report.code);
-    println!("  revision {}", report.revision);
-    println!("  hash     {}", report.content_hash);
-    println!("  nodes    {}", report.node_count);
-    println!("  edges    {}", report.edge_count);
-    println!("  roots    {}", report.roots.join(", ").if_empty("(none)"));
+    println!("  handle   {}", receipt.graph_handle);
+    println!("  code     {}", receipt.code);
+    println!("  revision {}", receipt.revision);
+    println!("  hash     {}", receipt.content_hash);
+    println!("  nodes    {}", receipt.node_count);
+    println!("  edges    {}", receipt.edge_count);
+    println!("  roots    {}", receipt.roots.join(", ").if_empty("(none)"));
     println!(
         "  ready    {}",
-        report
-            .ready
-            .iter()
-            .map(|n| n.source_id.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
-            .if_empty("(none)")
+        receipt.ready.join(", ").if_empty("(none)")
     );
     Ok(())
 }
 
-/// Print graph show as text or JSON.
+/// Print a frontier as compact text or JSON.
 ///
 /// # Errors
-/// Returns JSON encode errors.
-pub fn print_graph_show(show: &GraphShow, json: bool) -> Result<(), VivariumError> {
+/// Returns JSON encode errors or large-stdout refusal.
+pub fn print_frontier(
+    frontier: &GraphFrontier,
+    json: bool,
+    confirm_large: bool,
+) -> Result<(), VivariumError> {
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(show)
-                .map_err(|e| VivariumError::Other(format!("failed to encode JSON: {e}")))?
-        );
-        return Ok(());
-    }
-    println!("graph {}", show.graph.code);
-    println!("  handle   {}", show.graph.handle);
-    println!("  status   {}", show.graph.status);
-    println!("  revision {}", show.graph.current_revision);
-    if let Some(hash) = &show.content_hash {
-        println!("  hash     {hash}");
-    }
-    println!("nodes:");
-    for node in &show.nodes {
-        println!(
-            "  {}  {}  {}  [{}]  blocked_by={}",
-            node.source_id,
-            node.handle,
-            node.state,
-            node.readiness,
-            node.blocked_by.join(",").if_empty("-")
+        return crate::stdout_budget::print_pretty_json(
+            "graph ready",
+            frontier,
+            confirm_large,
+            Some(&frontier.code),
         );
     }
-    println!("edges:");
-    for edge in &show.edges {
-        println!(
-            "  {} --> {}{}",
-            edge.from_source_id,
-            edge.to_source_id,
-            edge.label
-                .as_ref()
-                .map(|l| format!("  ({l})"))
-                .unwrap_or_default()
-        );
-    }
+    println!("graph {}", frontier.code);
+    println!("  handle   {}", frontier.handle);
+    println!("  revision {}", frontier.revision);
+    println!("  ready    {}", frontier.ready.join(", ").if_empty("(none)"));
     println!(
-        "ready: {}",
-        show.ready
-            .iter()
-            .map(|n| n.source_id.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
-            .if_empty("(none)")
+        "  blocked  {}",
+        frontier.blocked.join(", ").if_empty("(none)")
+    );
+    println!(
+        "  active   {}",
+        frontier.active.join(", ").if_empty("(none)")
     );
     Ok(())
+}
+
+/// Print a list of frontiers (all graphs).
+///
+/// # Errors
+/// Returns JSON encode errors or large-stdout refusal.
+pub fn print_frontiers(
+    frontiers: &[GraphFrontier],
+    json: bool,
+    confirm_large: bool,
+) -> Result<(), VivariumError> {
+    if json {
+        return crate::stdout_budget::print_pretty_json(
+            "graph ready",
+            frontiers,
+            confirm_large,
+            None,
+        );
+    }
+    if frontiers.is_empty() {
+        println!("no graphs");
+        return Ok(());
+    }
+    for (i, frontier) in frontiers.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        print_frontier(frontier, false, confirm_large)?;
+    }
+    Ok(())
+}
+
+/// Print a lifecycle/mutation receipt as compact text or JSON.
+///
+/// # Errors
+/// Returns JSON encode errors or large-stdout refusal.
+pub fn print_action_receipt(
+    receipt: &GraphActionReceipt,
+    json: bool,
+    confirm_large: bool,
+) -> Result<(), VivariumError> {
+    if json {
+        return crate::stdout_budget::print_pretty_json(
+            &format!("graph {}", receipt.action),
+            receipt,
+            confirm_large,
+            Some(&receipt.code),
+        );
+    }
+    println!("graph {}", receipt.action);
+    println!("  code     {}", receipt.code);
+    println!("  handle   {}", receipt.handle);
+    println!("  revision {}", receipt.revision);
+    if let Some(node) = &receipt.node {
+        println!("  node     {node}");
+    }
+    if let Some(task) = &receipt.task {
+        println!("  task     {task}");
+    }
+    println!("  ready    {}", receipt.ready.join(", ").if_empty("(none)"));
+    println!(
+        "  blocked  {}",
+        receipt.blocked.join(", ").if_empty("(none)")
+    );
+    println!(
+        "  active   {}",
+        receipt.active.join(", ").if_empty("(none)")
+    );
+    Ok(())
+}
+
+fn source_ids(nodes: &[GraphNodeView]) -> Vec<String> {
+    nodes.iter().map(|n| n.source_id.clone()).collect()
 }
 
 fn validate_code(code: &str) -> Result<(), VivariumError> {

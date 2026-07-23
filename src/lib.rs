@@ -38,6 +38,7 @@ pub mod watch_inbox;
 pub mod outbox;
 
 pub mod smtp;
+pub mod stdout_budget;
 pub mod store;
 pub mod sync;
 

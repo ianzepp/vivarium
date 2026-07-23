@@ -2298,7 +2298,9 @@ flowchart LR
     let check_v: Value = serde_json::from_str(&stdout(&check)).unwrap();
     assert_eq!(check_v["check_only"], true);
     assert_eq!(check_v["node_count"], 4);
-    assert_eq!(check_v["ready"][0]["source_id"], "verify");
+    assert_eq!(check_v["ready"][0], "verify");
+    assert!(check_v.get("nodes").is_none(), "import receipt is not topology");
+    assert!(check_v.get("edges").is_none(), "import receipt is not topology");
 
     let missing = vivi(["graph", "show", "mir-swarm-wave-2", "--project", project_s]);
     assert!(!missing.status.success(), "check must not write graph");
@@ -2338,7 +2340,7 @@ flowchart LR
     assert_eq!(again_v["graph_handle"], handle);
     assert_eq!(again_v["revision"], 1);
 
-    // Default graph show is Mermaid topology, not a JSON dump.
+    // graph show is Mermaid topology only (no --json).
     let show_mermaid = vivi([
         "graph",
         "show",
@@ -2353,26 +2355,23 @@ flowchart LR
     assert!(mermaid_out.contains("accept"), "{mermaid_out}");
     assert!(mermaid_out.contains("-->"), "{mermaid_out}");
 
-    let show = vivi([
+    // Status loops use graph ready (compact frontier), not full topology JSON.
+    let ready = vivi([
         "graph",
-        "show",
+        "ready",
         "mir-swarm-wave-2",
         "--json",
         "--project",
         project_s,
     ]);
-    assert_success(&show);
-    let show_v: Value = serde_json::from_str(&stdout(&show)).unwrap();
-    assert_eq!(show_v["graph"]["handle"], handle);
-    assert_eq!(show_v["ready"].as_array().unwrap().len(), 1);
-    assert_eq!(show_v["blocked"].as_array().unwrap().len(), 3);
-    let accept = show_v["nodes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|n| n["source_id"] == "accept")
-        .unwrap();
-    assert_eq!(accept["blocked_by"][0], "verify");
+    assert_success(&ready);
+    let ready_v: Value = serde_json::from_str(&stdout(&ready)).unwrap();
+    assert_eq!(ready_v["handle"], handle);
+    assert_eq!(ready_v["ready"].as_array().unwrap().len(), 1);
+    assert_eq!(ready_v["ready"][0], "verify");
+    assert_eq!(ready_v["blocked"].as_array().unwrap().len(), 3);
+    assert!(ready_v.get("nodes").is_none());
+    assert!(ready_v.get("edges").is_none());
 }
 
 #[test]
@@ -2430,7 +2429,10 @@ fn graph_apply_complete_and_export() {
     ]);
     assert_success(&complete);
     let completed: Value = serde_json::from_str(&stdout(&complete)).unwrap();
-    assert_eq!(completed["ready"][0]["source_id"], "accept");
+    assert_eq!(completed["action"], "complete");
+    assert_eq!(completed["node"], "verify");
+    assert_eq!(completed["ready"][0], "accept");
+    assert!(completed.get("nodes").is_none());
 
     let expanded = project.path().join("expanded.mmd");
     std::fs::write(
@@ -2554,14 +2556,19 @@ fn graph_activate_binds_ready_task_and_refuses_blocked() {
         project_s,
     ]);
     assert_success(&activate);
-    let show: Value = serde_json::from_str(&stdout(&activate)).unwrap();
-    let a = show["nodes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|n| n["source_id"] == "a")
-        .unwrap();
-    assert_eq!(a["state"], "active");
+    let receipt: Value = serde_json::from_str(&stdout(&activate)).unwrap();
+    assert_eq!(receipt["action"], "activate");
+    assert_eq!(receipt["node"], "a");
+    assert_eq!(receipt["task"], task_handle);
+    assert!(
+        receipt["active"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n == "a"),
+        "{receipt}"
+    );
+    assert!(receipt.get("nodes").is_none());
 }
 
 fn vivi<I, S>(args: I) -> Output

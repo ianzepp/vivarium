@@ -248,35 +248,76 @@ impl Mailspace {
     }
 }
 
-/// Print apply report as text or JSON.
+/// Compact apply receipt for CLI (no full node/edge topology).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GraphApplyReceipt {
+    pub check_only: bool,
+    pub idempotent: bool,
+    pub graph_handle: String,
+    pub code: String,
+    pub revision: i64,
+    pub content_hash: String,
+    pub nodes_added: Vec<String>,
+    pub nodes_updated: Vec<String>,
+    pub nodes_removed: Vec<String>,
+    pub edges_added: usize,
+    pub edges_removed: usize,
+    pub ready: Vec<String>,
+}
+
+/// Print apply report as compact text or JSON receipt.
 ///
 /// # Errors
-/// Returns JSON encode errors.
-pub fn print_apply_report(report: &GraphApplyReport, json: bool) -> Result<(), VivariumError> {
+/// Returns JSON encode errors or large-stdout refusal.
+pub fn print_apply_report(
+    report: &GraphApplyReport,
+    json: bool,
+    confirm_large: bool,
+) -> Result<(), VivariumError> {
+    let receipt = GraphApplyReceipt {
+        check_only: report.check_only,
+        idempotent: report.idempotent,
+        graph_handle: report.graph_handle.clone(),
+        code: report.code.clone(),
+        revision: report.revision,
+        content_hash: report.content_hash.clone(),
+        nodes_added: report.nodes_added.clone(),
+        nodes_updated: report.nodes_updated.clone(),
+        nodes_removed: report.nodes_removed.clone(),
+        edges_added: report.edges_added,
+        edges_removed: report.edges_removed,
+        ready: report.ready.iter().map(|n| n.source_id.clone()).collect(),
+    };
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(report)
-                .map_err(|e| VivariumError::Other(format!("failed to encode JSON: {e}")))?
+        return crate::stdout_budget::print_pretty_json(
+            "graph apply",
+            &receipt,
+            confirm_large,
+            Some(&report.code),
         );
-        return Ok(());
     }
-    let mode = if report.check_only {
+    let mode = if receipt.check_only {
         "check"
-    } else if report.idempotent {
+    } else if receipt.idempotent {
         "idempotent"
     } else {
         "applied"
     };
     println!("graph {mode}");
-    println!("  handle   {}", report.graph_handle);
-    println!("  code     {}", report.code);
-    println!("  revision {}", report.revision);
-    println!("  +nodes   {}", report.nodes_added.join(", "));
-    println!("  ~nodes   {}", report.nodes_updated.join(", "));
-    println!("  -nodes   {}", report.nodes_removed.join(", "));
-    println!("  +edges   {}", report.edges_added);
-    println!("  -edges   {}", report.edges_removed);
+    println!("  handle   {}", receipt.graph_handle);
+    println!("  code     {}", receipt.code);
+    println!("  revision {}", receipt.revision);
+    println!("  +nodes   {}", receipt.nodes_added.join(", "));
+    println!("  ~nodes   {}", receipt.nodes_updated.join(", "));
+    println!("  -nodes   {}", receipt.nodes_removed.join(", "));
+    println!("  +edges   {}", receipt.edges_added);
+    println!("  -edges   {}", receipt.edges_removed);
+    let ready = if receipt.ready.is_empty() {
+        "(none)".to_string()
+    } else {
+        receipt.ready.join(", ")
+    };
+    println!("  ready    {ready}");
     Ok(())
 }
 

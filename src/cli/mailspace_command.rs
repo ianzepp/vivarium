@@ -369,17 +369,19 @@ pub struct TraceCommand {
     pub project: Option<PathBuf>,
 }
 
-/// Executable work-graph commands (Mermaid import / show).
+/// Executable work-graph commands (Mermaid topology + compact receipts).
 #[derive(Debug, Subcommand)]
 pub enum GraphCommand {
     /// Import a Mermaid flowchart as a work graph
     Import(GraphImportCommand),
     /// Apply a Mermaid revision onto an existing work graph
     Apply(GraphApplyCommand),
-    /// Show a work graph by code or handle
+    /// Show topology as Mermaid (not JSON)
     Show(GraphShowCommand),
     /// Export a work graph as Mermaid
     Export(GraphExportCommand),
+    /// Show ready/blocked/active frontier (status loops; not topology)
+    Ready(GraphReadyCommand),
     /// Mark a graph node done
     Complete(GraphCompleteCommand),
     /// Bind a task attempt and mark a ready node active
@@ -411,9 +413,13 @@ pub struct GraphImportCommand {
     #[arg(long)]
     pub check: bool,
 
-    /// Output as JSON
+    /// Output compact JSON receipt (not full topology)
     #[arg(long)]
     pub json: bool,
+
+    /// Allow large JSON stdout (over 64 KiB)
+    #[arg(long = "confirm-large")]
+    pub confirm_large: bool,
 
     /// Project root to use
     #[arg(long)]
@@ -434,31 +440,49 @@ pub struct GraphApplyCommand {
     #[arg(long)]
     pub check: bool,
 
-    /// Output as JSON
+    /// Output compact JSON receipt (not full topology)
     #[arg(long)]
     pub json: bool,
+
+    /// Allow large JSON stdout (over 64 KiB)
+    #[arg(long = "confirm-large")]
+    pub confirm_large: bool,
 
     /// Project root to use
     #[arg(long)]
     pub project: Option<PathBuf>,
 }
 
-/// Show a stored work graph.
+/// Show a stored work graph as Mermaid topology.
 ///
-/// Default output is Mermaid topology (the compact form for graph analysis).
-/// Pass `--json` only when a structured ready/blocked projection is required.
+/// Topology is always Mermaid. Use `graph ready` for status/frontier loops.
 #[derive(Debug, Clone, Parser)]
 pub struct GraphShowCommand {
     /// Graph code or immutable handle
     pub graph: String,
 
-    /// Output structured JSON (ready/blocked projection) instead of Mermaid
+    /// Include readiness/state styling classes
+    #[arg(long)]
+    pub include_state: bool,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
+/// Show ready / blocked / active frontier for status loops.
+#[derive(Debug, Clone, Parser)]
+pub struct GraphReadyCommand {
+    /// Graph code or handle; omit to list all graphs
+    pub graph: Option<String>,
+
+    /// Output compact JSON frontier
     #[arg(long)]
     pub json: bool,
 
-    /// When printing Mermaid, include readiness/state styling classes
-    #[arg(long)]
-    pub include_state: bool,
+    /// Allow large JSON stdout (over 64 KiB)
+    #[arg(long = "confirm-large")]
+    pub confirm_large: bool,
 
     /// Project root to use
     #[arg(long)]
@@ -494,9 +518,13 @@ pub struct GraphCompleteCommand {
     #[arg(long)]
     pub note: Option<String>,
 
-    /// Output as JSON
+    /// Output compact JSON receipt (not full topology)
     #[arg(long)]
     pub json: bool,
+
+    /// Allow large JSON stdout (over 64 KiB)
+    #[arg(long = "confirm-large")]
+    pub confirm_large: bool,
 
     /// Project root to use
     #[arg(long)]
@@ -521,9 +549,13 @@ pub struct GraphActivateCommand {
     #[arg(long)]
     pub note: Option<String>,
 
-    /// Output as JSON
+    /// Output compact JSON receipt (not full topology)
     #[arg(long)]
     pub json: bool,
+
+    /// Allow large JSON stdout (over 64 KiB)
+    #[arg(long = "confirm-large")]
+    pub confirm_large: bool,
 
     /// Project root to use
     #[arg(long)]
@@ -559,9 +591,13 @@ pub struct GraphNodeAddCommand {
     #[arg(long)]
     pub label: Option<String>,
 
-    /// Output as JSON
+    /// Output compact JSON receipt (not full topology)
     #[arg(long)]
     pub json: bool,
+
+    /// Allow large JSON stdout (over 64 KiB)
+    #[arg(long = "confirm-large")]
+    pub confirm_large: bool,
 
     /// Project root to use
     #[arg(long)]
@@ -587,9 +623,13 @@ pub struct GraphEdgeAddCommand {
     #[arg(long)]
     pub label: Option<String>,
 
-    /// Output as JSON
+    /// Output compact JSON receipt (not full topology)
     #[arg(long)]
     pub json: bool,
+
+    /// Allow large JSON stdout (over 64 KiB)
+    #[arg(long = "confirm-large")]
+    pub confirm_large: bool,
 
     /// Project root to use
     #[arg(long)]

@@ -30,8 +30,12 @@ pub use body::{read_body_arg, read_body_input};
 pub use dump::{
     DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
 };
-pub use graph::{GraphEdgeView, GraphNodeView, GraphShow, print_graph_show, print_import_report};
-pub use graph_mutate::print_apply_report;
+pub use graph::{
+    GraphActionReceipt, GraphEdgeView, GraphFrontier, GraphImportReceipt, GraphNodeView, GraphShow,
+    action_receipt_from_show, frontier_from_show, print_action_receipt, print_frontier,
+    print_frontiers, print_import_report,
+};
+pub use graph_mutate::{GraphApplyReceipt, print_apply_report};
 pub use identity::{
     LocalIdentity, ROLE_HARNESS_SUBAGENT, ROLE_STATUS_ACTIVE, ROLE_STATUS_PARKED,
     ROLE_STATUS_RETIRED, RoleUpdate, RoleView,
