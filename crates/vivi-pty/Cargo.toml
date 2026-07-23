@@ -1,6 +1,6 @@
 [package]
 name = "vivi-pty"
-version = "7.0.1"
+version = "7.1.0"
 edition = "2024"
 description = "Project-scoped PTY runtime adapter for Vivi-managed Fleets"
 license = "MIT"
