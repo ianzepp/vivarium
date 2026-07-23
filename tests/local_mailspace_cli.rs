@@ -472,10 +472,7 @@ fn stdout_dump_refuses_large_work_exports_without_confirm() {
     ]);
     assert_success(&confirmed);
     let confirmed_stdout = stdout(&confirmed);
-    assert!(
-        confirmed_stdout.contains("count: 26"),
-        "{confirmed_stdout}"
-    );
+    assert!(confirmed_stdout.contains("count: 26"), "{confirmed_stdout}");
 
     let output_path = project.path().join("tasks.md");
     let output_dump = vivi([
@@ -2299,8 +2296,14 @@ flowchart LR
     assert_eq!(check_v["check_only"], true);
     assert_eq!(check_v["node_count"], 4);
     assert_eq!(check_v["ready"][0], "verify");
-    assert!(check_v.get("nodes").is_none(), "import receipt is not topology");
-    assert!(check_v.get("edges").is_none(), "import receipt is not topology");
+    assert!(
+        check_v.get("nodes").is_none(),
+        "import receipt is not topology"
+    );
+    assert!(
+        check_v.get("edges").is_none(),
+        "import receipt is not topology"
+    );
 
     let missing = vivi(["graph", "show", "mir-swarm-wave-2", "--project", project_s]);
     assert!(!missing.status.success(), "check must not write graph");
@@ -2341,13 +2344,7 @@ flowchart LR
     assert_eq!(again_v["revision"], 1);
 
     // graph show is Mermaid topology only (no --json).
-    let show_mermaid = vivi([
-        "graph",
-        "show",
-        "mir-swarm-wave-2",
-        "--project",
-        project_s,
-    ]);
+    let show_mermaid = vivi(["graph", "show", "mir-swarm-wave-2", "--project", project_s]);
     assert_success(&show_mermaid);
     let mermaid_out = stdout(&show_mermaid);
     assert!(mermaid_out.contains("flowchart"), "{mermaid_out}");

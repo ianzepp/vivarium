@@ -109,11 +109,7 @@ fn handle_graph_ready(command: &vivarium::cli::GraphReadyCommand) -> Result<(), 
     if let Some(graph) = command.graph.as_deref() {
         let show = mailspace.graph_show(graph)?;
         let frontier = vivarium::mailspace::frontier_from_show(&show);
-        return vivarium::mailspace::print_frontier(
-            &frontier,
-            command.json,
-            command.confirm_large,
-        );
+        return vivarium::mailspace::print_frontier(&frontier, command.json, command.confirm_large);
     }
     let shows = mailspace.graph_board_summaries()?;
     let frontiers: Vec<_> = shows
@@ -158,11 +154,7 @@ fn handle_graph_node_command(command: &GraphNodeCommand) -> Result<(), VivariumE
                 Some(&command.id),
                 None,
             );
-            vivarium::mailspace::print_action_receipt(
-                &receipt,
-                command.json,
-                command.confirm_large,
-            )
+            vivarium::mailspace::print_action_receipt(&receipt, command.json, command.confirm_large)
         }
     }
 }
@@ -178,17 +170,9 @@ fn handle_graph_edge_command(command: &GraphEdgeCommand) -> Result<(), VivariumE
                 command.label.as_deref(),
             )?;
             let node = format!("{}->{}", command.from, command.to);
-            let receipt = vivarium::mailspace::action_receipt_from_show(
-                "edge_add",
-                &show,
-                Some(&node),
-                None,
-            );
-            vivarium::mailspace::print_action_receipt(
-                &receipt,
-                command.json,
-                command.confirm_large,
-            )
+            let receipt =
+                vivarium::mailspace::action_receipt_from_show("edge_add", &show, Some(&node), None);
+            vivarium::mailspace::print_action_receipt(&receipt, command.json, command.confirm_large)
         }
     }
 }

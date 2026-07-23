@@ -263,10 +263,7 @@ pub fn print_import_report(
     println!("  nodes    {}", receipt.node_count);
     println!("  edges    {}", receipt.edge_count);
     println!("  roots    {}", receipt.roots.join(", ").if_empty("(none)"));
-    println!(
-        "  ready    {}",
-        receipt.ready.join(", ").if_empty("(none)")
-    );
+    println!("  ready    {}", receipt.ready.join(", ").if_empty("(none)"));
     Ok(())
 }
 
@@ -290,7 +287,10 @@ pub fn print_frontier(
     println!("graph {}", frontier.code);
     println!("  handle   {}", frontier.handle);
     println!("  revision {}", frontier.revision);
-    println!("  ready    {}", frontier.ready.join(", ").if_empty("(none)"));
+    println!(
+        "  ready    {}",
+        frontier.ready.join(", ").if_empty("(none)")
+    );
     println!(
         "  blocked  {}",
         frontier.blocked.join(", ").if_empty("(none)")
