@@ -472,6 +472,7 @@ fn absorb_local_mail(
     Ok(())
 }
 
+#[rustfmt::skip]
 fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
     match command {
         MemoCommand::Save(command) => {
@@ -483,50 +484,31 @@ fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
             let handle = mailspace.save_memo(&command.for_identity, &command.subject, &body)?;
             println!("saved {handle}");
         }
-        MemoCommand::Delete {
-            handle,
-            for_identity,
-            project,
-        } => {
+        MemoCommand::Delete { handle, for_identity, project } => {
             let mailspace = Mailspace::discover(project.as_deref())?;
-            let handle =
-                mailspace.move_item(for_identity, handle, "trash", None, "memo delete", None)?;
+            let handle = mailspace.move_item(for_identity, handle, "trash", None, "memo delete", None)?;
             println!("deleted {handle}");
         }
-        MemoCommand::List {
-            for_identity,
-            json,
-            project,
-        } => {
-            let mailspace = Mailspace::discover(project.as_deref())?;
-            print_memo_list(&mailspace, for_identity, *json)?;
+        MemoCommand::List { for_identity, json, project } => {
+            print_memo_list(&Mailspace::discover(project.as_deref())?, for_identity, *json)?;
         }
-        MemoCommand::Search {
-            query,
-            for_identity,
-            subject,
-            json,
-            project,
-        } => {
-            let mailspace = Mailspace::discover(project.as_deref())?;
-            let memos = mailspace.search_memos(for_identity, query, *subject)?;
+        MemoCommand::Search { query, for_identity, subject, json, project } => {
+            let memos = Mailspace::discover(project.as_deref())?.search_memos(for_identity, query, *subject)?;
             print_memo_list_items(&memos, *json)?;
         }
-        MemoCommand::Show {
-            handle,
-            json,
-            project,
-        } => {
-            let mailspace = Mailspace::discover(project.as_deref())?;
-            vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, *json)?;
+        MemoCommand::Show { handle, json, project } => {
+            vivarium::mailspace::print_thread(
+                &Mailspace::discover(project.as_deref())?,
+                handle,
+                false,
+                50,
+                50,
+                *json,
+            )?;
         }
-        MemoCommand::Dump {
-            for_identity,
-            json,
-            output,
-            confirm_large,
-            project,
-        } => dump_memos(for_identity, *json, output, *confirm_large, project)?,
+        MemoCommand::Dump { for_identity, json, output, confirm_large, project } => {
+            dump_memos(for_identity, *json, output.as_deref(), *confirm_large, project.as_deref())?;
+        }
     }
     Ok(())
 }
@@ -569,11 +551,11 @@ fn print_memo_list_items(memos: &[StoredMessageView], json: bool) -> Result<(), 
 fn dump_memos(
     for_identity: &str,
     json: bool,
-    output: &Option<std::path::PathBuf>,
+    output: Option<&std::path::Path>,
     confirm_large: bool,
-    project: &Option<std::path::PathBuf>,
+    project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(project.as_deref())?;
+    let mailspace = Mailspace::discover(project)?;
     let request = MailDumpRequest {
         folder: "memos".into(),
         kind: Some("memo".into()),
@@ -583,13 +565,7 @@ fn dump_memos(
         },
     };
     let records = mailspace.dump_mail(request)?;
-    crate::local_mailspace_dump::write_dump(
-        "Vivi Memo Dump",
-        &records,
-        json,
-        output.as_deref(),
-        confirm_large,
-    )
+    crate::local_mailspace_dump::write_dump("Vivi Memo Dump", &records, json, output, confirm_large)
 }
 
 fn send_local_mail(command: &LocalSendCommand) -> Result<(), VivariumError> {

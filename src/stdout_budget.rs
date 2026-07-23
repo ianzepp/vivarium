@@ -22,7 +22,7 @@ pub fn enforce_stdout_bytes(
     }
     let mermaid = match mermaid_hint {
         None => String::new(),
-        Some(code) if code.is_empty() => " For graph topology, prefer Mermaid instead of JSON: \
+        Some("") => " For graph topology, prefer Mermaid instead of JSON: \
              `vivi graph show <code>` (add --include-state for readiness classes). \
              For status loops use `vivi graph ready`."
             .to_string(),
