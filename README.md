@@ -532,7 +532,6 @@ Stdout dumps over 25 records or 64 KiB refuse unless you pass
 `--confirm-large` (or write the result with `--output <path>`):
 
 ```sh
-
 vivi mail dump --participant cto --since 48h --output audit-mail-cto.md
 vivi mail dump --participant mind --since 2026-07-14T03:44:00 \
   --status unabsorbed --json
