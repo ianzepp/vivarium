@@ -20,9 +20,7 @@ pub(crate) fn write_dump(
     } else {
         render_markdown(title, records)
     };
-    // File exports are intentional. Stdout dumps (human or JSON) need an
-    // explicit --confirm-large when the result is large, so agents cannot
-    // accidentally flood context with a broad dump.
+    // File export is intentional; large stdout needs --confirm-large.
     if output.is_none() && !confirm_large {
         enforce_stdout_limit(title, records, rendered.len())?;
     }

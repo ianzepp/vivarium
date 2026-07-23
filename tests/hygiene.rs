@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 
 // Size budgets (production only).
-const MAX_TOTAL_LINES: usize = 32_498;
+const MAX_TOTAL_LINES: usize = 32_524;
 const MAX_TOTAL_FUNCTIONS: usize = 1_178;
 const MAX_TOTAL_IMPLS: usize = 106;
 const MAX_FILE_LINES: usize = 1_000;

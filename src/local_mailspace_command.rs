@@ -497,13 +497,7 @@ fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
             output,
             confirm_large,
             project,
-        } => dump_memos(
-            for_identity,
-            *json,
-            output.as_deref(),
-            *confirm_large,
-            project.as_deref(),
-        )?,
+        } => dump_memos(for_identity, *json, output, *confirm_large, project)?,
     }
     Ok(())
 }
@@ -546,11 +540,11 @@ fn print_memo_list_items(memos: &[StoredMessageView], json: bool) -> Result<(), 
 fn dump_memos(
     for_identity: &str,
     json: bool,
-    output: Option<&std::path::Path>,
+    output: &Option<std::path::PathBuf>,
     confirm_large: bool,
-    project: Option<&std::path::Path>,
+    project: &Option<std::path::PathBuf>,
 ) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(project)?;
+    let mailspace = Mailspace::discover(project.as_deref())?;
     let request = MailDumpRequest {
         folder: "memos".into(),
         kind: Some("memo".into()),
@@ -564,7 +558,7 @@ fn dump_memos(
         "Vivi Memo Dump",
         &records,
         json,
-        output,
+        output.as_deref(),
         confirm_large,
     )
 }
