@@ -203,8 +203,7 @@ impl WakeBridgeModel {
     }
 
     fn flush(&mut self, now: DateTime<Utc>) {
-        if self.quiet_until.is_some_and(|deadline| now >= deadline) && !self.pending.is_empty()
-        {
+        if self.quiet_until.is_some_and(|deadline| now >= deadline) && !self.pending.is_empty() {
             let wake = std::mem::take(&mut self.pending);
             self.delivered.extend(wake.iter().cloned());
             self.emitted.push(wake);

@@ -82,10 +82,7 @@ fn send_transport_routes_only_direct_proton_api_away_from_smtp() {
     assert_eq!(send_transport(&Provider::Standard), SendTransport::Smtp);
 }
 
-fn test_runtime(
-    tmp: &std::path::Path,
-    policy: vivarium::config::MutationPolicy,
-) -> super::Runtime {
+fn test_runtime(tmp: &std::path::Path, policy: vivarium::config::MutationPolicy) -> super::Runtime {
     use vivarium::config::{Account, AccountsFile, Auth, Config, Security};
 
     let account = Account {

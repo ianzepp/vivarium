@@ -49,14 +49,7 @@ fn thread_json_finds_reply_by_indexed_references() {
     assert_eq!(limited["messages"].as_array().unwrap().len(), 1);
 }
 
-fn catalog(
-    mail_root: &Path,
-    account: &str,
-    handle: &str,
-    path: &Path,
-    folder: &str,
-    subdir: &str,
-) {
+fn catalog(mail_root: &Path, account: &str, handle: &str, path: &Path, folder: &str, subdir: &str) {
     let data = std::fs::read(path).unwrap();
     let mut catalog = Catalog::open(mail_root).unwrap();
     catalog
