@@ -313,7 +313,11 @@ fn hygiene_no_inline_test_modules() {
             let window_start = idx.saturating_sub(3);
             let prelude = lines[window_start..=idx].join("\n");
             if prelude.contains("#[cfg(test)]") {
-                hits.push(format!("{}:{}: inline cfg(test) mod body", file.path, idx + 1));
+                hits.push(format!(
+                    "{}:{}: inline cfg(test) mod body",
+                    file.path,
+                    idx + 1
+                ));
             }
         }
     }
