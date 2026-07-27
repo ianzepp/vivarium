@@ -226,9 +226,12 @@ usable from outside the Rust internals. If the later product direction is a
 native `vivi linear ...` subcommand, it can reuse the same read model internally
 rather than changing the mapping.
 
-The current `~/work/ianzepp/vivarium` mailspace has no open board items, so the
-first dry-run test should either use a fixture mailspace or accept a seeded
-project root. Do not mistake an empty board for a complete exporter.
+The `~/work/ianzepp/vivarium` mailspace is now seeded with Linear integration
+work items for dogfooding: open tasks `5f2678a4` and `bb0450b9`, open needs
+`c7a8b31a` and `4fb8850f`, open wants `7472cbec`, `3a805955`, and `39589426`,
+and completed mapping task `55dad877`. The first dry-run test should still use
+a fixture for repeatable tests, then use this mailspace for manual dogfood.
+Do not mistake an empty board for a complete exporter.
 
 ## First useful milestone
 

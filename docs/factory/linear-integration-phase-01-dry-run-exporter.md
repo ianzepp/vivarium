@@ -4,9 +4,11 @@
 
 The Linear mapping is now defined, but the first implementation step must prove
 what would be projected from a project mailspace before any Linear write path is
-allowed. The current `~/work/ianzepp/vivarium` mailspace has no open board
-items, so a useful dry-run must work against a selected project root or fixture
-and must not treat an empty board as proof that the exporter is complete.
+allowed. The `~/work/ianzepp/vivarium` mailspace is seeded with Linear
+integration tasks, needs, and wants for dogfooding, but repeatable tests still
+need a fixture. A useful dry-run must work against a selected project root or
+fixture and must not treat an empty board as proof that the exporter is
+complete.
 
 ## Normalized phase spec
 
