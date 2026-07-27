@@ -112,6 +112,30 @@ Vivi wins conflicts.
 - Deleted or archived Linear records are treated as conflicts, not silent local
   deletions.
 
+## External reference identity
+
+The Linear attachment URL pattern is **not decided**.
+
+Do not create Linear attachments until the durable external reference identity is
+settled. The URL is not a cosmetic field: Linear uses attachment URLs for
+idempotency and lookup, so a casual path shape can become a long-lived contract.
+
+Open need: `0af2fe17` — decide durable Linear attachment reference identity.
+
+The decision must define:
+
+- The canonical Vivi identity format, such as `vivi://ianzepp/vivarium/task/<handle>` or another URI/URN form.
+- Whether first sync is allowed to create Linear attachments.
+- If attachments are used, how their required web URL is derived.
+- Whether that URL must be human-openable, resolver-backed, opaque, versioned, or migratable.
+- How existing Linear attachments would be migrated if the pattern changes.
+
+Default until resolved:
+
+- Dry-run may show handles and proposed canonical Vivi identities.
+- Sync must not create Linear attachments.
+- The local binding store may use canonical Vivi IDs without exposing a Linear attachment URL.
+
 ## Binding and provenance requirements
 
 Every synced Linear record must be idempotent. The binding store should record:

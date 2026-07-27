@@ -47,6 +47,8 @@ mailspace.
 - No token storage or credential printing.
 - No historical bulk import in this phase.
 - No dependency projection from Vivi graph to Linear in this phase.
+- No Linear attachment creation until need `0af2fe17` settles the durable
+  external reference identity and URL pattern.
 
 ### Out of scope
 
