@@ -114,27 +114,33 @@ Vivi wins conflicts.
 
 ## External reference identity
 
-The Linear attachment URL pattern is **not decided**.
+V1 does **not** use Linear attachments to store Vivi identity.
 
-Do not create Linear attachments until the durable external reference identity is
-settled. The URL is not a cosmetic field: Linear uses attachment URLs for
-idempotency and lookup, so a casual path shape can become a long-lived contract.
+Decision recorded in need `0af2fe17`: avoid Linear attachment URLs in the first
+sync design. The attachment URL would become a long-lived idempotency key, and
+choosing that shape before a resolver/URI policy exists creates unnecessary
+permanent surface area.
 
-Open need: `0af2fe17` — decide durable Linear attachment reference identity.
+V1 identity model:
 
-The decision must define:
+- The local binding store is the machine source of truth for Vivi-to-Linear
+  identity.
+- The Linear issue description includes a small human-visible Vivi provenance
+  block.
+- Linear attachments are future-only. Add them later only if Linear-side
+  stateless lookup by external resource becomes more valuable than the extra URL
+  contract.
 
-- The canonical Vivi identity format, such as `vivi://ianzepp/vivarium/task/<handle>` or another URI/URN form.
-- Whether first sync is allowed to create Linear attachments.
-- If attachments are used, how their required web URL is derived.
-- Whether that URL must be human-openable, resolver-backed, opaque, versioned, or migratable.
-- How existing Linear attachments would be migrated if the pattern changes.
+Suggested canonical local ID shape:
 
-Default until resolved:
+```text
+vivi://ianzepp/vivarium/task/<handle>
+vivi://ianzepp/vivarium/need/<handle>
+vivi://ianzepp/vivarium/want/<handle>
+```
 
-- Dry-run may show handles and proposed canonical Vivi identities.
-- Sync must not create Linear attachments.
-- The local binding store may use canonical Vivi IDs without exposing a Linear attachment URL.
+This URI is safe in the local binding store and issue description. It is not a
+Linear attachment URL.
 
 ## Binding and provenance requirements
 

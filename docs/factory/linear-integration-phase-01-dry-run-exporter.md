@@ -47,8 +47,8 @@ mailspace.
 - No token storage or credential printing.
 - No historical bulk import in this phase.
 - No dependency projection from Vivi graph to Linear in this phase.
-- No Linear attachment creation until need `0af2fe17` settles the durable
-  external reference identity and URL pattern.
+- No Linear attachment creation in v1. Use the local binding store plus a
+  human-visible provenance block in the Linear issue description instead.
 
 ### Out of scope
 
@@ -69,8 +69,8 @@ mailspace.
 - `vivi want list --status all --json` can include closed wants.
 - `vivi task|need|want show --project <root> <handle> --json` can load full
   selected records.
-- Current `vivarium` board is empty, so tests need a fixture or seeded
-  mailspace.
+- The `vivarium` board is seeded with dogfood items, but repeatable tests still
+  need a fixture mailspace.
 
 ## Implementation shape
 
