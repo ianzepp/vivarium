@@ -124,7 +124,7 @@ fn normalize_goal_path(root: &Path, path: &Path) -> Result<String, VivariumError
     } else {
         root.join(path)
     };
-    let root_canon = canonicalize_or(&root.to_path_buf())?;
+    let root_canon = canonicalize_or(root)?;
     let abs_canon = if absolute.exists() {
         canonicalize_or(&absolute)?
     } else {
@@ -137,7 +137,7 @@ fn normalize_goal_path(root: &Path, path: &Path) -> Result<String, VivariumError
         if parent.as_os_str().is_empty() || parent == Path::new("") {
             root_canon.join(file_name)
         } else if parent.exists() {
-            canonicalize_or(&parent.to_path_buf())?.join(file_name)
+            canonicalize_or(parent)?.join(file_name)
         } else {
             absolute
         }
@@ -169,7 +169,7 @@ fn normalize_goal_path(root: &Path, path: &Path) -> Result<String, VivariumError
         .join("/"))
 }
 
-fn canonicalize_or(path: &PathBuf) -> Result<PathBuf, VivariumError> {
+fn canonicalize_or(path: &Path) -> Result<PathBuf, VivariumError> {
     path.canonicalize().map_err(|e| {
         VivariumError::Other(format!("failed to resolve path {}: {e}", path.display()))
     })
