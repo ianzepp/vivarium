@@ -63,6 +63,12 @@ struct BoardTotals {
 struct IdentityBoard {
     identity: String,
     address: String,
+    /// Configured model slug for the next role spawn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    /// Configured reasoning effort for the next role spawn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<String>,
     actionable_open: usize,
     tasks: Vec<BoardItem>,
     needs: Vec<BoardItem>,
@@ -350,9 +356,12 @@ fn build_identity_board(
     let needs = board_items(needs_open, events_by_message, None, since);
     let (wants, wants_count) =
         board_items_with_count(wants_open, events_by_message, Some(wants_cap), since);
+    let (model, thinking) = role_capacity(mailspace, identity);
     IdentityBoard {
         identity: identity.into(),
         address: mailspace.address_for(identity),
+        model,
+        thinking,
         actionable_open: tasks.len() + needs.len(),
         wants_hidden: wants_count.saturating_sub(wants.len()),
         process: role_process_status(mailspace, identity, with_process),
@@ -361,6 +370,17 @@ fn build_identity_board(
         needs,
         wants,
     }
+}
+
+fn role_capacity(mailspace: &Mailspace, identity: &str) -> (Option<String>, Option<String>) {
+    mailspace
+        .config
+        .identities
+        .iter()
+        .find(|role| role.name == identity)
+        .map_or((None, None), |role| {
+            (role.model.clone(), role.thinking.clone())
+        })
 }
 
 fn role_schedule_status(mailspace: &Mailspace, identity: &str) -> ScheduleReport {
@@ -614,6 +634,7 @@ fn print_identity(identity: &IdentityBoard) {
         identity.needs.len(),
         identity.wants.len() + identity.wants_hidden
     );
+    print_capacity_line(identity);
     if let Some(process) = &identity.process {
         let running = match process.running {
             Some(true) => "yes",
@@ -638,6 +659,20 @@ fn print_identity(identity: &IdentityBoard) {
     if identity.wants_hidden > 0 {
         println!("  wants hidden by cap: {}", identity.wants_hidden);
     }
+}
+
+fn print_capacity_line(identity: &IdentityBoard) {
+    if identity.model.is_none() && identity.thinking.is_none() {
+        return;
+    }
+    print!("  capacity:");
+    if let Some(model) = &identity.model {
+        print!(" model: {model}");
+    }
+    if let Some(thinking) = &identity.thinking {
+        print!("  thinking: {thinking}");
+    }
+    println!();
 }
 
 fn role_status_state_label(state: &vivarium::role_status::ProcessState) -> &'static str {
@@ -671,6 +706,9 @@ fn print_schedule_line(schedule: &ScheduleReport) {
     }
     if let Some(handle) = &schedule.last_signal_handle {
         print!("  {handle}");
+    }
+    if schedule.action_required {
+        print!("  ACTION REQUIRED");
     }
     println!();
 }

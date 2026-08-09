@@ -17,6 +17,7 @@ fn signal(age_from_now: i64, now: DateTime<Utc>) -> LastSignal {
 fn none_without_cadence() {
     let report = evaluate(None, None, Utc::now());
     assert_eq!(report.state, ScheduleState::None);
+    assert!(!report.action_required);
 }
 
 #[test]
@@ -39,11 +40,13 @@ fn ok_due_overdue_bands_with_ten_percent_grace() {
 
     let due = evaluate(Some("100s"), Some(&signal(110, now)), now);
     assert_eq!(due.state, ScheduleState::Due);
+    assert!(!due.action_required);
 
     let still_due = evaluate(Some("100s"), Some(&signal(199, now)), now);
     assert_eq!(still_due.state, ScheduleState::Due);
 
     let overdue = evaluate(Some("100s"), Some(&signal(200, now)), now);
     assert_eq!(overdue.state, ScheduleState::Overdue);
+    assert!(overdue.action_required);
     assert_eq!(overdue.age_seconds, Some(200));
 }

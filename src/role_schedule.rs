@@ -2,7 +2,7 @@
 //!
 //! Cadence is an optional configured maximum silence interval. Health is derived
 //! from the age of the role's latest outbound mailspace message (not process
-//! liveness, not lifecycle events). Advisory only — never an execution contract.
+//! liveness, not lifecycle events). Due is advisory; overdue requires action.
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -41,6 +41,8 @@ pub enum ScheduleState {
 #[derive(Debug, Clone, Serialize)]
 pub struct ScheduleReport {
     pub state: ScheduleState,
+    /// True when the role has exceeded two full cadence intervals.
+    pub action_required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cadence: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -74,6 +76,7 @@ pub fn evaluate(
     let Some(signal) = last_signal else {
         return ScheduleReport {
             state: ScheduleState::Never,
+            action_required: false,
             cadence: Some(raw.to_string()),
             cadence_seconds: Some(cadence_seconds),
             last_signal_at: None,
@@ -86,6 +89,7 @@ pub fn evaluate(
     let state = classify(age_seconds, cadence_seconds);
     ScheduleReport {
         state,
+        action_required: matches!(state, ScheduleState::Overdue),
         cadence: Some(raw.to_string()),
         cadence_seconds: Some(cadence_seconds),
         last_signal_at: Some(signal.at.to_rfc3339()),
@@ -110,6 +114,7 @@ pub fn state_label(state: ScheduleState) -> &'static str {
 fn none_report() -> ScheduleReport {
     ScheduleReport {
         state: ScheduleState::None,
+        action_required: false,
         cadence: None,
         cadence_seconds: None,
         last_signal_at: None,

@@ -2009,6 +2009,10 @@ fn role_cadence_and_schedule_status_from_outbound_mail() {
         "head-ceo",
         "--kind",
         "head",
+        "--model",
+        "glm-5.2",
+        "--thinking",
+        "high",
         "--cadence",
         "15m",
         "--project",
@@ -2073,8 +2077,12 @@ fn role_cadence_and_schedule_status_from_outbound_mail() {
     .unwrap();
     assert_eq!(board["identities"][0]["schedule"]["state"], "ok");
     assert_eq!(board["identities"][0]["schedule"]["cadence"], "15m");
+    assert_eq!(board["identities"][0]["model"], "glm-5.2");
+    assert_eq!(board["identities"][0]["thinking"], "high");
 
     let text = stdout(&vivi(["board", "--for", "head-ceo", "--project", p]));
+    assert!(text.contains("model: glm-5.2"), "{text}");
+    assert!(text.contains("thinking: high"), "{text}");
     assert!(text.contains("schedule: ok"), "{text}");
     assert!(text.contains("cadence 15m"), "{text}");
 

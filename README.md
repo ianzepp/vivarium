@@ -276,9 +276,11 @@ the age of that role's latest outbound mailspace message (memos excluded):
 | `due` | Silence between one and two cadences |
 | `overdue` | Silence at or beyond two cadences |
 
-Schedule is advisory visibility for the Mind — not an execution contract. Board
-JSON always includes a `schedule` block per identity; text output prints a
-schedule line when state is not `none`.
+`due` is advisory visibility for the Mind. `overdue` is an action-required
+signal after two full cadence intervals. Board JSON includes `model`,
+`thinking`, and a `schedule` block per identity; `schedule.action_required` is
+true only for `overdue`. Text output prints configured model capacity, prints a
+schedule line when state is not `none`, and marks overdue roles `ACTION REQUIRED`.
 
 ```sh
 # Bulk capacity flips stay outside vivi (one role per mutation):
