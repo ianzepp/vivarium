@@ -22,9 +22,6 @@ tasks, but it does not provide an operational graph:
   or the ready frontier.
 - `blocked` is a filtered query derived from unfinished task headers. It is not
   a complete project-wide graph view.
-- Fleet's `fleet.py prepare --depends-on` records and later validates prepared
-  assignment chains, but `claim` does not enforce dependency readiness and
-  `settle` does not activate successors.
 - Campaign goals, planning passes, gates, delivery documents, and delivery
   units are not necessarily Vivi tasks.
 - Minds currently invent useful codes such as `SC-001`, `G-P-10/U1`, and
@@ -115,9 +112,6 @@ The central invariant is:
   patterns.
 - `docs/release-v6.4.0.md`: released task-dependency behavior that graph work
   must preserve for standalone tasks.
-- Fleet `scripts/fleet.py`: `prepare` forwards dependency handles and writes
-  sidecar receipts; `advance` recursively validates settled chains but does not
-  schedule successors.
 - MIR Swarm Wave 0 and Wave 2 evidence: planning pipelines and delivery-unit
   DAGs are currently durable Markdown artifacts but not queryable Vivi state.
 
@@ -252,34 +246,34 @@ vivi graph complete <node> --task <task-handle> --note <evidence>
 vivi board --graph
 ```
 
-`--check` is mandatory before any bulk mutation path is trusted by Fleet. Text
+`--check` is mandatory before any bulk mutation path is trusted by Tugboat. Text
 output serves operators; JSON is the stable agent and script contract.
 
-## Fleet Integration Contract
+## Tugboat Dispatch Contract
 
-The companion Fleet change should let the Mind prepare a ready graph node:
+The Mind creates a role-addressed task, then activates the ready graph node with
+that task handle:
 
 ```text
-fleet.py prepare --node <graph>:<source-id> --to <role> --pass <pass> ...
+vivi task send --project <root> --from mind --to <role> ...
+vivi graph activate <graph>:<source-id> --task <task-handle>
 ```
 
-The adapter must:
+The dispatch path must:
 
 1. Resolve the graph node and refuse blocked, active, terminal, or superseded
    work.
 2. Create the role-addressed Vivi task and bind its handle as an attempt.
-3. Preserve Fleet's frozen scope, role binding, claim, report, and repository
+3. Preserve Tugboat's frozen scope, role binding, report, and repository
    receipts.
-4. Mark the node active only after the assignment is prepared and claimed.
+4. Mark the node active only after the assignment task exists.
 5. Settle the attempt without bypassing explicit review, disposition, or
    acceptance nodes.
 6. Recalculate readiness and wake the Mind through normal board/runtime event
    handling.
 
-Vivarium supplies the generic graph capability. Fleet owns its workflow
-template, pass vocabulary, and assignment policy. Fleet integration is a
-companion delivery in the Fleet repository, not a reason to encode Fleet roles
-inside Vivi core.
+Vivarium supplies the generic graph capability. Tugboat owns its workflow,
+role vocabulary, and assignment policy; Vivi core does not encode those roles.
 
 ## Architecture Direction
 

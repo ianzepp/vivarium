@@ -158,7 +158,7 @@ so `cpu_percent` is not stuck at zero. See Open Implementation Choices.
 | Role behavior tests | `tests/local_mailspace_cli.rs` (extend) |
 | Hygiene ceilings | `tests/hygiene.rs` — 1000-line file, 60-line function on `src/**/*.rs` |
 | Prior role goal | `docs/mailspace-role-goal.md` — invariants this goal must respect |
-| Consumer | `~/.agents/skills/fleet/SKILL.md` — Mind owns liveness; role name is the durable key |
+| Consumer | `~/work/ianzepp/skills/tugboat/SKILL.md` — Mind owns liveness; role name is the durable key |
 
 ## Constraints and Invariants
 

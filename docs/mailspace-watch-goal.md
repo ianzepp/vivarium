@@ -16,9 +16,9 @@ separate).
 
 ## Problem
 
-Multi-agent fleets coordinate through project mailspace messages
+Multi-agent teams coordinate through project mailspace messages
 (`.vivi/mail.sqlite`: `task` / `need` / `want` / `mail`). Real control loops
-(e.g. faberlang Mind/Hand fleet under `$fleet`) hit a latency gap:
+(for example, a Tugboat Mind/Hand loop) hit a latency gap:
 
 - **Mind files work and doorbells a Hand**, then only notices turn-end mail or
   `task done` on the **next scheduled cycle** (often 3–5 minutes), even though
@@ -119,9 +119,9 @@ Without watch, the Mind remains a pure poller. With watch, the Mind can run
   (`docs/mailspace-agent-control-plane-goal.md`).
 - Remote watch exists: `src/watch.rs` (IMAP), `sync-events --watch` (Proton
   events)—must not be overloaded for local mailspace.
-- Fleet process need: Mind as message bus; Hands send turn-end mail; Mind should
+- Tugboat process need: Mind as message bus; Hands send turn-end mail; Mind should
   optionally block until inbound rather than wait for 5m gatherer fire
-  (`$fleet` / multi-agent camp ops).
+  (`$tugboat` / multi-agent campaign operations).
 
 ## Architecture Direction
 

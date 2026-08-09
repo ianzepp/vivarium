@@ -125,10 +125,9 @@ Before changing the runtime, inspect:
   ownership.
 - `crates/vivi-pty/src/main.rs`: CLI and project/socket discovery.
 - `src/mailspace.rs`: the shared project and identity authority.
-- `../fleet/references/runtime-config.md`,
-  `../fleet/scripts/fleet-sensors.py`, and
-  `../fleet/scripts/fleet-doorbell.sh`: current Fleet bindings, observation,
-  and wake behavior that the eventual integration must replace.
+- `../skills/tugboat/SKILL.md` and `../skills/vivi/SKILL.md`: current role
+  bindings, observation, and wake behavior that the eventual integration must
+  preserve.
 
 ## Constraints And Invariants
 
