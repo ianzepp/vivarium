@@ -19,6 +19,7 @@ mod index_runner;
 mod label_runner;
 mod list_runner;
 mod local_board_command;
+mod local_goal_command;
 mod local_mail_list;
 mod local_mailspace_command;
 mod local_mailspace_dump;
@@ -137,6 +138,7 @@ impl Runtime {
             | Command::Need { .. }
             | Command::Want { .. }
             | Command::Memo { .. }
+            | Command::Goal { .. }
             | Command::Role { .. }
             | Command::Cycle { .. }
             | Command::Trace { .. }

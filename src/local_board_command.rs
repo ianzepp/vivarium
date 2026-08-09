@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use vivarium::VivariumError;
 use vivarium::cli::BoardCommand;
-use vivarium::mailspace::Mailspace;
+use vivarium::mailspace::{GoalView, Mailspace};
 use vivarium::role_schedule::{ScheduleReport, ScheduleState, state_label as schedule_state_label};
 use vivarium::role_status::ProcessReport;
 use vivarium::storage::{MailspaceEvent, Storage, StoredMessageView};
@@ -18,6 +18,8 @@ struct Board {
     root: PathBuf,
     totals: BoardTotals,
     identities: Vec<IdentityBoard>,
+    /// Registered goal document paths (always present).
+    goals: Vec<GoalView>,
     /// Present when `board --graph` is set.
     #[serde(skip_serializing_if = "Option::is_none")]
     graphs: Option<Vec<BoardGraph>>,
@@ -154,6 +156,7 @@ fn build_board(
         root: mailspace.root.clone(),
         totals: board_totals(&boards),
         identities: boards,
+        goals: mailspace.goal_list()?,
         graphs,
     })
 }
@@ -540,11 +543,29 @@ fn print_board(board: &Board) {
         board.totals.needs_open,
         board.totals.wants_open
     );
+    print_board_goals(&board.goals);
     for identity in &board.identities {
         print_identity(identity);
     }
     if let Some(graphs) = &board.graphs {
         print_board_graphs(graphs);
+    }
+}
+
+fn print_board_goals(goals: &[GoalView]) {
+    if goals.is_empty() {
+        return;
+    }
+    println!();
+    println!("goals:");
+    for goal in goals {
+        let label = goal
+            .label
+            .as_deref()
+            .map(|l| format!("  {l}"))
+            .unwrap_or_default();
+        let missing = if goal.exists { "" } else { "  MISSING" };
+        println!("  {}  {}{label}{missing}", goal.handle, goal.path);
     }
 }
 

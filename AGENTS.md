@@ -14,7 +14,8 @@ source of truth when these instructions drift.
 - Optional feature: `outbox`
 - Storage: raw `.eml` blobs plus SQLite metadata, indexes, and embeddings
 - Project mailspaces (`.vivi/mail.sqlite`): tasks, needs, wants, mail, memos,
-  roles, and **executable work graphs** (Mermaid import, ready frontier,
+  roles, **goal path registry** (pointers to on-disk factory/campaign goal
+  files), and **executable work graphs** (Mermaid import, ready frontier,
   task-attempt binding)
 - Providers: standard IMAP/SMTP, Proton Bridge-style config, and direct Proton API paths
 
@@ -32,6 +33,7 @@ normalized edges + node state.
 | `vivi graph ready` | Compact ready/blocked/active frontier (status loops) |
 | `vivi graph complete` / `activate` | Lifecycle receipts; activate binds a task attempt |
 | `vivi board --graph` | Frontier projection without replacing task/need board items |
+| `vivi goal add` / `list` / `show` / `drop` | Register goal file paths; board always surfaces them |
 | `vivi trace` | **Communication** tree — not work-graph topology |
 
 Invariant: Vivi decides which graph nodes are eligible (ready). The Mind

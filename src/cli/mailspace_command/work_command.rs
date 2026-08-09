@@ -494,3 +494,69 @@ pub enum TaskDumpStatusArg {
     Done,
     All,
 }
+
+/// Register and inspect project-local goal document paths.
+#[derive(Debug, Subcommand)]
+pub enum GoalCommand {
+    /// Register a goal document path for Mind/campaign orientation
+    Add {
+        /// Path to the goal file (project-relative preferred)
+        #[arg(long)]
+        path: PathBuf,
+
+        /// Optional short label for board display
+        #[arg(long)]
+        label: Option<String>,
+
+        /// Identity registering the goal (metadata only)
+        #[arg(long = "for")]
+        for_identity: Option<String>,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// List registered goal paths
+    List {
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Show one registered goal by handle or path
+    Show {
+        /// Goal handle, unambiguous prefix, or registered path
+        selector: String,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Unregister a goal (does not delete the file)
+    Drop {
+        /// Goal handle, unambiguous prefix, or registered path
+        selector: String,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+}

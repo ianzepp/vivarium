@@ -15,6 +15,7 @@ use crate::error::VivariumError;
 use crate::store::secure_create_dir_all;
 
 mod events;
+mod goals;
 mod graph;
 mod handles;
 mod ingest;
@@ -27,6 +28,7 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
+pub use goals::{GoalRow, goal_handle_for_path};
 pub use graph::{
     WorkGraphActivateInput, WorkGraphApplyPlan, WorkGraphAttemptRow, WorkGraphEdgeInput,
     WorkGraphEdgeRow, WorkGraphEventRow, WorkGraphImportCommit, WorkGraphImportInput,

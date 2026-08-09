@@ -44,6 +44,10 @@ pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumE
             handle_memo_command(command)?;
             Ok(true)
         }
+        Command::Goal { command } => {
+            crate::local_goal_command::handle_goal_command(command)?;
+            Ok(true)
+        }
         Command::Role { command } => {
             crate::local_role_command::handle_role_command(command)?;
             Ok(true)

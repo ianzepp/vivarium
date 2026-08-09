@@ -16,13 +16,14 @@ pub use board_command::BoardCommand;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
 pub use mailspace_command::{
-    CycleCommand, GraphActivateCommand, GraphApplyCommand, GraphCommand, GraphCompleteCommand,
-    GraphEdgeAddCommand, GraphEdgeCommand, GraphExportCommand, GraphImportCommand,
-    GraphNodeAddCommand, GraphNodeCommand, GraphReadyCommand, GraphShowCommand, LocalSendCommand,
-    MailAbsorbStatus, MailCommand, MailDumpCommand, MailReplyCommand, MailThreadCommand,
-    MailspaceCommand, MailspaceIdentityCommand, MailspaceImportCommand, MailspaceWatchCommand,
-    MemoCommand, NeedCommand, TaskCommand, TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand,
-    TaskSendCommand, TaskStatus, TraceCommand, WantCommand, WantStatus,
+    CycleCommand, GoalCommand, GraphActivateCommand, GraphApplyCommand, GraphCommand,
+    GraphCompleteCommand, GraphEdgeAddCommand, GraphEdgeCommand, GraphExportCommand,
+    GraphImportCommand, GraphNodeAddCommand, GraphNodeCommand, GraphReadyCommand, GraphShowCommand,
+    LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand, MailReplyCommand,
+    MailThreadCommand, MailspaceCommand, MailspaceIdentityCommand, MailspaceImportCommand,
+    MailspaceWatchCommand, MemoCommand, NeedCommand, TaskCommand, TaskDumpCommand,
+    TaskDumpStatusArg, TaskFromCommand, TaskSendCommand, TaskStatus, TraceCommand, WantCommand,
+    WantStatus,
 };
 pub use proton_command::ProtonCommand;
 pub use render_command::{RenderCommand, RenderFormat};
@@ -268,6 +269,12 @@ pub enum Command {
     Memo {
         #[command(subcommand)]
         command: MemoCommand,
+    },
+
+    /// Register goal document paths the Mind should keep monitoring
+    Goal {
+        #[command(subcommand)]
+        command: GoalCommand,
     },
 
     /// Manage first-class mailspace agent seats (roles)

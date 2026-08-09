@@ -12,6 +12,7 @@ mod body;
 mod delivery;
 mod dump;
 mod event_log;
+mod goals;
 mod graph;
 mod graph_mutate;
 mod identity;
@@ -30,6 +31,7 @@ pub use body::{read_body_arg, read_body_input};
 pub use dump::{
     DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
 };
+pub use goals::GoalView;
 pub use graph::{
     GraphActionReceipt, GraphEdgeView, GraphFrontier, GraphImportReceipt, GraphNodeView, GraphShow,
     action_receipt_from_show, frontier_from_show, print_action_receipt, print_frontier,

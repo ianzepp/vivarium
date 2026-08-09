@@ -556,6 +556,78 @@ fn local_send_reads_body_file_and_stdin() {
 }
 
 #[test]
+fn goal_register_list_board_and_drop() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+
+    let goal_dir = project.path().join("docs/factory");
+    std::fs::create_dir_all(&goal_dir).unwrap();
+    let goal_path = goal_dir.join("sample-goal.md");
+    std::fs::write(&goal_path, "# Goal: sample\n\nKeep this campaign moving.\n").unwrap();
+
+    let add = vivi([
+        "goal",
+        "add",
+        "--project",
+        project_s,
+        "--path",
+        "docs/factory/sample-goal.md",
+        "--label",
+        "sample",
+        "--for",
+        "mind",
+        "--json",
+    ]);
+    assert_success(&add);
+    let added: Value = serde_json::from_str(&stdout(&add)).unwrap();
+    assert!(added["handle"].as_str().unwrap().starts_with("gol_"));
+    assert_eq!(added["path"], "docs/factory/sample-goal.md");
+    assert_eq!(added["label"], "sample");
+    assert_eq!(added["exists"], true);
+    assert_eq!(added["registered_by"], "mind");
+    let handle = added["handle"].as_str().unwrap().to_string();
+
+    let list = vivi(["goal", "list", "--project", project_s, "--json"]);
+    assert_success(&list);
+    let listed: Value = serde_json::from_str(&stdout(&list)).unwrap();
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert_eq!(listed[0]["handle"], handle);
+
+    let board = vivi(["board", "--project", project_s, "--json"]);
+    assert_success(&board);
+    let board_value: Value = serde_json::from_str(&stdout(&board)).unwrap();
+    assert_eq!(board_value["goals"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        board_value["goals"][0]["path"],
+        "docs/factory/sample-goal.md"
+    );
+
+    let board_text = vivi(["board", "--project", project_s]);
+    assert_success(&board_text);
+    let board_stdout = stdout(&board_text);
+    assert!(board_stdout.contains("goals:"), "{board_stdout}");
+    assert!(
+        board_stdout.contains("docs/factory/sample-goal.md"),
+        "{board_stdout}"
+    );
+    assert!(board_stdout.contains("sample"), "{board_stdout}");
+
+    let drop = vivi(["goal", "drop", "--project", project_s, &handle, "--json"]);
+    assert_success(&drop);
+    let dropped: Value = serde_json::from_str(&stdout(&drop)).unwrap();
+    assert_eq!(dropped["handle"], handle);
+
+    let list_after = vivi(["goal", "list", "--project", project_s, "--json"]);
+    assert_success(&list_after);
+    let after: Value = serde_json::from_str(&stdout(&list_after)).unwrap();
+    assert!(after.as_array().unwrap().is_empty(), "{after}");
+
+    // File remains on disk after unregister.
+    assert!(goal_path.is_file());
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn board_and_status_report_actionable_work() {
     let project = tempfile::tempdir().unwrap();

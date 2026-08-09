@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use crate::error::VivariumError;
 
-const STORAGE_SCHEMA_VERSION: &str = "3";
+const STORAGE_SCHEMA_VERSION: &str = "4";
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
@@ -173,6 +173,15 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
            ON work_graph_attempts(node_handle, attempt_id);
          CREATE INDEX IF NOT EXISTS work_graph_attempts_task_idx
            ON work_graph_attempts(task_message_id);
+         CREATE TABLE IF NOT EXISTS mailspace_goals (
+           handle TEXT PRIMARY KEY,
+           path TEXT NOT NULL UNIQUE,
+           label TEXT,
+           registered_by TEXT,
+           created_at TEXT NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS mailspace_goals_path_idx
+           ON mailspace_goals(path);
          COMMIT;",
     )
     .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))?;
