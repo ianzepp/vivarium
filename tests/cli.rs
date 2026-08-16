@@ -605,25 +605,68 @@ fn parses_local_mail_list_with_json_and_project() {
 
     match cli.command {
         Command::Mail {
-            command:
-                MailCommand::List {
-                    for_identity,
-                    folder,
-                    status,
-                    absorbed_by,
-                    json,
-                    project,
-                },
+            command: MailCommand::List(command),
         } => {
-            assert_eq!(for_identity, "mind");
-            assert_eq!(folder, "inbox");
-            assert!(matches!(status, MailAbsorbStatus::All));
-            assert_eq!(absorbed_by, None);
-            assert!(json);
-            assert_eq!(project, Some(PathBuf::from("/tmp/project")));
+            assert_eq!(command.for_identity.as_deref(), Some("mind"));
+            assert_eq!(command.from, None);
+            assert_eq!(command.to, None);
+            assert_eq!(command.folder, "inbox");
+            assert!(matches!(command.status, MailAbsorbStatus::All));
+            assert_eq!(command.absorbed_by, None);
+            assert!(command.json);
+            assert_eq!(command.project, Some(PathBuf::from("/tmp/project")));
         }
         other => panic!("unexpected command: {other:?}"),
     }
+}
+
+#[test]
+fn parses_local_mail_list_from_and_to_without_for() {
+    let from_only = Cli::try_parse_from(["vivi", "mail", "list", "--from", "mind"]).unwrap();
+    match from_only.command {
+        Command::Mail {
+            command: MailCommand::List(command),
+        } => {
+            assert_eq!(command.for_identity, None);
+            assert_eq!(command.from.as_deref(), Some("mind"));
+            assert_eq!(command.to, None);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let to_only = Cli::try_parse_from(["vivi", "mail", "list", "--to", "hand"]).unwrap();
+    match to_only.command {
+        Command::Mail {
+            command: MailCommand::List(command),
+        } => {
+            assert_eq!(command.to.as_deref(), Some("hand"));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let both = Cli::try_parse_from([
+        "vivi", "mail", "list", "--for", "hand", "--from", "mind", "--to", "hand",
+    ])
+    .unwrap();
+    match both.command {
+        Command::Mail {
+            command: MailCommand::List(command),
+        } => {
+            assert_eq!(command.for_identity.as_deref(), Some("hand"));
+            assert_eq!(command.from.as_deref(), Some("mind"));
+            assert_eq!(command.to.as_deref(), Some("hand"));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_local_mail_list_without_scope() {
+    let err = Cli::try_parse_from(["vivi", "mail", "list"]).unwrap_err();
+    let message = err.to_string();
+    assert!(message.contains("--for"), "{message}");
+    assert!(message.contains("--from"), "{message}");
+    assert!(message.contains("--to"), "{message}");
 }
 
 #[test]

@@ -19,11 +19,11 @@ pub use mailspace_command::{
     CycleCommand, GoalCommand, GraphActivateCommand, GraphApplyCommand, GraphCommand,
     GraphCompleteCommand, GraphEdgeAddCommand, GraphEdgeCommand, GraphExportCommand,
     GraphImportCommand, GraphNodeAddCommand, GraphNodeCommand, GraphReadyCommand, GraphShowCommand,
-    LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand, MailReplyCommand,
-    MailThreadCommand, MailspaceCommand, MailspaceIdentityCommand, MailspaceImportCommand,
-    MailspaceWatchCommand, MemoCommand, NeedCommand, TaskCommand, TaskDumpCommand,
-    TaskDumpStatusArg, TaskFromCommand, TaskSendCommand, TaskStatus, TraceCommand, WantCommand,
-    WantStatus,
+    LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand, MailListCommand,
+    MailReplyCommand, MailThreadCommand, MailspaceCommand, MailspaceIdentityCommand,
+    MailspaceImportCommand, MailspaceWatchCommand, MemoCommand, NeedCommand, TaskCommand,
+    TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand, TaskSendCommand, TaskStatus, TraceCommand,
+    WantCommand, WantStatus,
 };
 pub use proton_command::ProtonCommand;
 pub use render_command::{RenderCommand, RenderFormat};

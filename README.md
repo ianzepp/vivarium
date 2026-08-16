@@ -319,6 +319,9 @@ vivi mail send --from ceo --to cto \
 vivi mail list --for cto
 # handle  date  from  subject  (add --json for structured output)
 vivi mail list --for cto --json
+vivi mail list --from ceo
+vivi mail list --to cto
+vivi mail list --for cto --from ceo
 ```
 
 Tasks are ordinary local messages delivered to the recipient's `Tasks` folder.
@@ -475,6 +478,8 @@ not accepted work or cleared review debt:
 vivi mail absorb --project /path/to/project --for mind <handle> \
   --note "Converted to priority request"
 vivi mail list --project /path/to/project --for mind --status unabsorbed --json
+vivi mail list --project /path/to/project --from mind --json
+vivi mail list --project /path/to/project --to hand --json
 vivi mail dump --project /path/to/project --for mind \
   --status absorbed --absorbed-by mind --json
 ```

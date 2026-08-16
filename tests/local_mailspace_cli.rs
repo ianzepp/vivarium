@@ -136,6 +136,49 @@ fn local_mail_send_creates_readable_inbox_and_sent_copy() {
 }
 
 #[test]
+fn mail_list_from_to_filters_headers_and_allows_omitting_for() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    assert_success(&vivi([
+        "mailspace",
+        "identity",
+        "add",
+        "hand",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]));
+    let project_s = project.path().to_str().unwrap();
+
+    let ceo_to_cto = send_mail(project_s, "ceo", "cto", "ceo to cto", "first");
+    let ceo_to_hand = send_mail(project_s, "ceo", "hand", "ceo to hand", "second");
+    let cto_to_hand = send_mail(project_s, "cto", "hand", "cto to hand", "third");
+
+    let from_ceo = list_mail_json(project_s, &["--from", "ceo"]);
+    assert_eq!(
+        handles(&from_ceo),
+        sorted(&[ceo_to_cto.as_str(), ceo_to_hand.as_str()])
+    );
+
+    let to_cto = list_mail_json(project_s, &["--to", "cto"]);
+    assert_eq!(handles(&to_cto), sorted(&[&ceo_to_cto]));
+
+    let corridor = list_mail_json(project_s, &["--from", "ceo", "--to", "hand"]);
+    assert_eq!(handles(&corridor), sorted(&[&ceo_to_hand]));
+
+    let mailbox = list_mail_json(project_s, &["--for", "cto", "--from", "ceo"]);
+    assert_eq!(handles(&mailbox), sorted(&[&ceo_to_cto]));
+
+    let empty = list_mail_json(project_s, &["--for", "cto", "--from", "hand"]);
+    assert!(handles(&empty).is_empty(), "{empty}");
+
+    let sent = list_mail_json(project_s, &["--from", "ceo", "--folder", "sent"]);
+    assert_eq!(handles(&sent).len(), 2, "{sent}");
+
+    let other = list_mail_json(project_s, &["--from", "cto"]);
+    assert_eq!(handles(&other), sorted(&[&cto_to_hand]));
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn task_send_show_done_and_reopen_reads_expected_task() {
     let project = tempfile::tempdir().unwrap();
@@ -1952,6 +1995,53 @@ fn memo_search_filters_by_subject_and_body() {
         .collect();
     assert!(subjects.contains(&"railway deploy paused"));
     assert!(subjects.contains(&"Weekly standup notes"));
+}
+
+fn send_mail(project: &str, from: &str, to: &str, subject: &str, body: &str) -> String {
+    let output = vivi([
+        "mail",
+        "send",
+        "--project",
+        project,
+        "--from",
+        from,
+        "--to",
+        to,
+        "--subject",
+        subject,
+        "--body",
+        body,
+    ]);
+    assert_success(&output);
+    handle_after(&stdout(&output), &format!("delivered {to}"))
+}
+
+fn list_mail_json(project: &str, extra: &[&str]) -> Value {
+    let mut args = vec!["mail", "list", "--project", project, "--json"];
+    args.extend_from_slice(extra);
+    let output = vivi(args);
+    assert_success(&output);
+    serde_json::from_str(&stdout(&output)).unwrap()
+}
+
+fn handles(items: &Value) -> Vec<String> {
+    let mut handles = items
+        .as_array()
+        .expect("mail list json array")
+        .iter()
+        .map(|item| item["handle"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    handles.sort();
+    handles
+}
+
+fn sorted(values: &[&str]) -> Vec<String> {
+    let mut values = values
+        .iter()
+        .map(|value| (*value).to_string())
+        .collect::<Vec<_>>();
+    values.sort();
+    values
 }
 
 fn init_roster(project: &std::path::Path) {

@@ -3,7 +3,7 @@ use vivarium::cli::{
     Command, CycleCommand, GraphActivateCommand, GraphApplyCommand, GraphCommand,
     GraphCompleteCommand, GraphEdgeCommand, GraphExportCommand, GraphImportCommand,
     GraphNodeCommand, GraphShowCommand, LocalSendCommand, MailAbsorbStatus, MailCommand,
-    MailDumpCommand, MailReplyCommand, MailspaceCommand, MailspaceIdentityCommand,
+    MailDumpCommand, MailListCommand, MailReplyCommand, MailspaceCommand, MailspaceIdentityCommand,
     MailspaceImportCommand, MailspaceWatchCommand, MemoCommand, TaskCommand, TaskSendCommand,
     TraceCommand,
 };
@@ -362,21 +362,7 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
             folder,
             project,
         } => deliver_local_mail(path, folder, project.as_deref())?,
-        MailCommand::List {
-            for_identity,
-            folder,
-            status,
-            absorbed_by,
-            json,
-            project,
-        } => list_local_mail(
-            for_identity,
-            folder,
-            *status,
-            absorbed_by.as_ref(),
-            *json,
-            project.as_deref(),
-        )?,
+        MailCommand::List(command) => list_local_mail(command)?,
         MailCommand::Show {
             handles,
             json,
@@ -445,23 +431,9 @@ fn deliver_local_mail(
     Ok(())
 }
 
-fn list_local_mail(
-    for_identity: &str,
-    folder: &str,
-    status: MailAbsorbStatus,
-    absorbed_by: Option<&String>,
-    json: bool,
-    project: Option<&std::path::Path>,
-) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(project)?;
-    crate::local_mail_list::print_mail_list(
-        &mailspace,
-        for_identity,
-        folder,
-        mail_absorb_filter(status),
-        absorbed_by,
-        json,
-    )
+fn list_local_mail(command: &MailListCommand) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    crate::local_mail_list::print_mail_list(&mailspace, command, mail_absorb_filter(command.status))
 }
 
 fn absorb_local_mail(

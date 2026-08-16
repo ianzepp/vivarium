@@ -1,6 +1,7 @@
 use serde::Serialize;
 use vivarium::VivariumError;
-use vivarium::mailspace::{MailAbsorbFilter, Mailspace};
+use vivarium::cli::MailListCommand;
+use vivarium::mailspace::{MailAbsorbFilter, Mailspace, canonical_local_role};
 use vivarium::storage::{MailspaceEvent, StoredMessageView};
 
 #[derive(Debug, Serialize)]
@@ -17,21 +18,36 @@ struct MailListItem {
 
 pub(crate) fn print_mail_list(
     mailspace: &Mailspace,
-    identity: &str,
-    role: &str,
+    command: &MailListCommand,
     absorb_status: MailAbsorbFilter,
-    absorbed_by: Option<&String>,
-    json: bool,
 ) -> Result<(), VivariumError> {
     let storage = mailspace.storage()?;
+    let messages = match command.for_identity.as_deref() {
+        Some(identity) => mailspace.list(identity, &command.folder)?,
+        None => storage.list_messages_by_role(&canonical_local_role(&command.folder)?)?,
+    };
+    let from = resolve_list_header(mailspace, command.from.as_deref());
+    let to = resolve_list_header(mailspace, command.to.as_deref());
     let mut items = Vec::new();
-    for message in mailspace.list(identity, role)? {
+    for message in messages {
+        let hay_from = message.from_addr.to_ascii_lowercase();
+        let hay_to = [
+            message.to_addr.to_ascii_lowercase(),
+            message.cc_addr.to_ascii_lowercase(),
+        ];
+        if from.as_ref().is_some_and(|n| !hay_from.contains(n))
+            || to
+                .as_ref()
+                .is_some_and(|n| hay_to.iter().all(|h| !h.contains(n)))
+        {
+            continue;
+        }
         let events = storage.list_mailspace_events(&message.message_id)?;
-        if matches_absorb(&events, absorb_status, absorbed_by) {
+        if matches_absorb(&events, absorb_status, command.absorbed_by.as_ref()) {
             items.push(mail_list_item(message, &events));
         }
     }
-    if json {
+    if command.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&items)
@@ -40,7 +56,8 @@ pub(crate) fn print_mail_list(
         return Ok(());
     }
     if items.is_empty() {
-        println!("  no messages in {role}");
+        let folder = &command.folder;
+        println!("  no messages in {folder}");
         return Ok(());
     }
     for item in &items {
@@ -50,6 +67,16 @@ pub(crate) fn print_mail_list(
         );
     }
     Ok(())
+}
+
+fn resolve_list_header(mailspace: &Mailspace, raw: Option<&str>) -> Option<String> {
+    let raw = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    Some(
+        mailspace
+            .resolve_identity(raw)
+            .map_or_else(|_| raw.to_string(), |name| mailspace.address_for(&name))
+            .to_ascii_lowercase(),
+    )
 }
 
 fn mail_list_item(message: StoredMessageView, events: &[MailspaceEvent]) -> MailListItem {

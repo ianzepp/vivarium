@@ -1,5 +1,10 @@
 # Goal: Project mailspace filter and search (not dump, not DSL)
 
+Status: **partial** — `vivi mail list` now accepts `--from` / `--to` header
+filters and `--for` is optional when either is present
+(`docs/factory/mail-list-from-to-delivery.md`). Still open: hard `--limit`,
+verdict filter, task/need list parity, project search, dump exit.
+
 ## Summary
 
 Give agents a **small, closed** query surface over project-local mail

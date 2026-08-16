@@ -158,27 +158,8 @@ pub enum MailCommand {
         project: Option<PathBuf>,
     },
 
-    /// List local mail for an identity
-    List {
-        /// Identity whose mailbox should be listed
-        #[arg(long = "for")]
-        for_identity: String,
-        /// Folder role to list
-        #[arg(long, default_value = "inbox")]
-        folder: String,
-        /// Absorb status filter
-        #[arg(long, default_value = "all")]
-        status: MailAbsorbStatus,
-        /// Absorbing identity filter
-        #[arg(long = "absorbed-by")]
-        absorbed_by: Option<String>,
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-        /// Project root to use
-        #[arg(long)]
-        project: Option<PathBuf>,
-    },
+    /// List local mail for an identity or header filter
+    List(MailListCommand),
 
     /// Show one or more local mail messages by handle
     Show {
@@ -219,6 +200,47 @@ pub enum MailCommand {
 
     /// Dump local mailspace messages for audit and board review
     Dump(MailDumpCommand),
+}
+
+#[derive(Debug, Clone, Parser)]
+#[command(group(
+    ArgGroup::new("list_scope")
+        .required(true)
+        .multiple(true)
+        .args(["for_identity", "from", "to"])
+))]
+pub struct MailListCommand {
+    /// Identity whose mailbox should be listed
+    #[arg(long = "for")]
+    pub for_identity: Option<String>,
+
+    /// Sender identity or address filter
+    #[arg(long)]
+    pub from: Option<String>,
+
+    /// Recipient identity or address filter (To or Cc)
+    #[arg(long)]
+    pub to: Option<String>,
+
+    /// Folder role to list
+    #[arg(long, default_value = "inbox")]
+    pub folder: String,
+
+    /// Absorb status filter
+    #[arg(long, default_value = "all")]
+    pub status: MailAbsorbStatus,
+
+    /// Absorbing identity filter
+    #[arg(long = "absorbed-by")]
+    pub absorbed_by: Option<String>,
+
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
