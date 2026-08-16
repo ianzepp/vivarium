@@ -210,7 +210,7 @@ impl Mailspace {
     #[allow(clippy::needless_pass_by_value)]
     pub fn list_wants_with_metadata(
         &self,
-        identity: &str,
+        identity: Option<&str>,
         roles: &[&str],
         options: WantListOptions,
     ) -> Result<Vec<WantListRecord>, VivariumError> {
@@ -276,7 +276,7 @@ impl Mailspace {
             },
         })?;
         let open_wants = self.list_wants_with_metadata(
-            identity,
+            Some(identity),
             &["wants"],
             WantListOptions {
                 sort: "priority,rank,created".into(),

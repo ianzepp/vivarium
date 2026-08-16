@@ -335,6 +335,8 @@ vivi task send --from ceo --to cto \
 
 vivi task list --for cto
 vivi task list --for cto --json
+vivi task list --from ceo
+vivi task list --for cto --status all
 vivi task done <handle> --for cto
 vivi task list --for cto --status done
 ```
@@ -519,8 +521,9 @@ vivi task watch --for mind --events moved --statuses done \
 `mailspace watch` polls the project-local `.vivi/mail.sqlite` event ledger and
 supports caller-owned event-id cursor files with `--cursor-file
 <path> --write-cursor`. `--once` performs one non-blocking scan. The aliases
-`mail watch`, `task watch`, `need watch`, and `want watch` narrow the kind
-filter. This is deliberately different from `vivi sync-events --watch` or the
+`mail watch`, `task watch`, `need watch`, and `want watch` each watch one
+kind and do not take `--kinds`. Use `vivi mailspace watch --kinds` to mix
+kinds. This is deliberately different from `vivi sync-events --watch` or the
 account-scoped `vivi watch-inbox`, which observes inbound IMAP activity and
 emits stable JSON events after local sync. `watch-inbox` never wakes an LLM or
 executes outbound work; the Ops bridge owns wake delivery and debounce.
@@ -545,7 +548,9 @@ vivi mail dump --participant mind --since 2026-07-14T03:44:00 \
 vivi task dump --participant cto --body blocker --json
 vivi need dump --participant ceo --status all --json --output audit-needs.json
 vivi task dump --for cto --status all --confirm-large
+vivi want dump --from ceo --status all --json
 vivi want list --for ceo --json
+vivi want list --from ceo --status all
 ```
 
 Mailspace actions performed through Vivi are recorded in a local event ledger.

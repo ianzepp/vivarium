@@ -1,9 +1,9 @@
 # Goal: Project mailspace filter and search (not dump, not DSL)
 
-Status: **partial** — `vivi mail list` now accepts `--from` / `--to` header
-filters and `--for` is optional when either is present
-(`docs/factory/mail-list-from-to-delivery.md`). Still open: hard `--limit`,
-verdict filter, task/need list parity, project search, dump exit.
+Status: **partial** — `mail`/`task`/`need`/`want` list accept `--from` /
+`--to` with optional `--for`; `task`/`need` list accept `--status all`;
+`want dump` uses the work-dump flags. Still open: hard `--limit`, verdict
+filter, project search, dump exit.
 
 ## Summary
 

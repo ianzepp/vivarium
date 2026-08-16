@@ -25,27 +25,34 @@ struct WorkListEvent {
     note: Option<String>,
 }
 
-pub(crate) fn print_work_list(
-    mailspace: &Mailspace,
-    identity: &str,
-    role: &str,
-    kind: &str,
-    json: bool,
-) -> Result<(), VivariumError> {
-    print_work_lists(mailspace, identity, &[role], kind, json)
-}
-
 pub(crate) fn print_work_lists(
     mailspace: &Mailspace,
-    identity: &str,
+    identity: Option<&str>,
     roles: &[&str],
     kind: &str,
+    from: Option<&str>,
+    to: Option<&str>,
     json: bool,
 ) -> Result<(), VivariumError> {
     let storage = mailspace.storage()?;
+    let from = crate::local_mail_list::resolve_list_header(mailspace, from);
+    let to = crate::local_mail_list::resolve_list_header(mailspace, to);
     let mut messages = Vec::new();
     for role in roles {
-        messages.extend(mailspace.list_kind(identity, role, kind)?);
+        messages.extend(
+            mailspace
+                .list_kind(identity, role, kind)?
+                .into_iter()
+                .filter(|message| {
+                    crate::local_mail_list::headers_match(
+                        &message.from_addr,
+                        &message.to_addr,
+                        &message.cc_addr,
+                        from.as_deref(),
+                        to.as_deref(),
+                    )
+                }),
+        );
     }
     let message_ids = messages
         .iter()

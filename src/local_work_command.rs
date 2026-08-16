@@ -1,31 +1,34 @@
 use vivarium::VivariumError;
 use vivarium::cli::{
-    LocalSendCommand, MailDumpCommand, NeedCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus,
-    WantCommand, WantStatus,
+    LocalSendCommand, NeedCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus, WantCommand,
+    WantStatus,
 };
 use vivarium::mailspace::{
-    DumpFilters, MailDumpRequest, Mailspace, SendRequest, TaskDumpRequest, WantListOptions,
-    WantMetadataUpdate,
+    DumpFilters, Mailspace, SendRequest, TaskDumpRequest, WantListOptions, WantMetadataUpdate,
 };
 
 pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumError> {
     match command {
         NeedCommand::Send(command) => send_local_item(command, "needs", "need", "created")?,
         NeedCommand::Watch(command) => {
-            crate::local_mailspace_command::run_watch(command, Some("need"))?;
+            crate::local_mailspace_command::run_watch(&command.common, "need")?;
         }
         NeedCommand::List {
             for_identity,
+            from,
+            to,
             status,
             json,
             project,
         } => {
             let mailspace = Mailspace::discover(project.as_deref())?;
-            crate::local_work_list::print_work_list(
+            crate::local_work_list::print_work_lists(
                 &mailspace,
-                for_identity,
-                status_role(status, "needs"),
+                for_identity.as_deref(),
+                &status_roles(status, "needs"),
                 "need",
+                from.as_deref(),
+                to.as_deref(),
                 *json,
             )?;
         }
@@ -71,10 +74,12 @@ pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumE
     match command {
         WantCommand::Send(command) => send_local_item(command, "wants", "want", "created")?,
         WantCommand::Watch(command) => {
-            crate::local_mailspace_command::run_watch(command, Some("want"))?;
+            crate::local_mailspace_command::run_watch(&command.common, "want")?;
         }
         WantCommand::List {
             for_identity,
+            from,
+            to,
             status,
             repo,
             lane,
@@ -82,7 +87,9 @@ pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumE
             json,
             project,
         } => list_wants(
-            for_identity,
+            for_identity.as_deref(),
+            from.as_deref(),
+            to.as_deref(),
             status,
             WantListOptions {
                 repo: repo.clone(),
@@ -97,7 +104,7 @@ pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumE
             json,
             project,
         } => show_local_message(handle, *json, project.as_deref())?,
-        WantCommand::Dump(command) => dump_wants(command)?,
+        WantCommand::Dump(command) => dump_work_items(command, "wants", "want", "Vivi Want Dump")?,
         WantCommand::SetPriority { .. } => set_want_priority(command)?,
         WantCommand::Promote {
             handle,
@@ -171,15 +178,30 @@ fn set_want_priority(command: &WantCommand) -> Result<(), VivariumError> {
 }
 
 fn list_wants(
-    for_identity: &str,
+    for_identity: Option<&str>,
+    from: Option<&str>,
+    to: Option<&str>,
     status: &WantStatus,
     options: WantListOptions,
     json: bool,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    let records =
-        mailspace.list_wants_with_metadata(for_identity, want_status_roles(status), options)?;
+    let from = crate::local_mail_list::resolve_list_header(&mailspace, from);
+    let to = crate::local_mail_list::resolve_list_header(&mailspace, to);
+    let records = mailspace
+        .list_wants_with_metadata(for_identity, want_status_roles(status), options)?
+        .into_iter()
+        .filter(|record| {
+            crate::local_mail_list::headers_match(
+                &record.from,
+                &record.to,
+                "",
+                from.as_deref(),
+                to.as_deref(),
+            )
+        })
+        .collect::<Vec<_>>();
     if json {
         println!(
             "{}",
@@ -259,21 +281,6 @@ fn dump_work_items(
     )
 }
 
-fn dump_wants(command: &MailDumpCommand) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(command.project.as_deref())?;
-    let mut request = mail_dump_request(command);
-    request.folder = "wants".into();
-    request.kind = Some("want".into());
-    let records = mailspace.dump_mail(request)?;
-    crate::local_mailspace_dump::write_dump(
-        "Vivi Want Dump",
-        &records,
-        command.json,
-        command.output.as_deref(),
-        command.confirm_large,
-    )
-}
-
 fn send_local_item(
     command: &LocalSendCommand,
     role: &str,
@@ -334,10 +341,11 @@ fn show_local_message(
     vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, json)
 }
 
-fn status_role(status: &TaskStatus, open_role: &'static str) -> &'static str {
+fn status_roles<'a>(status: &TaskStatus, open_role: &'a str) -> Vec<&'a str> {
     match status {
-        TaskStatus::Open => open_role,
-        TaskStatus::Done => "done",
+        TaskStatus::Open => vec![open_role],
+        TaskStatus::Done => vec!["done"],
+        TaskStatus::All => vec![open_role, "done"],
     }
 }
 
@@ -346,14 +354,6 @@ fn want_status_roles(status: &WantStatus) -> &'static [&'static str] {
         WantStatus::Open => &["wants"],
         WantStatus::Done => &["done"],
         WantStatus::All => &["wants", "done"],
-    }
-}
-
-fn mail_dump_request(command: &MailDumpCommand) -> MailDumpRequest {
-    MailDumpRequest {
-        folder: command.folder.clone(),
-        kind: Some("mail".into()),
-        filters: mail_dump_filters(command),
     }
 }
 
@@ -367,20 +367,6 @@ fn work_dump_request(command: &TaskDumpCommand, open_role: &str, kind: &str) -> 
         open_role: open_role.into(),
         kind: kind.into(),
         filters: task_dump_filters(command),
-    }
-}
-
-fn mail_dump_filters(command: &MailDumpCommand) -> DumpFilters {
-    DumpFilters {
-        for_identity: command.for_identity.clone(),
-        from: command.from.clone(),
-        to: command.to.clone(),
-        participant: command.participant.clone(),
-        subject: command.subject.clone(),
-        body: command.body.clone(),
-        since: command.since.clone(),
-        before: command.before.clone(),
-        ..Default::default()
     }
 }
 

@@ -179,6 +179,54 @@ fn mail_list_from_to_filters_headers_and_allows_omitting_for() {
 }
 
 #[test]
+fn task_list_from_and_status_all() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let open = send_work(project.path(), "task", "cto", "open task", "do it");
+    let done = send_work(project.path(), "task", "cto", "done task", "finish it");
+    assert_success(&vivi([
+        "task",
+        "done",
+        "--project",
+        project_s,
+        "--for",
+        "cto",
+        &done,
+    ]));
+
+    let from_ceo = vivi([
+        "task",
+        "list",
+        "--project",
+        project_s,
+        "--from",
+        "ceo",
+        "--status",
+        "open",
+        "--json",
+    ]);
+    assert_success(&from_ceo);
+    let from_items: Value = serde_json::from_str(&stdout(&from_ceo)).unwrap();
+    assert_eq!(handles(&from_items), sorted(&[&open]));
+
+    let all = vivi([
+        "task",
+        "list",
+        "--project",
+        project_s,
+        "--for",
+        "cto",
+        "--status",
+        "all",
+        "--json",
+    ]);
+    assert_success(&all);
+    let all_items: Value = serde_json::from_str(&stdout(&all)).unwrap();
+    assert_eq!(handles(&all_items), sorted(&[&open, &done]));
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn task_send_show_done_and_reopen_reads_expected_task() {
     let project = tempfile::tempdir().unwrap();

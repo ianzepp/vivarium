@@ -142,7 +142,7 @@ pub enum MailCommand {
     Send(LocalSendCommand),
 
     /// Wait for mail events in the project-local mailspace
-    Watch(Box<MailspaceWatchCommand>),
+    Watch(Box<KindWatchCommand>),
 
     /// Deliver an explicit .eml into local identities in the current project mailspace
     Deliver {
@@ -658,16 +658,13 @@ pub struct GraphEdgeAddCommand {
     pub project: Option<PathBuf>,
 }
 
+/// Shared watch filters. `--kinds` belongs only on `vivi mailspace watch`.
 #[derive(Debug, Clone, Parser)]
 #[allow(clippy::struct_excessive_bools)]
-pub struct MailspaceWatchCommand {
+pub struct WatchCommon {
     /// Identity whose local events should wake the watcher
     #[arg(long = "for")]
     pub for_identity: String,
-
-    /// Comma-separated kinds; defaults to mail,task,need
-    #[arg(long, default_value = "mail,task,need")]
-    pub kinds: String,
 
     /// Comma-separated raw event types
     #[arg(long, default_value = "delivered,moved")]
@@ -734,6 +731,24 @@ pub struct MailspaceWatchCommand {
     pub project: Option<PathBuf>,
 }
 
+/// Kind-specific watch (`mail watch`, `task watch`, …). No `--kinds`.
+#[derive(Debug, Clone, Parser)]
+pub struct KindWatchCommand {
+    #[command(flatten)]
+    pub common: WatchCommon,
+}
+
+/// Cross-kind watch. `--kinds` is valid only here.
+#[derive(Debug, Clone, Parser)]
+pub struct MailspaceWatchCommand {
+    #[command(flatten)]
+    pub common: WatchCommon,
+
+    /// Comma-separated kinds; defaults to mail,task,need
+    #[arg(long, default_value = "mail,task,need")]
+    pub kinds: String,
+}
+
 #[derive(Debug, Clone, Parser)]
 #[command(group(
     ArgGroup::new("task_from_body")
@@ -782,13 +797,27 @@ pub enum TaskCommand {
     From(TaskFromCommand),
 
     /// Wait for task events in the project-local mailspace
-    Watch(Box<MailspaceWatchCommand>),
+    Watch(Box<KindWatchCommand>),
 
-    /// List tasks for an identity
+    /// List tasks for an identity or header filter
+    #[command(group(
+        ArgGroup::new("list_scope")
+            .required(true)
+            .multiple(true)
+            .args(["for_identity", "from", "to"])
+    ))]
     List {
         /// Identity whose tasks should be listed
         #[arg(long = "for")]
-        for_identity: String,
+        for_identity: Option<String>,
+
+        /// Task creator identity or address filter
+        #[arg(long)]
+        from: Option<String>,
+
+        /// Task owner identity or address filter
+        #[arg(long)]
+        to: Option<String>,
 
         /// Task folder status
         #[arg(long, default_value = "open")]

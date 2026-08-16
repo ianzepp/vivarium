@@ -520,7 +520,7 @@ fn parses_task_list_with_global_project_before_subcommand() {
                     ..
                 },
         } => {
-            assert_eq!(for_identity, "hand-1");
+            assert_eq!(for_identity.as_deref(), Some("hand-1"));
             assert!(matches!(status, TaskStatus::Open));
             assert_eq!(project, Some(PathBuf::from("/tmp/project")));
         }
@@ -841,6 +841,8 @@ fn parses_task_list_done_status() {
             command:
                 TaskCommand::List {
                     for_identity,
+                    from,
+                    to,
                     status,
                     json,
                     project,
@@ -848,7 +850,9 @@ fn parses_task_list_done_status() {
                     blocking: _,
                 },
         } => {
-            assert_eq!(for_identity, "cto");
+            assert_eq!(for_identity.as_deref(), Some("cto"));
+            assert_eq!(from, None);
+            assert_eq!(to, None);
             assert!(matches!(status, TaskStatus::Done));
             assert!(!json);
             assert_eq!(project, None);
@@ -2067,6 +2071,68 @@ fn parses_task_send_with_depends_on() {
 }
 
 #[test]
+fn parses_task_list_from_to_and_status_all() {
+    let cli = Cli::try_parse_from([
+        "vivi", "task", "list", "--from", "mind", "--to", "hand", "--status", "all",
+    ])
+    .unwrap();
+    match cli.command {
+        Command::Task {
+            command:
+                TaskCommand::List {
+                    for_identity,
+                    from,
+                    to,
+                    status,
+                    ..
+                },
+        } => {
+            assert_eq!(for_identity, None);
+            assert_eq!(from.as_deref(), Some("mind"));
+            assert_eq!(to.as_deref(), Some("hand"));
+            assert!(matches!(status, TaskStatus::All));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_task_list_without_scope() {
+    let err = Cli::try_parse_from(["vivi", "task", "list"]).unwrap_err();
+    let message = err.to_string();
+    assert!(message.contains("--for"), "{message}");
+    assert!(message.contains("--from"), "{message}");
+}
+
+#[test]
+fn rejects_mail_watch_kinds() {
+    let err = Cli::try_parse_from(["vivi", "mail", "watch", "--for", "mind", "--kinds", "task"])
+        .unwrap_err();
+    assert!(err.to_string().contains("--kinds"), "{err}");
+}
+
+#[test]
+fn parses_want_dump_as_task_dump_status() {
+    let cli =
+        Cli::try_parse_from(["vivi", "want", "dump", "--from", "ceo", "--status", "all"]).unwrap();
+    match cli.command {
+        Command::Want {
+            command: WantCommand::Dump(command),
+        } => {
+            assert_eq!(command.from.as_deref(), Some("ceo"));
+            assert!(matches!(command.status, TaskDumpStatusArg::All));
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn rejects_want_dump_mail_folder_flag() {
+    let err = Cli::try_parse_from(["vivi", "want", "dump", "--folder", "inbox"]).unwrap_err();
+    assert!(err.to_string().contains("--folder"), "{err}");
+}
+
+#[test]
 fn parses_task_list_blocked_and_blocking() {
     let cli = Cli::try_parse_from([
         "vivi",
@@ -2090,7 +2156,7 @@ fn parses_task_list_blocked_and_blocking() {
                     ..
                 },
         } => {
-            assert_eq!(for_identity, "hand-1");
+            assert_eq!(for_identity.as_deref(), Some("hand-1"));
             assert!(blocked);
             assert_eq!(blocking.as_deref(), Some("abc123"));
         }

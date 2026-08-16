@@ -30,16 +30,13 @@ pub(crate) fn print_mail_list(
     let to = resolve_list_header(mailspace, command.to.as_deref());
     let mut items = Vec::new();
     for message in messages {
-        let hay_from = message.from_addr.to_ascii_lowercase();
-        let hay_to = [
-            message.to_addr.to_ascii_lowercase(),
-            message.cc_addr.to_ascii_lowercase(),
-        ];
-        if from.as_ref().is_some_and(|n| !hay_from.contains(n))
-            || to
-                .as_ref()
-                .is_some_and(|n| hay_to.iter().all(|h| !h.contains(n)))
-        {
+        if !headers_match(
+            &message.from_addr,
+            &message.to_addr,
+            &message.cc_addr,
+            from.as_deref(),
+            to.as_deref(),
+        ) {
             continue;
         }
         let events = storage.list_mailspace_events(&message.message_id)?;
@@ -69,7 +66,7 @@ pub(crate) fn print_mail_list(
     Ok(())
 }
 
-fn resolve_list_header(mailspace: &Mailspace, raw: Option<&str>) -> Option<String> {
+pub(crate) fn resolve_list_header(mailspace: &Mailspace, raw: Option<&str>) -> Option<String> {
     let raw = raw.map(str::trim).filter(|value| !value.is_empty())?;
     Some(
         mailspace
@@ -77,6 +74,20 @@ fn resolve_list_header(mailspace: &Mailspace, raw: Option<&str>) -> Option<Strin
             .map_or_else(|_| raw.to_string(), |name| mailspace.address_for(&name))
             .to_ascii_lowercase(),
     )
+}
+
+pub(crate) fn headers_match(
+    from_addr: &str,
+    to_addr: &str,
+    cc_addr: &str,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> bool {
+    let hay_from = from_addr.to_ascii_lowercase();
+    let hay_to = to_addr.to_ascii_lowercase();
+    let hay_cc = cc_addr.to_ascii_lowercase();
+    from.is_none_or(|needle| hay_from.contains(needle))
+        && to.is_none_or(|needle| hay_to.contains(needle) || hay_cc.contains(needle))
 }
 
 fn mail_list_item(message: StoredMessageView, events: &[MailspaceEvent]) -> MailListItem {

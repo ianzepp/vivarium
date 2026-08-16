@@ -241,16 +241,19 @@ impl Mailspace {
     /// or the storage operation fails.
     pub fn list_kind(
         &self,
-        identity: &str,
+        identity: Option<&str>,
         role: &str,
         kind: &str,
     ) -> Result<Vec<StoredMessageView>, VivariumError> {
-        let identity = self.resolve_identity(identity)?;
-        let names = sorted_identity_names(self.identity_names(&identity));
         let role = canonical_local_role(role)?;
         let storage = self.storage()?;
-        let role_messages =
-            storage.list_messages_by_account_roles_scoped(&names, std::slice::from_ref(&role))?;
+        let role_messages = if let Some(identity) = identity {
+            let identity = self.resolve_identity(identity)?;
+            let names = sorted_identity_names(self.identity_names(&identity));
+            storage.list_messages_by_account_roles_scoped(&names, std::slice::from_ref(&role))?
+        } else {
+            storage.list_messages_by_role(&role)?
+        };
         if role_implies_kind(&role, kind) {
             return Ok(role_messages);
         }
@@ -281,7 +284,7 @@ impl Mailspace {
         subject_only: bool,
     ) -> Result<Vec<StoredMessageView>, VivariumError> {
         let query = query.to_lowercase();
-        let memos = self.list_kind(identity, "memos", "memo")?;
+        let memos = self.list_kind(Some(identity), "memos", "memo")?;
         if subject_only {
             return Ok(memos
                 .into_iter()
@@ -359,7 +362,7 @@ impl Mailspace {
         blocked: bool,
         blocking: Option<&str>,
     ) -> Result<Vec<(StoredMessageView, Vec<String>)>, VivariumError> {
-        let tasks = self.list_kind(identity, "tasks", "task")?;
+        let tasks = self.list_kind(Some(identity), "tasks", "task")?;
         let mut result = Vec::new();
         for task in tasks {
             let deps = self.task_depends_on(&task.message_id)?;

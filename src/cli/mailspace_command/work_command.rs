@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::{LocalSendCommand, MailAbsorbStatus, MailspaceWatchCommand};
+use super::{LocalSendCommand, MailAbsorbStatus};
 
 /// Save a memo into an identity's memos folder.
 #[derive(Debug, Clone, Args)]
@@ -133,13 +133,27 @@ pub enum NeedCommand {
     Send(LocalSendCommand),
 
     /// Wait for need events in the project-local mailspace
-    Watch(Box<MailspaceWatchCommand>),
+    Watch(Box<super::KindWatchCommand>),
 
-    /// List needs for an identity
+    /// List needs for an identity or header filter
+    #[command(group(
+        clap::ArgGroup::new("list_scope")
+            .required(true)
+            .multiple(true)
+            .args(["for_identity", "from", "to"])
+    ))]
     List {
         /// Identity whose needs should be listed
         #[arg(long = "for")]
-        for_identity: String,
+        for_identity: Option<String>,
+
+        /// Need creator identity or address filter
+        #[arg(long)]
+        from: Option<String>,
+
+        /// Need owner identity or address filter
+        #[arg(long)]
+        to: Option<String>,
 
         /// Need folder status
         #[arg(long, default_value = "open")]
@@ -214,13 +228,27 @@ pub enum WantCommand {
     Send(LocalSendCommand),
 
     /// Wait for want events in the project-local mailspace
-    Watch(Box<MailspaceWatchCommand>),
+    Watch(Box<super::KindWatchCommand>),
 
-    /// List wants for an identity
+    /// List wants for an identity or header filter
+    #[command(group(
+        clap::ArgGroup::new("list_scope")
+            .required(true)
+            .multiple(true)
+            .args(["for_identity", "from", "to"])
+    ))]
     List {
         /// Identity whose wants should be listed
         #[arg(long = "for")]
-        for_identity: String,
+        for_identity: Option<String>,
+
+        /// Want creator identity or address filter
+        #[arg(long)]
+        from: Option<String>,
+
+        /// Want owner identity or address filter
+        #[arg(long)]
+        to: Option<String>,
 
         /// Want folder status
         #[arg(long, default_value = "open")]
@@ -262,7 +290,7 @@ pub enum WantCommand {
     },
 
     /// Dump local want messages for audit and board review
-    Dump(MailDumpCommand),
+    Dump(TaskDumpCommand),
 
     /// Set queryable priority and routing metadata on a want
     SetPriority {
@@ -361,6 +389,7 @@ pub enum WantCommand {
 pub enum TaskStatus {
     Open,
     Done,
+    All,
 }
 
 #[derive(Debug, Clone, ValueEnum)]

@@ -4,8 +4,7 @@ use vivarium::cli::{
     GraphCompleteCommand, GraphEdgeCommand, GraphExportCommand, GraphImportCommand,
     GraphNodeCommand, GraphShowCommand, LocalSendCommand, MailAbsorbStatus, MailCommand,
     MailDumpCommand, MailListCommand, MailReplyCommand, MailspaceCommand, MailspaceIdentityCommand,
-    MailspaceImportCommand, MailspaceWatchCommand, MemoCommand, TaskCommand, TaskSendCommand,
-    TraceCommand,
+    MailspaceImportCommand, MemoCommand, TaskCommand, TaskSendCommand, TraceCommand,
 };
 use vivarium::mailspace::{
     DumpFilters, MailAbsorbFilter, MailDumpRequest, Mailspace, MailspaceWatchRequest, SendRequest,
@@ -231,7 +230,7 @@ fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumEr
                 println!("{description}");
             }
         }
-        MailspaceCommand::Watch(command) => run_watch(command, None)?,
+        MailspaceCommand::Watch(command) => run_watch(&command.common, &command.kinds)?,
         MailspaceCommand::Import(command) | MailspaceCommand::Merge(command) => {
             import_mailspace(command)?;
         }
@@ -355,7 +354,7 @@ fn print_cycle_intake(intake: &vivarium::mailspace::CycleIntake) {
 fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
     match command {
         MailCommand::Send(command) => send_local_mail(command)?,
-        MailCommand::Watch(command) => run_watch(command, Some("mail"))?,
+        MailCommand::Watch(command) => run_watch(&command.common, "mail")?,
         MailCommand::Reply(command) => reply_local_mail(command)?,
         MailCommand::Deliver {
             path,
@@ -490,7 +489,7 @@ fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
 }
 
 fn print_memo_list(mailspace: &Mailspace, identity: &str, json: bool) -> Result<(), VivariumError> {
-    let memos = mailspace.list_kind(identity, "memos", "memo")?;
+    let memos = mailspace.list_kind(Some(identity), "memos", "memo")?;
     print_memo_list_items(&memos, json)
 }
 
@@ -552,22 +551,8 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
     match command {
         TaskCommand::Send(command) => send_task(command)?,
         TaskCommand::From(command) => task_from_source(command)?,
-        TaskCommand::Watch(command) => run_watch(command, Some("task"))?,
-        TaskCommand::List {
-            for_identity,
-            status,
-            blocked,
-            blocking,
-            json,
-            project,
-        } => list_tasks_command(
-            for_identity,
-            status,
-            *blocked,
-            blocking.as_deref(),
-            *json,
-            project.as_deref(),
-        )?,
+        TaskCommand::Watch(command) => run_watch(&command.common, "task")?,
+        TaskCommand::List { .. } => run_task_list(command)?,
         TaskCommand::Show {
             handle,
             json,
@@ -631,39 +616,69 @@ fn reopen_task(
     move_task(handle, for_identity, note, project, "tasks", None, &[], &[])
 }
 
-fn list_tasks_command(
-    for_identity: &str,
-    status: &vivarium::cli::TaskStatus,
-    blocked: bool,
-    blocking: Option<&str>,
-    json: bool,
-    project: Option<&std::path::Path>,
-) -> Result<(), VivariumError> {
-    if blocked || blocking.is_some() {
-        list_tasks_with_deps(for_identity, blocked, blocking, json, project)
-    } else {
-        list_tasks(for_identity, status, json, project)
+fn run_task_list(command: &TaskCommand) -> Result<(), VivariumError> {
+    let TaskCommand::List {
+        for_identity,
+        from,
+        to,
+        status,
+        blocked,
+        blocking,
+        json,
+        project,
+    } = command
+    else {
+        return Err(VivariumError::Message(
+            "internal: run_task_list requires task list".into(),
+        ));
+    };
+    if *blocked || blocking.is_some() {
+        let Some(for_identity) = for_identity.as_deref() else {
+            return Err(VivariumError::Message(
+                "task list --blocked/--blocking requires --for".into(),
+            ));
+        };
+        return list_tasks_with_deps(
+            for_identity,
+            *blocked,
+            blocking.as_deref(),
+            *json,
+            project.as_deref(),
+        );
     }
+    list_tasks(
+        for_identity.as_deref(),
+        from.as_deref(),
+        to.as_deref(),
+        status,
+        *json,
+        project.as_deref(),
+    )
 }
 
 fn list_tasks(
-    for_identity: &str,
+    for_identity: Option<&str>,
+    from: Option<&str>,
+    to: Option<&str>,
     status: &vivarium::cli::TaskStatus,
     json: bool,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    crate::local_work_list::print_work_list(
+    let roles = match status {
+        vivarium::cli::TaskStatus::Open => vec!["tasks"],
+        vivarium::cli::TaskStatus::Done => vec!["done"],
+        vivarium::cli::TaskStatus::All => vec!["tasks", "done"],
+    };
+    crate::local_work_list::print_work_lists(
         &mailspace,
         for_identity,
-        match status {
-            vivarium::cli::TaskStatus::Open => "tasks",
-            vivarium::cli::TaskStatus::Done => "done",
-        },
+        &roles,
         "task",
+        from,
+        to,
         json,
-    )?;
-    Ok(())
+    )
 }
 
 fn list_tasks_with_deps(
@@ -786,13 +801,13 @@ fn reply_local_mail(command: &MailReplyCommand) -> Result<(), VivariumError> {
 }
 
 pub(crate) fn run_watch(
-    command: &MailspaceWatchCommand,
-    alias_kind: Option<&str>,
+    command: &vivarium::cli::WatchCommon,
+    kinds: &str,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
     let request = MailspaceWatchRequest {
         for_identity: command.for_identity.clone(),
-        kinds: alias_kind.unwrap_or(&command.kinds).to_string(),
+        kinds: kinds.to_string(),
         events: command.events.clone(),
         statuses: command.statuses.clone(),
         match_from: command.match_from.clone(),
