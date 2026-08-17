@@ -1,5 +1,8 @@
 # Vivarium 7.2.1
 
+Prepared locally but **not tagged**. The board changes shipped in
+[7.3.0](release-v7.3.0.md).
+
 Vivarium 7.2.1 makes cadence-driven role dispatch self-contained on the board.
 
 ## Changes
