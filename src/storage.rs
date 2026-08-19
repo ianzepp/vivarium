@@ -98,6 +98,8 @@ pub struct StoredMessageView {
     pub subject: String,
     pub normalized_message_id: Option<String>,
     pub remote: Option<RemoteBindingInput>,
+    pub absorbed_at: Option<String>,
+    pub absorbed_by: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -256,6 +258,8 @@ fn raw_stored_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Stor
         subject: row.get(13)?,
         normalized_message_id: row.get(14)?,
         remote,
+        absorbed_at: row.get(20)?,
+        absorbed_by: row.get(21)?,
     })
 }
 

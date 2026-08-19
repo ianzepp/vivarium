@@ -183,6 +183,9 @@ impl Mailspace {
         let needs_blob = kind_needs_blob || body_needed;
 
         // Apply non-blob filters first to avoid unnecessary reads
+        if matches!(status, Some((TaskDumpStatus::Open, _))) && view.absorbed_at.is_some() {
+            return Ok(None);
+        }
         if !matches_filters_header(&view, events, filters) {
             return Ok(None);
         }
@@ -312,7 +315,7 @@ fn matches_filters_header(
         && matches_recipients(view, filters.to.as_deref())
         && matches_text(&view.subject, filters.subject.as_deref())
         && matches_participant(view, filters.participant.as_ref())
-        && matches_absorb(events, filters)
+        && matches_absorb(view, events, filters)
 }
 
 fn matches_recipients(view: &StoredMessageView, filter: Option<&str>) -> bool {
@@ -340,8 +343,15 @@ fn matches_text(value: &str, filter: Option<&str>) -> bool {
     filter.is_none_or(|filter| value.to_ascii_lowercase().contains(filter))
 }
 
-fn matches_absorb(events: &[MailspaceEvent], filters: &PreparedFilters) -> bool {
-    let absorbed = events.iter().any(|event| event.command == "mail absorb");
+fn matches_absorb(
+    view: &StoredMessageView,
+    events: &[MailspaceEvent],
+    filters: &PreparedFilters,
+) -> bool {
+    let absorbed = view.absorbed_at.is_some()
+        || events
+            .iter()
+            .any(|event| event.event_type == "absorbed" || event.command.ends_with(" absorb"));
     let status_matches = match filters.absorb_status {
         MailAbsorbFilter::All => true,
         MailAbsorbFilter::Absorbed => absorbed,
@@ -349,9 +359,11 @@ fn matches_absorb(events: &[MailspaceEvent], filters: &PreparedFilters) -> bool 
     };
     status_matches
         && filters.absorbed_by.as_ref().is_none_or(|identity| {
-            events.iter().any(|event| {
-                event.command == "mail absorb" && event.actor_identity.as_ref() == Some(identity)
-            })
+            view.absorbed_by.as_ref() == Some(identity)
+                || events.iter().any(|event| {
+                    (event.event_type == "absorbed" || event.command.ends_with(" absorb"))
+                        && event.actor_identity.as_ref() == Some(identity)
+                })
         })
 }
 

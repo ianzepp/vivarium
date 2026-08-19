@@ -1,3 +1,5 @@
+use rusqlite::OptionalExtension;
+
 use super::ingest::{ingest_message_id, upsert_blob_row, upsert_message_row, upsert_metadata_row};
 use super::{
     MailspaceEventInput, MessageIngestRequest, Path, Storage, StoredMessage, Utc, VivariumError,
@@ -14,7 +16,78 @@ pub struct MailspaceMoveWithReply<'a> {
     pub parent_content_id: &'a str,
 }
 
+pub(super) fn absorbed_error(token: &str) -> VivariumError {
+    VivariumError::Message(format!("{token} is absorbed and can no longer be changed"))
+}
+
+pub(super) fn reject_if_absorbed(
+    conn: &rusqlite::Connection,
+    message_id: &str,
+    token: &str,
+) -> Result<(), VivariumError> {
+    let absorbed_at: Option<String> = conn
+        .query_row(
+            "SELECT absorbed_at FROM messages
+             WHERE message_id = ?1 AND deleted_at IS NULL",
+            params![message_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| VivariumError::Other(format!("failed to read absorb state: {e}")))?
+        .flatten();
+    if absorbed_at.is_some() {
+        return Err(absorbed_error(token));
+    }
+    Ok(())
+}
+
 impl Storage {
+    /// Seal a message. Sets `absorbed_at` / `absorbed_by` and marks it read.
+    /// Returns `true` when this call newly absorbed the row, `false` when the
+    /// message was already absorbed.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the message is missing or the update fails.
+    pub fn absorb_message(
+        &mut self,
+        account: &str,
+        message_id: &str,
+        absorbed_by: &str,
+    ) -> Result<bool, VivariumError> {
+        let now = Utc::now().to_rfc3339();
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE messages
+                 SET absorbed_at = ?3, absorbed_by = ?4, read_state = 1, updated_at = ?3
+                 WHERE account = ?1 AND message_id = ?2
+                   AND deleted_at IS NULL AND absorbed_at IS NULL",
+                params![account, message_id, now, absorbed_by],
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to absorb message: {e}")))?;
+        if changed > 0 {
+            self.invalidate_handle_cache();
+            return Ok(true);
+        }
+        let absorbed_at: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT absorbed_at FROM messages
+                 WHERE account = ?1 AND message_id = ?2 AND deleted_at IS NULL",
+                params![account, message_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| VivariumError::Other(format!("failed to read absorb state: {e}")))?
+            .flatten();
+        if absorbed_at.is_some() {
+            return Ok(false);
+        }
+        Err(VivariumError::Message(format!(
+            "message not found for {account}: {message_id}"
+        )))
+    }
+
     /// Move a message to a new role and ingest reply messages in a single
     /// transaction.
     ///
@@ -27,6 +100,7 @@ impl Storage {
     ) -> Result<Vec<StoredMessage>, VivariumError> {
         let reply = prepare_reply_blob(&self.mail_root, request.reply_data)?;
         let resolved = self.resolve_message_token(request.message_id)?;
+        reject_if_absorbed(&self.conn, &resolved, request.message_id)?;
         let tx = self.conn.transaction().map_err(|e| {
             VivariumError::Other(format!("failed to open lifecycle transaction: {e}"))
         })?;
@@ -65,6 +139,7 @@ impl Storage {
         local_role: &str,
     ) -> Result<(), VivariumError> {
         let resolved = self.resolve_message_token(message_id)?;
+        reject_if_absorbed(&self.conn, &resolved, message_id)?;
         let now = Utc::now().to_rfc3339();
         let changed = self
             .conn
@@ -142,6 +217,7 @@ impl Storage {
         message_id: &str,
         read_state: bool,
     ) -> Result<bool, VivariumError> {
+        reject_if_absorbed(&self.conn, message_id, message_id)?;
         let now = Utc::now().to_rfc3339();
         let changed = self
             .conn
@@ -167,6 +243,7 @@ impl Storage {
         account: &str,
         message_id: &str,
     ) -> Result<bool, VivariumError> {
+        reject_if_absorbed(&self.conn, message_id, message_id)?;
         let now = Utc::now().to_rfc3339();
         let changed = self
             .conn

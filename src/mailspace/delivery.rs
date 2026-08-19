@@ -487,6 +487,11 @@ impl Mailspace {
                 "message not found for {identity}: {handle}"
             )));
         }
+        if before.absorbed_at.is_some() {
+            return Err(VivariumError::Message(format!(
+                "{handle} is absorbed and can no longer be changed"
+            )));
+        }
         // Stored messages keep the account name they were ingested under
         // even after a rename, so the storage-layer mutation must target
         // that historical account rather than the current canonical name.

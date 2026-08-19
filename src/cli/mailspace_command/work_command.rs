@@ -4,6 +4,25 @@ use clap::{Args, Subcommand, ValueEnum};
 
 use super::{LocalSendCommand, MailAbsorbStatus};
 
+/// Seal a mailspace record. Once absorbed, it can no longer be changed.
+#[derive(Debug, Clone, Args)]
+pub struct AbsorbCommand {
+    /// Record handle or unambiguous prefix
+    pub handle: String,
+
+    /// Identity absorbing the record
+    #[arg(long = "for")]
+    pub for_identity: String,
+
+    /// Optional disposition note recorded in the event ledger
+    #[arg(long)]
+    pub note: Option<String>,
+
+    /// Project root to use
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+}
+
 /// Save a memo into an identity's memos folder.
 #[derive(Debug, Clone, Args)]
 #[command(group(
@@ -103,6 +122,9 @@ pub enum MemoCommand {
         project: Option<PathBuf>,
     },
 
+    /// Seal a memo. Once absorbed, it can no longer be changed.
+    Absorb(AbsorbCommand),
+
     /// Dump all memos for an identity
     Dump {
         /// Identity whose memos should be dumped (required)
@@ -184,6 +206,9 @@ pub enum NeedCommand {
 
     /// Dump local need messages for audit and board review
     Dump(TaskDumpCommand),
+
+    /// Seal a need. Once absorbed, it can no longer be changed.
+    Absorb(AbsorbCommand),
 
     /// Move a need from Needs to Done
     Done {
@@ -291,6 +316,9 @@ pub enum WantCommand {
 
     /// Dump local want messages for audit and board review
     Dump(TaskDumpCommand),
+
+    /// Seal a want. Once absorbed, it can no longer be changed.
+    Absorb(AbsorbCommand),
 
     /// Set queryable priority and routing metadata on a want
     SetPriority {

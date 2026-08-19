@@ -389,9 +389,13 @@ impl Storage {
         } else {
             ""
         };
+        let absorb_clause = match local_role {
+            "inbox" | "tasks" | "needs" | "wants" | "memos" => " AND absorbed_at IS NULL",
+            _ => "",
+        };
         let sql = format!(
             "SELECT COUNT(*) FROM messages
-             WHERE account = ?1 AND local_role = ?2 AND deleted_at IS NULL{read_clause}"
+             WHERE account = ?1 AND local_role = ?2 AND deleted_at IS NULL{read_clause}{absorb_clause}"
         );
         let mut stmt = self.conn.prepare(&sql).map_err(|e| {
             VivariumError::Other(format!("failed to prepare message count query: {e}"))

@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use crate::error::VivariumError;
 
-const STORAGE_SCHEMA_VERSION: &str = "4";
+const STORAGE_SCHEMA_VERSION: &str = "5";
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
@@ -42,7 +42,9 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
            draft_state TEXT,
            discovered_at TEXT NOT NULL,
            updated_at TEXT NOT NULL,
-           deleted_at TEXT
+           deleted_at TEXT,
+           absorbed_at TEXT,
+           absorbed_by TEXT
          );
          CREATE INDEX IF NOT EXISTS messages_account_role_idx
            ON messages(account, local_role, updated_at);
@@ -186,6 +188,8 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
     )
     .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))?;
 
+    ensure_absorb_columns(conn)?;
+
     conn.execute(
         "INSERT OR REPLACE INTO storage_metadata (key, value) VALUES ('schema_version', ?1)",
         rusqlite::params![STORAGE_SCHEMA_VERSION],
@@ -193,6 +197,62 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
     .map_err(|e| VivariumError::Other(format!("failed to write storage schema version: {e}")))?;
 
     Ok(())
+}
+
+fn ensure_absorb_columns(conn: &Connection) -> Result<(), VivariumError> {
+    add_column_if_missing(conn, "messages", "absorbed_at", "TEXT")?;
+    add_column_if_missing(conn, "messages", "absorbed_by", "TEXT")?;
+    conn.execute(
+        "UPDATE messages
+         SET absorbed_at = (
+               SELECT MIN(occurred_at) FROM mailspace_events
+               WHERE mailspace_events.message_id = messages.message_id
+                 AND mailspace_events.event_type = 'absorbed'
+             ),
+             absorbed_by = (
+               SELECT actor_identity FROM mailspace_events
+               WHERE mailspace_events.message_id = messages.message_id
+                 AND mailspace_events.event_type = 'absorbed'
+               ORDER BY occurred_at ASC, event_id ASC
+               LIMIT 1
+             )
+         WHERE absorbed_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM mailspace_events
+             WHERE mailspace_events.message_id = messages.message_id
+               AND mailspace_events.event_type = 'absorbed'
+           )",
+        [],
+    )
+    .map(|_| ())
+    .map_err(|e| VivariumError::Other(format!("failed to backfill absorbed messages: {e}")))
+}
+
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    decl: &str,
+) -> Result<(), VivariumError> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|e| VivariumError::Other(format!("failed to inspect {table}: {e}")))?;
+    let names = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| VivariumError::Other(format!("failed to read {table} columns: {e}")))?;
+    for name in names {
+        let name =
+            name.map_err(|e| VivariumError::Other(format!("failed to read column name: {e}")))?;
+        if name == column {
+            return Ok(());
+        }
+    }
+    conn.execute(
+        &format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"),
+        [],
+    )
+    .map(|_| ())
+    .map_err(|e| VivariumError::Other(format!("failed to add {table}.{column} column: {e}")))
 }
 
 pub(super) fn message_query(where_clause: &str) -> String {
@@ -217,7 +277,9 @@ pub(super) fn message_query(where_clause: &str) -> String {
             rb.provider,
             rb.remote_mailbox,
             rb.remote_uid,
-            rb.remote_uidvalidity
+            rb.remote_uidvalidity,
+            m.absorbed_at,
+            m.absorbed_by
          FROM messages m
          JOIN blobs b ON b.content_id = m.content_id
          JOIN message_metadata md ON md.content_id = m.content_id

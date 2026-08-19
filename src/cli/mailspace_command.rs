@@ -4,8 +4,8 @@ use clap::{ArgGroup, Parser, Subcommand};
 
 mod work_command;
 pub use work_command::{
-    GoalCommand, MailDumpCommand, MemoCommand, NeedCommand, TaskDumpCommand, TaskDumpStatusArg,
-    TaskStatus, WantCommand, WantStatus,
+    AbsorbCommand, GoalCommand, MailDumpCommand, MemoCommand, NeedCommand, TaskDumpCommand,
+    TaskDumpStatusArg, TaskStatus, WantCommand, WantStatus,
 };
 
 #[derive(Debug, Subcommand)]
@@ -177,23 +177,8 @@ pub enum MailCommand {
     /// Show the project-local conversation containing a handle
     Thread(MailThreadCommand),
 
-    /// Mark advisory local mail as absorbed for cycle bookkeeping
-    Absorb {
-        /// Local mail handle or unambiguous prefix
-        handle: String,
-
-        /// Identity absorbing the mail
-        #[arg(long = "for")]
-        for_identity: String,
-
-        /// Optional disposition note
-        #[arg(long)]
-        note: Option<String>,
-
-        /// Project root to use
-        #[arg(long)]
-        project: Option<PathBuf>,
-    },
+    /// Seal local mail. Once absorbed, it can no longer be changed.
+    Absorb(work_command::AbsorbCommand),
 
     /// Send a project-local reply to any mailspace kind
     Reply(MailReplyCommand),
@@ -856,6 +841,9 @@ pub enum TaskCommand {
 
     /// Dump local task messages for audit and board review
     Dump(TaskDumpCommand),
+
+    /// Seal a task. Once absorbed, it can no longer be changed.
+    Absorb(work_command::AbsorbCommand),
 
     /// Move a task from Tasks to Done
     Done {

@@ -44,13 +44,14 @@ pub(crate) fn print_work_lists(
                 .list_kind(identity, role, kind)?
                 .into_iter()
                 .filter(|message| {
-                    crate::local_mail_list::headers_match(
-                        &message.from_addr,
-                        &message.to_addr,
-                        &message.cc_addr,
-                        from.as_deref(),
-                        to.as_deref(),
-                    )
+                    (roles.contains(&"done") || message.absorbed_at.is_none())
+                        && crate::local_mail_list::headers_match(
+                            &message.from_addr,
+                            &message.to_addr,
+                            &message.cc_addr,
+                            from.as_deref(),
+                            to.as_deref(),
+                        )
                 }),
         );
     }

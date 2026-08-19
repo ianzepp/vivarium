@@ -14,6 +14,7 @@ impl Storage {
         metadata: &BTreeMap<String, String>,
     ) -> Result<(), VivariumError> {
         let resolved = self.resolve_message_token(message_id)?;
+        super::mutate::reject_if_absorbed(&self.conn, &resolved, message_id)?;
         let now = Utc::now().to_rfc3339();
         for (key, value) in metadata {
             self.conn

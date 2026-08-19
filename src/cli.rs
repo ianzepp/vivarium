@@ -16,8 +16,8 @@ pub use board_command::BoardCommand;
 pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
 pub use mailspace_command::{
-    CycleCommand, GoalCommand, GraphActivateCommand, GraphApplyCommand, GraphCommand,
-    GraphCompleteCommand, GraphEdgeAddCommand, GraphEdgeCommand, GraphExportCommand,
+    AbsorbCommand, CycleCommand, GoalCommand, GraphActivateCommand, GraphApplyCommand,
+    GraphCommand, GraphCompleteCommand, GraphEdgeAddCommand, GraphEdgeCommand, GraphExportCommand,
     GraphImportCommand, GraphNodeAddCommand, GraphNodeCommand, GraphReadyCommand, GraphShowCommand,
     KindWatchCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
     MailListCommand, MailReplyCommand, MailThreadCommand, MailspaceCommand,

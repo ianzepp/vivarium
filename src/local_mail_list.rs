@@ -40,7 +40,12 @@ pub(crate) fn print_mail_list(
             continue;
         }
         let events = storage.list_mailspace_events(&message.message_id)?;
-        if matches_absorb(&events, absorb_status, command.absorbed_by.as_ref()) {
+        if matches_absorb(
+            &message,
+            &events,
+            absorb_status,
+            command.absorbed_by.as_ref(),
+        ) {
             items.push(mail_list_item(message, &events));
         }
     }
@@ -91,11 +96,13 @@ pub(crate) fn headers_match(
 }
 
 fn mail_list_item(message: StoredMessageView, events: &[MailspaceEvent]) -> MailListItem {
-    let absorbed_by = events
-        .iter()
-        .rev()
-        .find(|event| event.command == "mail absorb")
-        .and_then(|event| event.actor_identity.clone());
+    let absorbed_by = message.absorbed_by.clone().or_else(|| {
+        events
+            .iter()
+            .rev()
+            .find(|event| event.event_type == "absorbed" || event.command.ends_with(" absorb"))
+            .and_then(|event| event.actor_identity.clone())
+    });
     MailListItem {
         handle: message.handle,
         date: message.date,
@@ -103,17 +110,21 @@ fn mail_list_item(message: StoredMessageView, events: &[MailspaceEvent]) -> Mail
         to: message.to_addr,
         subject: message.subject,
         role: message.local_role,
-        absorbed: absorbed_by.is_some(),
+        absorbed: message.absorbed_at.is_some() || absorbed_by.is_some(),
         absorbed_by,
     }
 }
 
 fn matches_absorb(
+    message: &StoredMessageView,
     events: &[MailspaceEvent],
     absorb_status: MailAbsorbFilter,
     absorbed_by: Option<&String>,
 ) -> bool {
-    let absorbed = events.iter().any(|event| event.command == "mail absorb");
+    let absorbed = message.absorbed_at.is_some()
+        || events
+            .iter()
+            .any(|event| event.event_type == "absorbed" || event.command.ends_with(" absorb"));
     let status_matches = match absorb_status {
         MailAbsorbFilter::All => true,
         MailAbsorbFilter::Absorbed => absorbed,
@@ -121,8 +132,10 @@ fn matches_absorb(
     };
     status_matches
         && absorbed_by.is_none_or(|identity| {
-            events.iter().any(|event| {
-                event.command == "mail absorb" && event.actor_identity.as_ref() == Some(identity)
-            })
+            message.absorbed_by.as_ref() == Some(identity)
+                || events.iter().any(|event| {
+                    (event.event_type == "absorbed" || event.command.ends_with(" absorb"))
+                        && event.actor_identity.as_ref() == Some(identity)
+                })
         })
 }

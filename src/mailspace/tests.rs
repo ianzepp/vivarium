@@ -88,6 +88,41 @@ fn absorb_mail_marks_message_read() {
 }
 
 #[test]
+fn absorb_rejects_mutation_and_is_idempotent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("ceo").unwrap();
+    mailspace.add_identity("cto").unwrap();
+    let sent = mailspace
+        .send(SendRequest {
+            from: "ceo".into(),
+            to: vec!["cto".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "task".into(),
+            body: "do it".into(),
+            role: "tasks".into(),
+            kind: Some("task".into()),
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap();
+    let handle = sent.delivered[0].handle.clone();
+    let first = mailspace.absorb("cto", &handle, None, "task").unwrap();
+    let second = mailspace.absorb("cto", &handle, None, "task").unwrap();
+    assert_eq!(first, handle);
+    assert_eq!(second, handle);
+    let err = mailspace
+        .move_item("cto", &handle, "done", None, "task done", None)
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("is absorbed and can no longer be changed"),
+        "{err}"
+    );
+}
+
+#[test]
 fn task_move_keeps_handle_stable() {
     let tmp = tempfile::tempdir().unwrap();
     let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();

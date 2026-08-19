@@ -421,6 +421,9 @@ fn partition_board_messages(
     let mut needs = Vec::new();
     let mut wants = Vec::new();
     for message in messages {
+        if message.absorbed_at.is_some() {
+            continue;
+        }
         match message.local_role.as_str() {
             "tasks" => tasks.push(message),
             "needs" => needs.push(message),

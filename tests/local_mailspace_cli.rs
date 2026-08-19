@@ -1681,6 +1681,122 @@ fn mail_absorb_marks_inbox_read_and_clears_unread() {
     );
 }
 
+#[test]
+fn absorb_seals_records_and_rejects_later_mutation() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let root = project.path().to_str().unwrap();
+
+    let task = send_work(project.path(), "task", "cto", "seal task", "do it");
+    assert_success(&vivi([
+        "task",
+        "absorb",
+        "--project",
+        root,
+        "--for",
+        "cto",
+        &task,
+    ]));
+    let done = vivi(["task", "done", "--project", root, "--for", "cto", &task]);
+    assert!(!done.status.success(), "{}", stderr(&done));
+    assert!(
+        stderr(&done).contains("is absorbed and can no longer be changed"),
+        "{}",
+        stderr(&done)
+    );
+
+    let need = send_work(project.path(), "need", "cto", "seal need", "decide");
+    assert_success(&vivi([
+        "need",
+        "absorb",
+        "--project",
+        root,
+        "--for",
+        "cto",
+        &need,
+        "--note",
+        "closed",
+    ]));
+    let reopen = vivi(["need", "reopen", "--project", root, "--for", "cto", &need]);
+    assert!(!reopen.status.success(), "{}", stderr(&reopen));
+    assert!(
+        stderr(&reopen).contains("is absorbed and can no longer be changed"),
+        "{}",
+        stderr(&reopen)
+    );
+
+    let want = send_work(project.path(), "want", "cto", "seal want", "later");
+    assert_success(&vivi([
+        "want",
+        "absorb",
+        "--project",
+        root,
+        "--for",
+        "cto",
+        &want,
+    ]));
+    let priority = vivi([
+        "want",
+        "set-priority",
+        "--project",
+        root,
+        "--for",
+        "cto",
+        &want,
+        "--priority",
+        "P1",
+    ]);
+    assert!(!priority.status.success(), "{}", stderr(&priority));
+    assert!(
+        stderr(&priority).contains("is absorbed and can no longer be changed"),
+        "{}",
+        stderr(&priority)
+    );
+
+    let memo = vivi([
+        "memo",
+        "save",
+        "--project",
+        root,
+        "--for",
+        "cto",
+        "--subject",
+        "note",
+        "--body",
+        "keep",
+    ]);
+    assert_success(&memo);
+    let memo_handle = handle_after(&stdout(&memo), "saved");
+    assert_success(&vivi([
+        "memo",
+        "absorb",
+        "--project",
+        root,
+        "--for",
+        "cto",
+        &memo_handle,
+    ]));
+    let delete = vivi([
+        "memo",
+        "delete",
+        "--project",
+        root,
+        "--for",
+        "cto",
+        &memo_handle,
+    ]);
+    assert!(!delete.status.success(), "{}", stderr(&delete));
+    assert!(
+        stderr(&delete).contains("is absorbed and can no longer be changed"),
+        "{}",
+        stderr(&delete)
+    );
+
+    let again = vivi(["task", "absorb", "--project", root, "--for", "cto", &task]);
+    assert_success(&again);
+    assert!(stdout(&again).contains(&task), "{}", stdout(&again));
+}
+
 #[allow(clippy::cast_possible_truncation)]
 fn inbox_unread(project: &std::path::Path, identity: &str) -> usize {
     let output = vivi([

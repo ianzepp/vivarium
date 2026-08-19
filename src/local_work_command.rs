@@ -38,6 +38,9 @@ pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumE
             project,
         } => show_local_message(handle, *json, project.as_deref())?,
         NeedCommand::Dump(command) => dump_work_items(command, "needs", "need", "Vivi Need Dump")?,
+        NeedCommand::Absorb(command) => {
+            crate::local_mailspace_command::absorb_record("need", command)?;
+        }
         NeedCommand::Done {
             handle,
             for_identity,
@@ -105,6 +108,9 @@ pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumE
             project,
         } => show_local_message(handle, *json, project.as_deref())?,
         WantCommand::Dump(command) => dump_work_items(command, "wants", "want", "Vivi Want Dump")?,
+        WantCommand::Absorb(command) => {
+            crate::local_mailspace_command::absorb_record("want", command)?;
+        }
         WantCommand::SetPriority { .. } => set_want_priority(command)?,
         WantCommand::Promote {
             handle,

@@ -472,13 +472,18 @@ node entry includes lifecycle state, readiness, blocked-by **handles**, and
 successor handles. Use it with `--json` for agent intake of ready work across
 campaigns.
 
-Agent-cycle bookkeeping can mark ordinary advisory mail as absorbed without
-moving it into the task/need/want lifecycle. Absorb means dispositioned signal,
-not accepted work or cleared review debt:
+Absorb seals a mail, task, need, want, or memo. After absorb, that record
+cannot be moved, reopened, prioritized, deleted, or otherwise changed. A second
+absorb of the same handle is a no-op. Replies and `task from` still create new
+records.
 
 ```sh
 vivi mail absorb --project /path/to/project --for mind <handle> \
   --note "Converted to priority request"
+vivi task absorb --project /path/to/project --for hand <handle>
+vivi need absorb --project /path/to/project --for ceo <handle>
+vivi want absorb --project /path/to/project --for mind <handle>
+vivi memo absorb --project /path/to/project --for mind <handle>
 vivi mail list --project /path/to/project --for mind --status unabsorbed --json
 vivi mail list --project /path/to/project --from mind --json
 vivi mail list --project /path/to/project --to hand --json

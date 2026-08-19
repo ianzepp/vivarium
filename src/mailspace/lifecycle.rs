@@ -76,46 +76,50 @@ pub struct CycleIntake {
 }
 
 impl Mailspace {
-    /// Absorb an inbox message. Marks it as read and records an absorption
-    /// event.
+    /// Absorb a mailspace record. After absorb, the record cannot be changed.
     ///
     /// # Errors
     /// Returns an error if the identity or message cannot be resolved, if the
-    /// message is not in the inbox, or if a storage operation fails.
+    /// record is not the expected kind, or if a storage operation fails.
+    pub fn absorb(
+        &self,
+        identity: &str,
+        handle: &str,
+        note: Option<&str>,
+        expected_kind: &str,
+    ) -> Result<String, VivariumError> {
+        let (identity, message) = self.resolve_owned_message(identity, handle)?;
+        let kind = self.source_kind(&message)?;
+        if kind != expected_kind {
+            return Err(VivariumError::Message(format!(
+                "{handle} is {kind}, not {expected_kind}"
+            )));
+        }
+        let mut storage = self.storage()?;
+        let newly = storage.absorb_message(&message.account, &message.message_id, &identity)?;
+        if newly {
+            storage.append_mailspace_event(&absorb_event(
+                expected_kind,
+                &identity,
+                &message,
+                note,
+            ))?;
+        }
+        storage.display_handle(&message.message_id)
+    }
+
+    /// Absorb an owned mail record. After absorb, the record cannot be changed.
+    ///
+    /// # Errors
+    /// Returns an error if the identity or message cannot be resolved, if the
+    /// record is not mail, or if a storage operation fails.
     pub fn absorb_mail(
         &self,
         identity: &str,
         handle: &str,
         note: Option<&str>,
     ) -> Result<String, VivariumError> {
-        let (identity, message) = self.resolve_owned_message(identity, handle)?;
-        if message.local_role != "inbox" {
-            return Err(VivariumError::Message(format!(
-                "mail absorb only supports inbox mail; {handle} is in {}",
-                message.local_role
-            )));
-        }
-        self.storage()?
-            .append_mailspace_event(&MailspaceEventInput {
-                command: "mail absorb".into(),
-                event_type: "absorbed".into(),
-                actor_identity: Some(identity),
-                account: message.account.clone(),
-                message_id: message.message_id.clone(),
-                content_id: message.content_id.clone(),
-                from_role: Some(message.local_role.clone()),
-                to_role: Some(message.local_role),
-                from_identity: None,
-                to_identity: Some(message.account.clone()),
-                subject: message.subject,
-                note: note.map(str::to_string),
-            })?;
-        // Absorb means "read, processed, loaded into context" — mark the
-        // message read so `unread` counts stay honest. Boards and sensors read
-        // on `read_state`; without this, absorbed mail inflates `unread`.
-        let mut storage = self.storage()?;
-        storage.set_local_read_state(&message.account, &message.message_id, true)?;
-        storage.display_handle(&message.message_id)
+        self.absorb(identity, handle, note, "mail")
     }
 
     /// Create a task from a source message (currently only wants).
@@ -172,6 +176,11 @@ impl Mailspace {
         if self.source_kind(&want)? != "want" {
             return Err(VivariumError::Message(format!("{handle} is not a want")));
         }
+        if want.absorbed_at.is_some() {
+            return Err(VivariumError::Message(format!(
+                "{handle} is absorbed and can no longer be changed"
+            )));
+        }
         let mut metadata = BTreeMap::new();
         metadata.insert("priority".into(), update.priority);
         insert_optional(
@@ -218,6 +227,9 @@ impl Mailspace {
         let mut records = Vec::new();
         for role in roles {
             for want in self.list_kind(identity, role, "want")? {
+                if want.absorbed_at.is_some() && *role == "wants" && !roles.contains(&"done") {
+                    continue;
+                }
                 let metadata = storage.item_metadata(&want.message_id)?;
                 if !metadata_matches(&metadata, &options) {
                     continue;
@@ -436,6 +448,28 @@ fn sort_wants(records: &mut [WantListRecord], sort: &str) {
         }
         right.date.cmp(&left.date)
     });
+}
+
+fn absorb_event(
+    kind: &str,
+    identity: &str,
+    message: &StoredMessageView,
+    note: Option<&str>,
+) -> MailspaceEventInput {
+    MailspaceEventInput {
+        command: format!("{kind} absorb"),
+        event_type: "absorbed".into(),
+        actor_identity: Some(identity.into()),
+        account: message.account.clone(),
+        message_id: message.message_id.clone(),
+        content_id: message.content_id.clone(),
+        from_role: Some(message.local_role.clone()),
+        to_role: Some(message.local_role.clone()),
+        from_identity: None,
+        to_identity: Some(message.account.clone()),
+        subject: message.subject.clone(),
+        note: note.map(str::to_string),
+    }
 }
 
 fn rank(record: &WantListRecord) -> i64 {

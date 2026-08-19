@@ -373,12 +373,7 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
         MailCommand::Thread(command) => {
             print_local_thread(command)?;
         }
-        MailCommand::Absorb {
-            handle,
-            for_identity,
-            note,
-            project,
-        } => absorb_local_mail(handle, for_identity, note.as_ref(), project.as_deref())?,
+        MailCommand::Absorb(command) => absorb_record("mail", command)?,
         MailCommand::Dump(command) => {
             let mailspace = Mailspace::discover(command.project.as_deref())?;
             let records = mailspace.dump_mail(mail_dump_request(command))?;
@@ -435,14 +430,17 @@ fn list_local_mail(command: &MailListCommand) -> Result<(), VivariumError> {
     crate::local_mail_list::print_mail_list(&mailspace, command, mail_absorb_filter(command.status))
 }
 
-fn absorb_local_mail(
-    handle: &str,
-    for_identity: &str,
-    note: Option<&String>,
-    project: Option<&std::path::Path>,
+pub(crate) fn absorb_record(
+    kind: &str,
+    command: &vivarium::cli::AbsorbCommand,
 ) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(project)?;
-    let handle = mailspace.absorb_mail(for_identity, handle, note.map(String::as_str))?;
+    let mailspace = Mailspace::discover(command.project.as_deref())?;
+    let handle = mailspace.absorb(
+        &command.for_identity,
+        &command.handle,
+        command.note.as_deref(),
+        kind,
+    )?;
     println!("absorbed {handle}");
     Ok(())
 }
@@ -459,6 +457,7 @@ fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
             let handle = mailspace.save_memo(&command.for_identity, &command.subject, &body)?;
             println!("saved {handle}");
         }
+        MemoCommand::Absorb(command) => absorb_record("memo", command)?,
         MemoCommand::Delete { handle, for_identity, project } => {
             let mailspace = Mailspace::discover(project.as_deref())?;
             let handle = mailspace.move_item(for_identity, handle, "trash", None, "memo delete", None)?;
@@ -559,6 +558,7 @@ fn handle_task_command(command: &TaskCommand) -> Result<(), VivariumError> {
             project,
         } => show_task(handle, *json, project.as_deref())?,
         TaskCommand::Dump(command) => crate::local_work_command::dump_tasks(command)?,
+        TaskCommand::Absorb(command) => absorb_record("task", command)?,
         TaskCommand::Done {
             handle,
             for_identity,
