@@ -105,7 +105,9 @@ impl Mailspace {
                 note,
             ))?;
         }
-        storage.display_handle(&message.message_id)
+        drop(storage);
+        super::archive::export_absorbed(self, &message.message_id, expected_kind)?;
+        self.storage()?.display_handle(&message.message_id)
     }
 
     /// Absorb an owned mail record. After absorb, the record cannot be changed.
@@ -347,7 +349,7 @@ impl Mailspace {
         Ok((identity, message))
     }
 
-    fn source_kind(&self, message: &StoredMessageView) -> Result<String, VivariumError> {
+    pub(super) fn source_kind(&self, message: &StoredMessageView) -> Result<String, VivariumError> {
         let storage = self.storage()?;
         let data = storage.read_message(&message.message_id)?;
         let events = storage.list_mailspace_events(&message.message_id)?;

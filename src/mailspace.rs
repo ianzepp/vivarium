@@ -8,6 +8,7 @@ use crate::error::VivariumError;
 use crate::storage::Storage;
 use crate::store::secure_create_dir_all;
 
+mod archive;
 mod body;
 mod delivery;
 mod dump;
@@ -27,6 +28,7 @@ mod thread;
 mod trace;
 mod watch;
 
+pub use archive::ArchiveExportReport;
 pub use body::{read_body_arg, read_body_input};
 pub use dump::{
     DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
@@ -66,6 +68,9 @@ pub struct MailspaceConfig {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// Path to a dedicated git repo that receives absorbed records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive: Option<String>,
     #[serde(default)]
     pub identities: Vec<LocalIdentity>,
 }
@@ -76,6 +81,8 @@ pub struct MailspaceStatus {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archive: Option<String>,
     pub root: PathBuf,
     pub store: PathBuf,
     pub identities: Vec<IdentityStatus>,
@@ -151,6 +158,7 @@ impl Mailspace {
         let config = MailspaceConfig {
             name: default_name(&root),
             description: None,
+            archive: None,
             identities: Vec::new(),
         };
         write_config(&path, &config)?;
@@ -220,6 +228,32 @@ impl Mailspace {
         write_config(&path, &self.config)
     }
 
+    /// Set or clear the historical archive git repository path.
+    ///
+    /// Relative paths resolve against the mailspace project root. `~` expands.
+    /// The resolved path must be an existing git repository.
+    ///
+    /// # Errors
+    /// Returns an error if the path is not a git repo or the config cannot be written.
+    pub fn set_archive(&mut self, archive: Option<String>) -> Result<(), VivariumError> {
+        if let Some(raw) = archive.as_deref() {
+            archive::validate_archive_repo(&archive::resolve_archive_path(&self.root, raw)?)?;
+        }
+        self.config.archive = archive;
+        write_config(&self.dir.join(MAILSPACE_CONFIG), &self.config)
+    }
+
+    /// Write every absorbed record into the configured archive repo.
+    ///
+    /// Existing files are left untouched when the rendered bytes match.
+    ///
+    /// # Errors
+    /// Returns an error if no archive is configured, the archive path is not a
+    /// git repo, or a storage or filesystem operation fails.
+    pub fn export_archive(&self) -> Result<ArchiveExportReport, VivariumError> {
+        archive::export_all(self)
+    }
+
     /// Return a status summary for the mailspace and all identities.
     ///
     /// # Errors
@@ -269,6 +303,7 @@ impl Mailspace {
             found: true,
             name: self.config.name.clone(),
             description: self.config.description.clone(),
+            archive: self.config.archive.clone(),
             root: self.root.clone(),
             store: self.store_path(),
             identities,
@@ -281,6 +316,9 @@ pub fn print_status(status: &MailspaceStatus) {
     println!("mailspace {}", status.name);
     if let Some(description) = &status.description {
         println!("descr     {description}");
+    }
+    if let Some(archive) = &status.archive {
+        println!("archive   {archive}");
     }
     println!("root      {}", status.root.display());
     println!("store     {}", status.store.display());

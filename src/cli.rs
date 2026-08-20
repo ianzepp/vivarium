@@ -20,10 +20,10 @@ pub use mailspace_command::{
     GraphCommand, GraphCompleteCommand, GraphEdgeAddCommand, GraphEdgeCommand, GraphExportCommand,
     GraphImportCommand, GraphNodeAddCommand, GraphNodeCommand, GraphReadyCommand, GraphShowCommand,
     KindWatchCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
-    MailListCommand, MailReplyCommand, MailThreadCommand, MailspaceCommand,
-    MailspaceIdentityCommand, MailspaceImportCommand, MailspaceWatchCommand, MemoCommand,
-    NeedCommand, TaskCommand, TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand, TaskSendCommand,
-    TaskStatus, TraceCommand, WantCommand, WantStatus, WatchCommon,
+    MailListCommand, MailReplyCommand, MailThreadCommand, MailspaceArchiveCommand,
+    MailspaceCommand, MailspaceIdentityCommand, MailspaceImportCommand, MailspaceWatchCommand,
+    MemoCommand, NeedCommand, TaskCommand, TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand,
+    TaskSendCommand, TaskStatus, TraceCommand, WantCommand, WantStatus, WatchCommon,
 };
 pub use proton_command::ProtonCommand;
 pub use render_command::{RenderCommand, RenderFormat};

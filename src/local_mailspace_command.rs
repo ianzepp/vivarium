@@ -230,12 +230,70 @@ fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumEr
                 println!("{description}");
             }
         }
+        MailspaceCommand::Archive {
+            project,
+            set,
+            clear,
+            command,
+        } => handle_archive_command(project.as_deref(), set.as_deref(), *clear, command.as_ref())?,
         MailspaceCommand::Watch(command) => run_watch(&command.common, &command.kinds)?,
         MailspaceCommand::Import(command) | MailspaceCommand::Merge(command) => {
             import_mailspace(command)?;
         }
         MailspaceCommand::Identity { command } => handle_mailspace_identity_command(command)?,
     }
+    Ok(())
+}
+
+pub(crate) fn handle_archive_command(
+    project: Option<&std::path::Path>,
+    set: Option<&str>,
+    clear: bool,
+    command: Option<&vivarium::cli::MailspaceArchiveCommand>,
+) -> Result<(), VivariumError> {
+    if let Some(vivarium::cli::MailspaceArchiveCommand::Export {
+        project: export_project,
+        json,
+    }) = command
+    {
+        return export_archive(export_project.as_deref().or(project), *json);
+    }
+    let mut mailspace = Mailspace::discover(project)?;
+    if clear {
+        mailspace.set_archive(None)?;
+        println!("archive cleared");
+        return Ok(());
+    }
+    if let Some(path) = set {
+        mailspace.set_archive(Some(path.to_string()))?;
+        println!("archive set");
+        return Ok(());
+    }
+    println!(
+        "{}",
+        mailspace.config.archive.as_deref().unwrap_or("(none)")
+    );
+    Ok(())
+}
+
+pub(crate) fn export_archive(
+    project: Option<&std::path::Path>,
+    json: bool,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(project)?;
+    let report = mailspace.export_archive()?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .map_err(|e| VivariumError::Other(format!("failed to encode JSON: {e}")))?
+        );
+        return Ok(());
+    }
+    println!(
+        "scanned {}  written {}  unchanged {}",
+        report.scanned, report.written, report.unchanged
+    );
     Ok(())
 }
 

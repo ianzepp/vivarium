@@ -477,6 +477,18 @@ cannot be moved, reopened, prioritized, deleted, or otherwise changed. A second
 absorb of the same handle is a no-op. Replies and `task from` still create new
 records.
 
+Configure a dedicated git repo as the historical archive. Newly absorbed records
+are written as Markdown with TOML frontmatter. Files are rewritten only when the
+rendered bytes change. `archive export` backfills records absorbed before the
+archive was configured:
+
+```sh
+vivi mailspace archive --project /path/to/project --set /path/to/vivi
+vivi mailspace archive --project /path/to/project
+vivi mailspace archive export --project /path/to/project
+vivi mailspace archive --project /path/to/project --clear
+```
+
 ```sh
 vivi mail absorb --project /path/to/project --for mind <handle> \
   --note "Converted to priority request"

@@ -230,6 +230,45 @@ fn parses_mailspace_identity_add() {
 }
 
 #[test]
+fn parses_mailspace_archive_set_and_clear() {
+    let set = Cli::try_parse_from(["vivi", "mailspace", "archive", "--set", "../vivi"]).unwrap();
+    match set.command {
+        Command::Mailspace {
+            command: MailspaceCommand::Archive { set, clear, .. },
+        } => {
+            assert_eq!(set.as_deref(), Some("../vivi"));
+            assert!(!clear);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let clear = Cli::try_parse_from(["vivi", "mailspace", "archive", "--clear"]).unwrap();
+    match clear.command {
+        Command::Mailspace {
+            command: MailspaceCommand::Archive { set, clear, .. },
+        } => {
+            assert!(set.is_none());
+            assert!(clear);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let export = Cli::try_parse_from(["vivi", "mailspace", "archive", "export"]).unwrap();
+    match export.command {
+        Command::Mailspace {
+            command:
+                MailspaceCommand::Archive {
+                    command: Some(vivarium::cli::MailspaceArchiveCommand::Export { json, .. }),
+                    ..
+                },
+        } => {
+            assert!(!json);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
 fn parses_role_add_set_and_charter() {
     use vivarium::cli::{RoleCharterCommand, RoleCommand};
 

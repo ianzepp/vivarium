@@ -123,6 +123,126 @@ fn absorb_rejects_mutation_and_is_idempotent() {
 }
 
 #[test]
+fn set_archive_requires_git_repo_and_absorb_writes_once() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("ceo").unwrap();
+    mailspace.add_identity("cto").unwrap();
+
+    let missing = tmp.path().join("missing-archive");
+    let err = mailspace
+        .set_archive(Some(missing.to_string_lossy().into_owned()))
+        .unwrap_err();
+    assert!(err.to_string().contains("does not exist"), "{err}");
+
+    let not_git = tmp.path().join("not-git");
+    fs::create_dir_all(&not_git).unwrap();
+    let err = mailspace
+        .set_archive(Some(not_git.to_string_lossy().into_owned()))
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("must be a git repository"),
+        "{err}"
+    );
+
+    let archive = tmp.path().join("vivi-archive");
+    fs::create_dir_all(archive.join(".git")).unwrap();
+    mailspace
+        .set_archive(Some(archive.to_string_lossy().into_owned()))
+        .unwrap();
+
+    let sent = mailspace
+        .send(SendRequest {
+            from: "ceo".into(),
+            to: vec!["cto".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "archive me".into(),
+            body: "seal this task".into(),
+            role: "tasks".into(),
+            kind: Some("task".into()),
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap();
+    let handle = sent.delivered[0].handle.clone();
+    mailspace
+        .absorb("cto", &handle, Some("done"), "task")
+        .unwrap();
+
+    let storage = mailspace.storage().unwrap();
+    let resolved = storage.resolve_message_token(&handle).unwrap();
+    let path =
+        super::archive::archive_file_path(&archive, &mailspace.config.name, "task", &resolved);
+    let rendered = fs::read_to_string(&path).unwrap();
+    assert!(rendered.starts_with("+++"), "{rendered}");
+    assert!(rendered.contains("kind = \"task\""), "{rendered}");
+    assert!(rendered.contains("seal this task"), "{rendered}");
+    assert!(rendered.contains("command = \"task absorb\""), "{rendered}");
+
+    let first = fs::read_to_string(&path).unwrap();
+    mailspace.absorb("cto", &handle, None, "task").unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), first);
+
+    fs::write(&path, "stale").unwrap();
+    mailspace.absorb("cto", &handle, None, "task").unwrap();
+    let restored = fs::read_to_string(&path).unwrap();
+    assert_eq!(restored, first);
+    assert!(!restored.contains("stale"), "{restored}");
+}
+
+#[test]
+fn export_archive_writes_prior_absorbs_and_is_idempotent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("ceo").unwrap();
+    mailspace.add_identity("cto").unwrap();
+    let sent = mailspace
+        .send(SendRequest {
+            from: "ceo".into(),
+            to: vec!["cto".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "later".into(),
+            body: "already sealed".into(),
+            role: "tasks".into(),
+            kind: Some("task".into()),
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap();
+    let handle = sent.delivered[0].handle.clone();
+    mailspace.absorb("cto", &handle, None, "task").unwrap();
+
+    let err = mailspace.export_archive().unwrap_err();
+    assert!(err.to_string().contains("no archive configured"), "{err}");
+
+    let archive = tmp.path().join("vivi-archive");
+    fs::create_dir_all(archive.join(".git")).unwrap();
+    mailspace
+        .set_archive(Some(archive.to_string_lossy().into_owned()))
+        .unwrap();
+
+    let first = mailspace.export_archive().unwrap();
+    assert_eq!(first.scanned, 1);
+    assert_eq!(first.written, 1);
+    assert_eq!(first.unchanged, 0);
+
+    let storage = mailspace.storage().unwrap();
+    let resolved = storage.resolve_message_token(&handle).unwrap();
+    let path =
+        super::archive::archive_file_path(&archive, &mailspace.config.name, "task", &resolved);
+    let rendered = fs::read_to_string(&path).unwrap();
+    assert!(rendered.contains("already sealed"), "{rendered}");
+
+    let second = mailspace.export_archive().unwrap();
+    assert_eq!(second.scanned, 1);
+    assert_eq!(second.written, 0);
+    assert_eq!(second.unchanged, 1);
+    assert_eq!(fs::read_to_string(&path).unwrap(), rendered);
+}
+
+#[test]
 fn task_move_keeps_handle_stable() {
     let tmp = tempfile::tempdir().unwrap();
     let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();

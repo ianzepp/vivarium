@@ -39,6 +39,28 @@ pub enum MailspaceCommand {
         set: Option<String>,
     },
 
+    /// Show or set the historical archive git repository
+    #[command(group(
+        ArgGroup::new("archive_action")
+            .args(["set", "clear"])
+    ))]
+    Archive {
+        /// Project root to inspect
+        #[arg(long)]
+        project: Option<PathBuf>,
+
+        /// Path to a dedicated git repo that receives absorbed records
+        #[arg(long)]
+        set: Option<String>,
+
+        /// Clear the configured archive path
+        #[arg(long)]
+        clear: bool,
+
+        #[command(subcommand)]
+        command: Option<MailspaceArchiveCommand>,
+    },
+
     /// Wait for project-local mailspace events; this is not IMAP watch
     Watch(Box<MailspaceWatchCommand>),
 
@@ -53,6 +75,20 @@ pub enum MailspaceCommand {
     Identity {
         #[command(subcommand)]
         command: MailspaceIdentityCommand,
+    },
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum MailspaceArchiveCommand {
+    /// Write every absorbed record into the configured archive repo
+    Export {
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+
+        /// Output the export report as JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 

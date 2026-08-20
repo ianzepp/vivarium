@@ -1797,6 +1797,133 @@ fn absorb_seals_records_and_rejects_later_mutation() {
     assert!(stdout(&again).contains(&task), "{}", stdout(&again));
 }
 
+#[test]
+fn absorb_writes_markdown_into_configured_archive_repo() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let archive = project.path().join("vivi");
+    std::fs::create_dir_all(archive.join(".git")).unwrap();
+    let root = project.path().to_str().unwrap();
+    assert_success(&vivi([
+        "mailspace",
+        "archive",
+        "--project",
+        root,
+        "--set",
+        archive.to_str().unwrap(),
+    ]));
+    let shown = vivi(["mailspace", "archive", "--project", root]);
+    assert_success(&shown);
+    assert!(
+        stdout(&shown).contains(archive.to_str().unwrap()),
+        "{}",
+        stdout(&shown)
+    );
+
+    let task = send_work(
+        project.path(),
+        "task",
+        "cto",
+        "archive me",
+        "body for history",
+    );
+    assert_success(&vivi([
+        "task",
+        "absorb",
+        "--project",
+        root,
+        "--for",
+        "cto",
+        &task,
+    ]));
+
+    let toml = std::fs::read_to_string(project.path().join(".vivi/mailspace.toml")).unwrap();
+    let project_name = toml
+        .lines()
+        .find_map(|line| line.strip_prefix("name = "))
+        .map(|value| value.trim_matches('"'))
+        .expect("mailspace name");
+    let dir = archive.join(project_name).join("task");
+    let found: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(found.len(), 1, "expected one archive file in {dir:?}");
+    let rendered = std::fs::read_to_string(&found[0]).unwrap();
+    assert!(rendered.contains("kind = \"task\""), "{rendered}");
+    assert!(rendered.contains("body for history"), "{rendered}");
+}
+
+#[test]
+fn archive_export_backfills_already_absorbed_records() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let root = project.path().to_str().unwrap();
+    let task = send_work(
+        project.path(),
+        "task",
+        "cto",
+        "old absorb",
+        "sealed before archive",
+    );
+    assert_success(&vivi([
+        "task",
+        "absorb",
+        "--project",
+        root,
+        "--for",
+        "cto",
+        &task,
+    ]));
+
+    let missing = vivi(["mailspace", "archive", "export", "--project", root]);
+    assert!(!missing.status.success(), "{}", stderr(&missing));
+    assert!(
+        stderr(&missing).contains("no archive configured"),
+        "{}",
+        stderr(&missing)
+    );
+
+    let archive = project.path().join("vivi");
+    std::fs::create_dir_all(archive.join(".git")).unwrap();
+    assert_success(&vivi([
+        "mailspace",
+        "archive",
+        "--project",
+        root,
+        "--set",
+        archive.to_str().unwrap(),
+    ]));
+
+    let first = vivi([
+        "mailspace",
+        "archive",
+        "export",
+        "--project",
+        root,
+        "--json",
+    ]);
+    assert_success(&first);
+    let first_report: Value = serde_json::from_str(&stdout(&first)).unwrap();
+    assert_eq!(first_report["scanned"], 1);
+    assert_eq!(first_report["written"], 1);
+    assert_eq!(first_report["unchanged"], 0);
+
+    let second = vivi([
+        "mailspace",
+        "archive",
+        "export",
+        "--project",
+        root,
+        "--json",
+    ]);
+    assert_success(&second);
+    let second_report: Value = serde_json::from_str(&stdout(&second)).unwrap();
+    assert_eq!(second_report["scanned"], 1);
+    assert_eq!(second_report["written"], 0);
+    assert_eq!(second_report["unchanged"], 1);
+}
+
 #[allow(clippy::cast_possible_truncation)]
 fn inbox_unread(project: &std::path::Path, identity: &str) -> usize {
     let output = vivi([
