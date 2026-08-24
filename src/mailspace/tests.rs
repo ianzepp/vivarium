@@ -243,6 +243,75 @@ fn export_archive_writes_prior_absorbs_and_is_idempotent() {
 }
 
 #[test]
+fn export_archive_includes_done_work_items_but_not_done_mail() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("ceo").unwrap();
+    mailspace.add_identity("cto").unwrap();
+    let send = |role: &str, kind: Option<&str>, subject: &str, body: &str| {
+        mailspace
+            .send(SendRequest {
+                from: "ceo".into(),
+                to: vec!["cto".into()],
+                cc: Vec::new(),
+                bcc: Vec::new(),
+                subject: subject.into(),
+                body: body.into(),
+                role: role.into(),
+                kind: kind.map(str::to_owned),
+                reply_to: None,
+                depends_on: Vec::new(),
+            })
+            .unwrap()
+            .delivered[0]
+            .handle
+            .clone()
+    };
+
+    let task = send(
+        "tasks",
+        Some("task"),
+        "completed task",
+        "preserve this task history",
+    );
+    mailspace
+        .move_task("cto", &task, "done", None, Some("clean_pass"), &[], &[])
+        .unwrap();
+    let mail = send(
+        "inbox",
+        None,
+        "ordinary done mail",
+        "do not classify this as work history",
+    );
+    mailspace
+        .move_item("cto", &mail, "done", None, "item move", None)
+        .unwrap();
+
+    let archive = tmp.path().join("vivi-archive");
+    fs::create_dir_all(archive.join(".git")).unwrap();
+    mailspace
+        .set_archive(Some(archive.to_string_lossy().into_owned()))
+        .unwrap();
+    let report = mailspace.export_archive().unwrap();
+    assert_eq!(
+        (report.scanned, report.written, report.unchanged),
+        (1, 1, 0)
+    );
+
+    let storage = mailspace.storage().unwrap();
+    let resolved = storage.resolve_message_token(&task).unwrap();
+    let path =
+        super::archive::archive_file_path(&archive, &mailspace.config.name, "task", &resolved);
+    let rendered = fs::read_to_string(path).unwrap();
+    assert!(rendered.contains("role = \"done\""), "{rendered}");
+    assert!(
+        rendered.contains("preserve this task history"),
+        "{rendered}"
+    );
+    assert!(!archive.join(&mailspace.config.name).join("mail").exists());
+}
+
+#[test]
 fn task_move_keeps_handle_stable() {
     let tmp = tempfile::tempdir().unwrap();
     let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();

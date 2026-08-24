@@ -82,11 +82,10 @@ pub(super) fn export_all(mailspace: &Mailspace) -> Result<ArchiveExportReport, V
     let storage = mailspace.storage()?;
     let mut report = ArchiveExportReport::default();
     for view in storage.list_messages()? {
-        if view.absorbed_at.is_none() {
+        let Some(kind) = archive_kind(mailspace, &view)? else {
             continue;
-        }
+        };
         report.scanned += 1;
-        let kind = mailspace.source_kind(&view)?;
         let rendered = render_record(mailspace, &storage, &view, &kind)?;
         let path = archive_file_path(&archive, &mailspace.config.name, &kind, &view.message_id);
         if write_if_changed(&path, &rendered)? {
@@ -96,6 +95,22 @@ pub(super) fn export_all(mailspace: &Mailspace) -> Result<ArchiveExportReport, V
         }
     }
     Ok(report)
+}
+
+fn archive_kind(
+    mailspace: &Mailspace,
+    view: &StoredMessageView,
+) -> Result<Option<String>, VivariumError> {
+    if view.absorbed_at.is_none() && view.local_role != "done" {
+        return Ok(None);
+    }
+    let kind = mailspace.source_kind(view)?;
+    if view.absorbed_at.is_some()
+        || (view.local_role == "done" && matches!(kind.as_str(), "task" | "need" | "want"))
+    {
+        return Ok(Some(kind));
+    }
+    Ok(None)
 }
 
 pub(super) fn resolve_archive_path(root: &Path, raw: &str) -> Result<PathBuf, VivariumError> {
