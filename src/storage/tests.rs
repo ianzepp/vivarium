@@ -222,6 +222,130 @@ fn local_size_fallback_uses_remote_uid_shape_for_storage_rows() {
     assert_eq!(sizes.get("inbox-7"), Some(&(raw.len() as u64)));
 }
 
+#[test]
+fn latest_from_prefers_exact_address_and_ignores_memos() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    ingest_dated(
+        &mut storage,
+        "mind",
+        "sent",
+        "mind@faberlang.local",
+        "Wed, 01 Jan 2020 00:00:00 +0000",
+        "old-mail",
+    );
+    ingest_dated(
+        &mut storage,
+        "mind",
+        "memos",
+        "mind@faberlang.local",
+        "Fri, 03 Jan 2020 00:00:00 +0000",
+        "newer-memo",
+    );
+    let newer = ingest_dated(
+        &mut storage,
+        "mind",
+        "sent",
+        "mind@faberlang.local",
+        "Thu, 02 Jan 2020 00:00:00 +0000",
+        "newer-mail",
+    );
+    let found = storage
+        .latest_message_from_addresses(&["mind@faberlang.local".into()])
+        .unwrap()
+        .expect("signal");
+    assert_eq!(found.message_id, newer);
+    assert_eq!(found.local_role, "sent");
+    assert!(!found.handle.is_empty());
+}
+
+#[test]
+fn latest_from_matches_display_name_form() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    let id = ingest_dated(
+        &mut storage,
+        "acct",
+        "sent",
+        "Agent <agent@example.com>",
+        "Thu, 02 Jan 2020 00:00:00 +0000",
+        "named",
+    );
+    let found = storage
+        .latest_message_from_addresses(&["agent@example.com".into()])
+        .unwrap()
+        .expect("display-name from");
+    assert_eq!(found.message_id, id);
+}
+
+#[test]
+fn schema_v6_adds_from_addr_date_index_on_upgrade() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = Storage::open(tmp.path()).unwrap();
+    storage
+        .conn
+        .execute("DROP INDEX message_metadata_from_addr_date_idx", [])
+        .unwrap();
+    storage
+        .conn
+        .execute(
+            "INSERT OR REPLACE INTO storage_metadata (key, value) VALUES ('schema_version', '5')",
+            [],
+        )
+        .unwrap();
+    drop(storage);
+    let storage = Storage::open(tmp.path()).unwrap();
+    let present: i64 = storage
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'message_metadata_from_addr_date_idx'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(present, 1);
+    let version: String = storage
+        .conn
+        .query_row(
+            "SELECT value FROM storage_metadata WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(version, "6");
+}
+
+fn ingest_dated(
+    storage: &mut Storage,
+    account: &str,
+    role: &str,
+    from: &str,
+    date: &str,
+    seed: &str,
+) -> String {
+    let raw = format!(
+        "Message-ID: <{seed}@example.com>\r\nFrom: {from}\r\nTo: x@example.com\r\n\
+         Date: {date}\r\nSubject: s\r\n\r\nbody"
+    )
+    .into_bytes();
+    storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: account.into(),
+                local_role: role.into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: None,
+                seed_hint: seed.into(),
+                remote: None,
+            },
+            &raw,
+        )
+        .unwrap()
+        .message_id
+}
+
 fn message_bytes(message_id: &str, body: &str) -> Vec<u8> {
     format!(
             "Message-ID: <{message_id}>\r\nFrom: Agent <agent@example.com>\r\nTo: User <user@example.com>\r\nSubject: hi\r\n\r\n{body}"

@@ -788,3 +788,65 @@ fn legacy_identity_toml_loads_as_role_with_defaults() {
     assert_eq!(view.harness.as_deref(), Some("subagent"));
     assert!(view.charter.contains("report to mind"));
 }
+
+#[test]
+fn schedule_report_skips_outbound_query_without_cadence() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("hand").unwrap();
+    mailspace.add_identity("mind").unwrap();
+    mailspace
+        .send(SendRequest {
+            from: "hand".into(),
+            to: vec!["mind".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "work".into(),
+            body: "body".into(),
+            role: "inbox".into(),
+            kind: None,
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap();
+    let report = mailspace.schedule_report("hand").unwrap();
+    assert_eq!(report.state, crate::role_schedule::ScheduleState::None);
+    assert!(report.last_signal_handle.is_none());
+}
+
+#[test]
+fn schedule_report_uses_latest_non_memo_when_cadence_set() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("mind").unwrap();
+    mailspace
+        .add_role(
+            "hand",
+            RoleUpdate {
+                cadence: Some(Some("15m".into())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    mailspace
+        .send(SendRequest {
+            from: "hand".into(),
+            to: vec!["mind".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "cycle".into(),
+            body: "done".into(),
+            role: "inbox".into(),
+            kind: None,
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap();
+    mailspace
+        .save_memo("hand", "private note", "not a signal")
+        .unwrap();
+    let report = mailspace.schedule_report("hand").unwrap();
+    assert_eq!(report.state, crate::role_schedule::ScheduleState::Ok);
+    assert_ne!(report.last_signal_kind.as_deref(), Some("memos"));
+    assert!(report.last_signal_handle.is_some());
+}

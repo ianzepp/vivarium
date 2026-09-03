@@ -144,6 +144,7 @@ fn build_board(
     for identity in identities {
         boards.push(build_identity_board(
             mailspace,
+            &storage,
             &identity,
             messages_by_identity.remove(&identity).unwrap_or_default(),
             &events_by_message,
@@ -342,8 +343,10 @@ fn group_board_messages(
     grouped
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_identity_board(
     mailspace: &Mailspace,
+    storage: &Storage,
     identity: &str,
     messages: Vec<StoredMessageView>,
     events_by_message: &HashMap<String, Vec<MailspaceEvent>>,
@@ -365,7 +368,9 @@ fn build_identity_board(
         actionable_open: tasks.len() + needs.len(),
         wants_hidden: wants_count.saturating_sub(wants.len()),
         process: role_process_status(mailspace, identity, with_process),
-        schedule: role_schedule_status(mailspace, identity),
+        schedule: mailspace
+            .schedule_report_with(storage, identity)
+            .unwrap_or_else(|_| vivarium::role_schedule::evaluate(None, None, Utc::now())),
         tasks,
         needs,
         wants,
@@ -381,12 +386,6 @@ fn role_capacity(mailspace: &Mailspace, identity: &str) -> (Option<String>, Opti
         .map_or((None, None), |role| {
             (role.model.clone(), role.thinking.clone())
         })
-}
-
-fn role_schedule_status(mailspace: &Mailspace, identity: &str) -> ScheduleReport {
-    mailspace
-        .schedule_report(identity)
-        .unwrap_or_else(|_| vivarium::role_schedule::evaluate(None, None, Utc::now()))
 }
 
 /// Look up a role's pid/host binding and probe it when `with_process` is set.

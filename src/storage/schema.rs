@@ -2,11 +2,9 @@ use rusqlite::Connection;
 
 use crate::error::VivariumError;
 
-const STORAGE_SCHEMA_VERSION: &str = "5";
+const STORAGE_SCHEMA_VERSION: &str = "6";
 
-#[allow(clippy::too_many_lines)]
 pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
-    // Fast path: skip DDL when schema is already current
     let existing: Option<String> = conn
         .query_row(
             "SELECT value FROM storage_metadata WHERE key = 'schema_version'",
@@ -17,9 +15,26 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
     if existing.as_deref() == Some(STORAGE_SCHEMA_VERSION) {
         return Ok(());
     }
+    if existing.is_none() {
+        conn.execute_batch(SCHEMA_DDL).map_err(|e| {
+            VivariumError::Other(format!("failed to initialize storage schema: {e}"))
+        })?;
+        ensure_absorb_columns(conn)?;
+    }
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS message_metadata_from_addr_date_idx ON message_metadata(from_addr, date)",
+        [],
+    )
+    .map_err(|e| VivariumError::Other(format!("failed to create from_addr index: {e}")))?;
+    conn.execute(
+        "INSERT OR REPLACE INTO storage_metadata (key, value) VALUES ('schema_version', ?1)",
+        rusqlite::params![STORAGE_SCHEMA_VERSION],
+    )
+    .map(|_| ())
+    .map_err(|e| VivariumError::Other(format!("failed to write storage schema version: {e}")))
+}
 
-    conn.execute_batch(
-        "BEGIN;
+const SCHEMA_DDL: &str = "BEGIN;
          CREATE TABLE IF NOT EXISTS storage_metadata (
            key TEXT PRIMARY KEY,
            value TEXT NOT NULL
@@ -184,20 +199,7 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
          );
          CREATE INDEX IF NOT EXISTS mailspace_goals_path_idx
            ON mailspace_goals(path);
-         COMMIT;",
-    )
-    .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))?;
-
-    ensure_absorb_columns(conn)?;
-
-    conn.execute(
-        "INSERT OR REPLACE INTO storage_metadata (key, value) VALUES ('schema_version', ?1)",
-        rusqlite::params![STORAGE_SCHEMA_VERSION],
-    )
-    .map_err(|e| VivariumError::Other(format!("failed to write storage schema version: {e}")))?;
-
-    Ok(())
-}
+         COMMIT;";
 
 fn ensure_absorb_columns(conn: &Connection) -> Result<(), VivariumError> {
     add_column_if_missing(conn, "messages", "absorbed_at", "TEXT")?;

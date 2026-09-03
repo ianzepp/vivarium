@@ -254,13 +254,8 @@ impl Storage {
 
     /// Latest non-memo message whose `from_addr` matches any of `addresses`.
     ///
-    /// Address matching accepts bare emails and display-name forms
-    /// (`Name <email>`). Memos are excluded — they are private role memory,
-    /// not outbound cycle signals.
-    ///
     /// # Errors
-    /// Returns a [`VivariumError`] if the database query or handle decoration
-    /// fails.
+    /// Returns a [`VivariumError`] if the query or handle decoration fails.
     pub fn latest_message_from_addresses(
         &self,
         addresses: &[String],
@@ -268,39 +263,38 @@ impl Storage {
         if addresses.is_empty() {
             return Ok(None);
         }
-        let mut predicates = Vec::with_capacity(addresses.len());
-        for (i, _) in addresses.iter().enumerate() {
-            let n = i + 1;
-            predicates.push(format!(
-                "(md.from_addr = ?{n} OR md.from_addr LIKE '%<' || ?{n} || '>%')"
-            ));
-        }
-        let sql = format!(
-            "{} WHERE m.deleted_at IS NULL AND m.local_role != 'memos' AND ({}) \
-             ORDER BY md.date DESC, m.message_id LIMIT 1",
-            message_query(""),
-            predicates.join(" OR ")
-        );
-        let mut stmt = self.conn.prepare(&sql).map_err(|e| {
-            VivariumError::Other(format!("failed to prepare latest-from query: {e}"))
-        })?;
+        let numbered = (1..=addresses.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>();
+        let like = (1..=addresses.len())
+            .map(|index| format!("md.from_addr LIKE '%<' || ?{index} || '>%'"))
+            .collect::<Vec<_>>()
+            .join(" OR ");
         let params: Vec<&dyn rusqlite::types::ToSql> = addresses
             .iter()
             .map(|a| a as &dyn rusqlite::types::ToSql)
             .collect();
-        let message = stmt
-            .query_row(params.as_slice(), raw_stored_message_from_row)
-            .optional()
-            .map_err(|e| {
-                VivariumError::Other(format!("failed to read latest-from message: {e}"))
+        for predicate in [format!("md.from_addr IN ({})", numbered.join(",")), like] {
+            let sql = format!(
+                "{} WHERE m.deleted_at IS NULL AND m.local_role != 'memos' AND ({predicate}) \
+                 ORDER BY md.date DESC, m.message_id LIMIT 1",
+                message_query(""),
+            );
+            let mut stmt = self.conn.prepare(&sql).map_err(|e| {
+                VivariumError::Other(format!("failed to prepare latest-from query: {e}"))
             })?;
-        match message {
-            Some(mut message) => {
+            let found = stmt
+                .query_row(params.as_slice(), raw_stored_message_from_row)
+                .optional()
+                .map_err(|e| {
+                    VivariumError::Other(format!("failed to read latest-from message: {e}"))
+                })?;
+            if let Some(mut message) = found {
                 message.handle = self.display_handle(&message.message_id)?;
-                Ok(Some(message))
+                return Ok(Some(message));
             }
-            None => Ok(None),
         }
+        Ok(None)
     }
 
     /// List catalog entries for an account.

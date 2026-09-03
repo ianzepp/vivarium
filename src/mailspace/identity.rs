@@ -10,6 +10,7 @@ use super::{MAILSPACE_CONFIG, Mailspace, write_config};
 use crate::duration::parse_duration_secs;
 use crate::error::VivariumError;
 use crate::role_schedule::{self, LastSignal, ScheduleReport};
+use crate::storage::Storage;
 
 /// Preferred lifecycle values; freeform strings are still accepted.
 pub const ROLE_STATUS_ACTIVE: &str = "active";
@@ -303,45 +304,48 @@ impl Mailspace {
         Ok(views)
     }
 
-    /// Schedule health for a role: cadence vs age of latest outbound message.
-    ///
-    /// Does not read charter files. Memos do not count as signals.
-    ///
+    /// # Errors
+    /// Unknown role or storage query failure.
+    pub fn schedule_report(&self, name: &str) -> Result<ScheduleReport, VivariumError> {
+        self.schedule_report_with(&self.storage()?, name)
+    }
+
     /// # Errors
     /// Returns an error if the role is unknown or storage cannot be queried.
-    pub fn schedule_report(&self, name: &str) -> Result<ScheduleReport, VivariumError> {
+    pub fn schedule_report_with(
+        &self,
+        storage: &Storage,
+        name: &str,
+    ) -> Result<ScheduleReport, VivariumError> {
         let canonical = self.resolve_identity(name)?;
         let cadence = self
             .find_role_by_name_or_alias(&canonical)
             .and_then(|role| role.cadence.as_deref());
-        let signal = self.last_outbound_signal(&canonical)?;
+        if cadence.is_none() {
+            return Ok(role_schedule::evaluate(None, None, Utc::now()));
+        }
+        let mut addresses: Vec<_> = self
+            .identity_names(&canonical)
+            .into_iter()
+            .map(|n| self.address_for(&n))
+            .collect();
+        addresses.sort();
+        addresses.dedup();
+        let signal = storage
+            .latest_message_from_addresses(&addresses)?
+            .map(|m| LastSignal {
+                at: DateTime::parse_from_rfc3339(&m.date).map_or_else(
+                    |_| DateTime::from_timestamp(0, 0).unwrap_or_else(Utc::now),
+                    |d| d.with_timezone(&Utc),
+                ),
+                handle: m.handle,
+                local_role: m.local_role,
+            });
         Ok(role_schedule::evaluate(
             cadence,
             signal.as_ref(),
             Utc::now(),
         ))
-    }
-
-    fn last_outbound_signal(&self, role_name: &str) -> Result<Option<LastSignal>, VivariumError> {
-        let names = self.identity_names(role_name);
-        let mut addresses: Vec<String> = names.iter().map(|name| self.address_for(name)).collect();
-        addresses.sort();
-        addresses.dedup();
-        let storage = self.storage()?;
-        let Some(message) = storage.latest_message_from_addresses(&addresses)? else {
-            return Ok(None);
-        };
-        let at = DateTime::parse_from_rfc3339(&message.date)
-            .ok()
-            .map_or_else(
-                || DateTime::from_timestamp(0, 0).unwrap_or_else(Utc::now),
-                |date| date.with_timezone(&Utc),
-            );
-        Ok(Some(LastSignal {
-            at,
-            handle: message.handle,
-            local_role: message.local_role,
-        }))
     }
 
     /// Write a charter body for a role.
