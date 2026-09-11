@@ -19,6 +19,12 @@ source of truth when these instructions drift.
   task-attempt binding)
 - Providers: standard IMAP/SMTP, Proton Bridge-style config, and direct Proton API paths
 
+## Agent skill
+
+Agent-facing `vivi` CLI guidance is [`skills/vivi/SKILL.md`](skills/vivi/SKILL.md).
+Load that skill for mailspace, role, goal, graph, and email command usage.
+Verify live `--help` before exact flags.
+
 ## Work Graphs (project mailspace)
 
 Executable topology lives in project-local `mail.sqlite` tables

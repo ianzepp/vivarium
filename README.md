@@ -52,6 +52,15 @@ cargo install --path .
 cargo install --path crates/vivi-pty
 ```
 
+## Agent skill
+
+Agent-facing CLI guidance lives at [`skills/vivi/SKILL.md`](skills/vivi/SKILL.md).
+Symlink that folder into a client skill directory:
+
+```sh
+ln -s "$(pwd)/skills/vivi" ~/.agents/skills/vivi
+```
+
 ## Quick Start
 
 ```
