@@ -11,10 +11,10 @@ IMAP providers continue to work through the same local storage model.
 Raw RFC 5322 bytes stay on disk as `.eml` blobs, while mutable mailbox state
 and derived indexes live in SQLite.
 
-The repository also ships `vivi-pty`, a separate companion binary that owns
-Fleet-managed agent processes and pseudo-terminals. `vivi` remains the durable
-mail and work interface; `vivi-pty` exposes ephemeral terminal runtime state
-over a local Unix socket. See [`crates/vivi-pty`](crates/vivi-pty/README.md).
+The repository also ships `vivi-pty`, a companion binary that owns agent
+pseudo-terminals. `vivi` remains the durable mail and work interface;
+`vivi-pty` exposes ephemeral terminal runtime state over a local Unix socket.
+See [`crates/vivi-pty`](crates/vivi-pty/README.md).
 
 ## Why
 
@@ -29,11 +29,19 @@ API contract, so Bridge remains the conservative compatibility option.
 
 ## Install
 
+Current release: **8.1.0**
+([GitHub releases](https://github.com/ianzepp/vivarium/releases),
+[notes](docs/release-v8.1.0.md)).
+Each published archive and the Homebrew formula install both `vivi` and
+`vivi-pty`.
+
 With Homebrew on macOS:
 
 ```sh
 brew install ianzepp/tap/vivarium
 ```
+
+The tap formula is macOS-only (`aarch64` and `x86_64`).
 
 With curl on macOS or Linux:
 
@@ -41,7 +49,14 @@ With curl on macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/ianzepp/vivarium/main/install.sh | bash
 ```
 
-The installer downloads both `vivi` and `vivi-pty` binaries for your platform.
+Published binary archives for 8.1.0:
+
+- `vivi-aarch64-apple-darwin.tar.gz`
+- `vivi-x86_64-apple-darwin.tar.gz`
+- `vivi-x86_64-unknown-linux-gnu.tar.gz`
+
+Linux `aarch64` has no binary archive yet. On that platform the installer
+falls back to `cargo install` from the release tag.
 
 From source, requires Rust 1.93+:
 
@@ -67,10 +82,11 @@ ln -s "$(pwd)/skills/vivi" ~/.agents/skills/vivi
 vivi init
 ```
 
-This creates `~/.vivarium/` with two files:
+This creates `~/.vivarium/` with:
 
 - `config.toml` - general settings such as mail root and TLS policy
 - `accounts.toml` - account credentials, created with mode `600`
+- `agent/prompt.md` - default prompt for `vivi agent poll`
 
 Semantic embedding settings are intentionally not guessed. If you want
 `storage_mode = "semantic"`, `vivi sync --embed`, or semantic search, configure
@@ -227,7 +243,7 @@ vivi board
 ### Roles (agent seats)
 
 Roles are first-class mailspace seats. Each role owns a local mailbox name plus
-durable metadata used by multi-agent fleets (especially sub-agent spawns):
+durable metadata used by multi-agent hosts (especially sub-agent spawns):
 
 | Field | Meaning |
 | --- | --- |
@@ -404,8 +420,8 @@ single logical node. Use `--json` for agent consumption and `--max-depth` /
 | --- | --- |
 | Planning topology + ready frontier | `vivi graph` (project `mail.sqlite`) |
 | Communication history | `vivi trace` |
-| Standalone task deps (6.4) | `task send --depends-on` / `task list --blocked` |
-| Who to spawn / when | Mind + Fleet (`prepare --node` → claim → settle) |
+| Standalone task deps | `task send --depends-on` / `task list --blocked` |
+| Who to spawn / when | The host, not Vivi. Bind an attempt with `graph activate --task` |
 
 Import a narrow Mermaid `flowchart` / `graph` with `-->` edges; Vivi assigns
 immutable handles, keeps Mermaid as revision evidence, and reports the ready
@@ -625,6 +641,13 @@ folder-and-UID identifiers like `inbox-2050`.
 
 ## Commands
 
+`vivi --help` is the live top-level list. In 8.1.0 that is: `init`, `sync`,
+`sync-events`, `folders`, `doctor`, `proton`, `render`, `watch-inbox`, `list`,
+`board`, `mailspace`, `mail`, `task`, `need`, `want`, `memo`, `goal`, `role`,
+`cycle`, `show`, `thread`, `trace`, `graph`, `reply`, `compose`, `export`,
+`search`, `index`, `agent`, `exec`, `enqueue`, `queue`, `labels`, `label`.
+Project-mailspace commands are in the section above. Account-scoped examples:
+
 ```
 vivi init                                      # create config directory and files
 vivi --version                                 # print installed version
@@ -636,6 +659,9 @@ vivi sync --account proton --json              # machine-readable sync summary
 vivi sync --account proton --since 3mo         # sync messages from the last 3 months
 vivi sync --account proton --since 2025-05-02 --before 2026-05-02
 vivi sync --account proton --reset             # delete local cache, then full resync
+vivi sync-events --account agent-proton --json # poll Proton API events once
+vivi sync-events --account agent-proton --watch --json
+vivi folders --account proton --json           # list remote IMAP folders
 vivi render --explain --format pdf              # explain installed render pipelines
 vivi render report.md --output report.pdf       # render local Markdown
 vivi compose --attach-document report.md ...    # draft with Markdown + PDF
@@ -666,10 +692,12 @@ vivi search "DoorDash" --folder inbox --count  # print only the inbox match coun
 vivi search "invoice" --from person@example.com
 vivi search "invoice" --from-domain example.com
 vivi index rebuild --account proton            # rebuild deterministic local index state
+vivi labels --json                             # show provider label support
 vivi reply 4f8c2d1                             # draft a reply from a local message
 vivi compose --to you@example.com --subject hi # create a new local draft
 vivi compose --to you@example.com --subject hi --body "Plain text" --html-body-auto
 vivi exec send --account agent-proton --from agent@proton.me path/to/draft.eml
+vivi agent poll --from person@example.com --json  # trusted-inbox Codex helper
 ```
 
 `compose` and `reply` can create multipart drafts with both plain text and HTML.
@@ -683,8 +711,9 @@ uses the account's SMTP settings.
 Write commands are split by effect. `vivi exec ...` performs the external write
 now. `vivi enqueue ...` records a durable pending item under the selected
 account's Vivi state, and `vivi queue run ...` is the explicit later execution
-step. The older `vivi agent ...` planning surface has been removed because it
-named the caller rather than the effect.
+step. `vivi agent poll` still exists as a trusted-inbox Codex helper;
+`vivi agent archive|delete|move|flag` remain plan-or-execute wrappers. Prefer
+`exec` / `enqueue` / `queue` for new write flows.
 
 All commands accept `--account <name>` to target a specific account. Without it, account-scoped commands use the first account in `accounts.toml`; `sync` and `list` operate on all accounts.
 
@@ -720,13 +749,18 @@ restricted by it.
 
 Check the effective policy with `vivi doctor --account <name>` (text or JSON).
 
-### Not Yet Supported
+### Not in the default CLI
 
-These surfaces are not available in the default CLI today:
+These surfaces are not available unless you build with extra features, or they
+are not a compatibility promise:
 
-- OAuth browser auth and token minting flows
-- watch or background sync mode
+- OAuth browser auth and token minting (`vivi auth` / `vivi token` require the
+  `outbox` cargo feature). `auth = "xoauth2"` with `token_cmd` still works.
 - a stable public compatibility promise for old Maildir-style handles
+
+Inbound IMAP watch is `vivi watch-inbox --account <name> --json`. Direct Proton
+event polling is `vivi sync-events --watch`. Project-local mailspace watch is
+`vivi mailspace watch`.
 
 ## Providers
 
