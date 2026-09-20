@@ -171,6 +171,9 @@ any copy completes its siblings.
 **Dispatch sequence.** `task send` mints the node; `graph activate
 <handle> --task <handle>` binds the attempt and marks it active — active
 nodes leave the `vivi step` manifest, so in-flight work is not re-offered.
+The activate receipt and `attempt_bound` event record the task's content
+hash (`content=<sha256>`) — the citable pin for "task body as dispatched";
+every record's `show` output prints its `Content:` hash the same way.
 Bare source ids address the backlog graph; imported topologies use
 `graph:source-id`. **Settle sequence.** The worker settles with
 `task done --verdict/--repo/--tip` (the node completes, dependents unlock,

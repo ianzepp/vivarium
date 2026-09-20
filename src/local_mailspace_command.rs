@@ -151,12 +151,13 @@ fn handle_graph_activate(command: &GraphActivateCommand) -> Result<(), VivariumE
     let (graph, source_id) = split_graph_node(&command.node, command.graph.as_deref())?;
     let show =
         mailspace.graph_activate(&graph, &source_id, &command.task, command.note.as_deref())?;
-    let receipt = vivarium::mailspace::action_receipt_from_show(
+    let mut receipt = vivarium::mailspace::action_receipt_from_show(
         "activate",
         &show,
         Some(&source_id),
         Some(&command.task),
     );
+    receipt.content = mailspace.content_hash_of(&command.task).ok();
     vivarium::mailspace::print_action_receipt(&receipt, command.json, command.confirm_large)
 }
 

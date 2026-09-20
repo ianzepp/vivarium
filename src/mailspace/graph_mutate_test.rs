@@ -6,6 +6,45 @@ fn base() -> &'static str {
 }
 
 #[test]
+fn activate_pins_task_content_in_binding_event() {
+    let dir = tempdir().unwrap();
+    let mut ms = Mailspace::init(Some(dir.path())).unwrap();
+    ms.add_identity("ceo").unwrap();
+    ms.add_identity("cto").unwrap();
+    ms.graph_import("demo", base(), false).unwrap();
+    let task = ms
+        .send(crate::mailspace::SendRequest {
+            from: "ceo".into(),
+            to: vec!["cto".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "unit".into(),
+            body: "done_when: lands".into(),
+            role: "tasks".into(),
+            kind: Some("task".into()),
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap()
+        .delivered
+        .remove(0)
+        .handle;
+
+    ms.graph_activate("demo", "a", &task, None).unwrap();
+
+    let content = ms.content_hash_of(&task).unwrap();
+    let storage = ms.storage().unwrap();
+    let events = storage.list_work_graph_events_after(0).unwrap();
+    let bound = events
+        .iter()
+        .find(|e| e.event_type == "attempt_bound")
+        .expect("attempt_bound event");
+    let note = bound.note.as_deref().unwrap_or_default();
+    assert!(note.contains(&format!("task={task}")), "{note}");
+    assert!(note.contains(&format!("content={content}")), "{note}");
+}
+
+#[test]
 fn complete_unlocks_successor() {
     let dir = tempdir().unwrap();
     let ms = Mailspace::init(Some(dir.path())).unwrap();

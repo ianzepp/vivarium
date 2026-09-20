@@ -8,7 +8,8 @@
 VFS epic #35 core close + deferred reevaluation, ~40 dispatched seats, two
 imported work graphs). Full notes:
 `factory/notes/2026-09-20-vivi9-graph-coordination-feedback.md`.
-**Status:** **All six fixed 2026-09-20** in 9.1.0.
+**Status:** **All six items plus the same-day addendum fixed 2026-09-20** in
+9.1.0.
 
 1. **Decision/stub/parked nodes pollute `ready`** (fixed). Imported
    decision/stub/parked nodes appeared as ready work in `graph ready`, and
@@ -39,6 +40,15 @@ imported work graphs). Full notes:
    adjudicates only the `backlog` graph; imported topologies are dispatched
    via `graph activate` and completed at reconcile. Now stated in README,
    the skill, and `graph import --help`.
+
+7. **Addendum — task bodies as authoritative unit meat** (addressed). When
+   the task body carries the unit's meat (doc = pointer), audits lost
+   their git-SHA freezable anchor for "task body as dispatched". 9.1.0
+   surfaces every record's content hash (`Content:` line in text show
+   output), records `content=<hash>` on the `attempt_bound` event at
+   activation, and echoes it on the activate receipt. Absorbed archive
+   exports already wrote `content_id` frontmatter, so the citable artifact
+   path needed no change.
 
 ## [2026-09-20] `vivi goal add` fails on mailspaces created before the goals table
 

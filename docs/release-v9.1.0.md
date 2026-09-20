@@ -67,6 +67,24 @@ actor keeps the read `sent` copy as the thread record.
   never enter the manifest — now stated explicitly in README, the skill,
   and `graph import --help`.
 
+## Task-body content pins
+
+Task bodies that carry a unit's meat (write scope + `done_when` + riders,
+doc = pointer) now have a freezable audit anchor, the way a spec commit's
+SHA pins a delivery spec:
+
+- every record's content hash (sha256 of the stored `.eml`) prints as a
+  `Content:` line in text `show` output (thread JSON already carried
+  `content_id`);
+- `graph activate --task` records `content=<hash>` on the `attempt_bound`
+  event — the durable "task body as dispatched" pin — and echoes a
+  `content` field/line on the activate receipt;
+- absorbed archive exports already write `content_id` frontmatter, so the
+  citable artifact carries its own pin.
+
+Audits cite the hash from the activate receipt (or any `show`); the blob
+store verifies it.
+
 ## Records
 
 - Feedback source: `factory/notes/2026-09-20-vivi9-graph-coordination-feedback.md`

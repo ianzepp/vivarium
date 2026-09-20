@@ -287,6 +287,7 @@ fn print_text_thread(messages: &[MailspaceThreadMessage]) {
         );
         println!("From: {}", message.from);
         println!("To: {}", message.to);
+        println!("Content: {}", message.content_id);
         println!("Subject: {}\n", message.subject);
         println!("{}", message.body.trim());
     }

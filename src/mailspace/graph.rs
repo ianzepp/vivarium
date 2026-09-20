@@ -168,6 +168,9 @@ pub struct GraphActionReceipt {
     pub revision: i64,
     pub node: Option<String>,
     pub task: Option<String>,
+    /// Content hash of the bound task on activate receipts: the pin for
+    /// "task body as dispatched". Absent on other actions.
+    pub content: Option<String>,
     pub ready: Vec<String>,
     pub blocked: Vec<String>,
     pub active: Vec<String>,
@@ -246,6 +249,7 @@ pub fn action_receipt_from_show(
         revision: frontier.revision,
         node: node.map(str::to_string),
         task: task.map(str::to_string),
+        content: None,
         ready: frontier.ready,
         blocked: frontier.blocked,
         active: frontier.active,
@@ -413,6 +417,9 @@ pub fn print_action_receipt(
     }
     if let Some(task) = &receipt.task {
         println!("  task     {task}");
+    }
+    if let Some(content) = &receipt.content {
+        println!("  content  {content}");
     }
     println!("  ready    {}", receipt.ready.join(", ").if_empty("(none)"));
     println!(

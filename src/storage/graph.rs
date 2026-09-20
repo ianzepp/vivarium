@@ -349,7 +349,10 @@ impl Storage {
                 input.graph_handle,
                 now,
                 input.node_handle,
-                format!("task={}", input.task_handle)
+                format!(
+                    "task={} content={}",
+                    input.task_handle, input.task_content_hash
+                )
             ],
         )
         .map_err(|e| VivariumError::Other(format!("failed to insert attempt event: {e}")))?;
@@ -441,6 +444,9 @@ pub struct WorkGraphActivateInput {
     pub node_handle: String,
     pub task_message_id: String,
     pub task_handle: String,
+    /// Content hash of the task record — the durable "task body as
+    /// dispatched" pin recorded with the binding.
+    pub task_content_hash: String,
     pub role: Option<String>,
     pub note: Option<String>,
 }

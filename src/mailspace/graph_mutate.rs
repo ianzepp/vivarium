@@ -237,10 +237,25 @@ impl Mailspace {
             node_handle: target.handle.clone(),
             task_message_id,
             task_handle,
+            task_content_hash: task.content_id.clone(),
             role: Some(task.account.clone()),
             note: note.map(str::to_string),
         })?;
         self.graph_show(code_or_handle)
+    }
+
+    /// Content hash (sha256 of the stored record) behind a handle or token —
+    /// the citable pin for "record as sent/dispatched".
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] when the token does not resolve.
+    pub fn content_hash_of(&self, token: &str) -> Result<String, VivariumError> {
+        let storage = self.storage()?;
+        let message_id = storage.resolve_message_token(token)?;
+        let message = storage
+            .message_by_id(&message_id)?
+            .ok_or_else(|| VivariumError::Message(format!("message not found: {token}")))?;
+        Ok(message.content_id)
     }
 
     /// Summaries of all graphs for board projection.

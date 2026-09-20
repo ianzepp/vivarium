@@ -2833,6 +2833,60 @@ flowchart LR
 }
 
 #[test]
+fn task_show_and_activate_pin_task_content() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let task = send_work(
+        project.path(),
+        "task",
+        "cto",
+        "pinned unit",
+        "done_when: lands",
+    );
+
+    let show = vivi(["task", "show", &task, "--project", project_s]);
+    assert_success(&show);
+    let show_out = stdout(&show);
+    assert!(show_out.contains("Content: "), "{show_out}");
+    let show_pin = show_out
+        .lines()
+        .find_map(|l| l.strip_prefix("Content: "))
+        .expect("content pin line");
+
+    let mermaid = project.path().join("pin.mmd");
+    std::fs::write(&mermaid, "flowchart TD\na[\"A\"]\n").unwrap();
+    assert_success(&vivi([
+        "graph",
+        "import",
+        "--code",
+        "pin",
+        "--file",
+        mermaid.to_str().unwrap(),
+        "--project",
+        project_s,
+    ]));
+    let activate = vivi([
+        "graph",
+        "activate",
+        "a",
+        "--graph",
+        "pin",
+        "--task",
+        &task,
+        "--json",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&activate);
+    let activate_v: Value = serde_json::from_str(&stdout(&activate)).unwrap();
+    let content = activate_v["content"].as_str().unwrap();
+    assert_eq!(content.len(), 64, "{content}");
+    assert!(content.chars().all(|c| c.is_ascii_hexdigit()), "{content}");
+    assert_eq!(content, show_pin.trim());
+}
+
+#[test]
 fn graph_import_rejects_cycle_without_writes() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());
