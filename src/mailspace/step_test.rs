@@ -90,6 +90,18 @@ fn ready_wants_require_promotion() {
     let exception =
         exception_for(&mailspace, &want).unwrap_or_else(|| panic!("expected exception for {want}"));
     assert_eq!(exception.reason, "want_requires_promotion");
+    assert!(exception.detail.contains("parked"), "{exception:?}");
+}
+
+#[test]
+fn clauseless_wants_combine_parked_and_missing_clause() {
+    let (mailspace, _tmp) = roster();
+    let want = send_item(&mailspace, "wants", "want", "parked idea", "someday");
+    let exception =
+        exception_for(&mailspace, &want).unwrap_or_else(|| panic!("expected exception for {want}"));
+    assert_eq!(exception.reason, "want_requires_promotion");
+    assert!(exception.detail.contains("parked"), "{exception:?}");
+    assert!(exception.detail.contains("no done_when"), "{exception:?}");
 }
 
 #[test]
@@ -99,6 +111,33 @@ fn task_without_done_when_is_exception() {
     let exception =
         exception_for(&mailspace, &task).unwrap_or_else(|| panic!("expected exception for {task}"));
     assert_eq!(exception.reason, "no_done_when");
+    assert!(
+        exception
+            .detail
+            .contains("completion could not be verified"),
+        "{exception:?}"
+    );
+}
+
+#[test]
+fn no_done_when_detail_names_coordination_fields() {
+    let (mailspace, _tmp) = roster();
+    let task = send_item(
+        &mailspace,
+        "tasks",
+        "task",
+        "audit pass",
+        "verdict: clean_pass\nrepo: vivarium\ntip: 0a6d1a1\nNote: prose stays out.",
+    );
+    let exception =
+        exception_for(&mailspace, &task).unwrap_or_else(|| panic!("expected exception for {task}"));
+    assert_eq!(exception.reason, "no_done_when");
+    assert!(
+        exception
+            .detail
+            .contains("labeled fields present: verdict, repo, tip"),
+        "{exception:?}"
+    );
 }
 
 #[test]

@@ -60,6 +60,7 @@ impl Mailspace {
                 from_source_id: resolved.handle.clone(),
                 to_source_id: handle.to_string(),
                 label: None,
+                style: "solid".into(),
             });
             nodes.push(BacklogNodeInput {
                 source_id: resolved.handle,

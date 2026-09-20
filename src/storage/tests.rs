@@ -32,7 +32,75 @@ fn schema_upgrade_creates_mid_version_tables_on_old_databases() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, "7");
+    assert_eq!(version, "8");
+}
+
+#[test]
+fn schema_v7_adds_node_kind_and_edge_style_on_upgrade() {
+    // Simulate a schema-7 mailspace whose graph tables predate node kinds
+    // and edge styles: one node and one edge without the new columns.
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("mail.sqlite");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE storage_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO storage_metadata (key, value) VALUES ('schema_version', '7');
+         CREATE TABLE work_graph_nodes (
+           handle TEXT PRIMARY KEY,
+           graph_handle TEXT NOT NULL,
+           source_id TEXT NOT NULL,
+           label TEXT NOT NULL,
+           state TEXT NOT NULL DEFAULT 'open',
+           subgraph TEXT,
+           created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL,
+           UNIQUE (graph_handle, source_id)
+         );
+         CREATE TABLE work_graph_edges (
+           handle TEXT PRIMARY KEY,
+           graph_handle TEXT NOT NULL,
+           from_node TEXT NOT NULL,
+           to_node TEXT NOT NULL,
+           label TEXT,
+           created_at TEXT NOT NULL,
+           UNIQUE (graph_handle, from_node, to_node)
+         );
+         INSERT INTO work_graph_nodes
+           (handle, graph_handle, source_id, label, state, created_at, updated_at)
+           VALUES ('nod_x', 'gph_x', 'res_provision', 'Provision', 'open', 't', 't');
+         INSERT INTO work_graph_edges
+           (handle, graph_handle, from_node, to_node, label, created_at)
+           VALUES ('edg_x', 'gph_x', 'nod_a', 'nod_x', NULL, 't');",
+    )
+    .unwrap();
+    drop(conn);
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    schema::ensure_schema(&conn).unwrap();
+
+    let kind: String = conn
+        .query_row(
+            "SELECT kind FROM work_graph_nodes WHERE handle = 'nod_x'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(kind, "task");
+    let style: String = conn
+        .query_row(
+            "SELECT style FROM work_graph_edges WHERE handle = 'edg_x'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(style, "solid");
+    let version: String = conn
+        .query_row(
+            "SELECT value FROM storage_metadata WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(version, "8");
 }
 
 #[test]
@@ -348,7 +416,7 @@ fn schema_v6_adds_from_addr_date_index_on_upgrade() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, "7");
+    assert_eq!(version, "8");
 }
 
 fn ingest_dated(

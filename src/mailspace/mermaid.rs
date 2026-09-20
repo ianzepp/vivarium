@@ -1,10 +1,30 @@
 //! Narrow Mermaid flowchart profile for work-graph import.
+//!
+//! The profile covers planning vocabulary: rect and stadium nodes are work,
+//! rhombus nodes are operator decisions, `:::kind` / `class` statements mark
+//! decision/stub/parked gates, and dotted edges are non-gating couplings.
 
 use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
 use crate::error::VivariumError;
+
+/// Node kinds that never dispatch: `graph activate` refuses them and
+/// frontiers list them as gates instead of ready work.
+pub const GATE_KINDS: [&str; 3] = ["decision", "stub", "parked"];
+
+/// One-line summary of the accepted syntax, appended to parse errors.
+const SUBSET_HINT: &str = "accepted subset: flowchart|graph TD|TB|BT|RL|LR; nodes id, \
+     id[label], id{label} (decision), id([label]) with optional id:::kind \
+     (decision|stub|parked); edges --> and -.-> / -.- (dotted couplings never gate \
+     readiness) with optional |label|; subgraph/end; %% comments; classDef and style \
+     lines are ignored";
+
+#[must_use]
+pub fn is_gate_kind(kind: &str) -> bool {
+    GATE_KINDS.contains(&kind)
+}
 
 /// Parsed flowchart under the supported work-graph profile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -20,14 +40,17 @@ pub struct MermaidNode {
     pub source_id: String,
     pub label: String,
     pub subgraph: Option<String>,
+    pub kind: String,
 }
 
-/// Directed edge: `to` requires `from`.
+/// Directed edge: `to` requires `from` when the style is `solid`; `dotted`
+/// edges are non-gating couplings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MermaidEdge {
     pub from: String,
     pub to: String,
     pub label: Option<String>,
+    pub style: String,
 }
 
 /// Parse a supported Mermaid flowchart / graph document.
@@ -41,11 +64,12 @@ pub fn parse_flowchart(source: &str) -> Result<MermaidFlowchart, VivariumError> 
     let mut edges: Vec<MermaidEdge> = Vec::new();
     let mut subgraph_stack: Vec<String> = Vec::new();
     let mut edge_set: HashSet<(String, String)> = HashSet::new();
+    let mut class_assignments: Vec<(Vec<String>, String)> = Vec::new();
 
     for (idx, raw) in lines.iter().enumerate().skip(start) {
         let line_no = idx + 1;
         let line = strip_comment(raw).trim();
-        if line.is_empty() {
+        if line.is_empty() || is_styling_line(line) {
             continue;
         }
         if let Some(rest) = line.strip_prefix("subgraph") {
@@ -60,7 +84,11 @@ pub fn parse_flowchart(source: &str) -> Result<MermaidFlowchart, VivariumError> 
             }
             continue;
         }
-        if line.contains("-->") {
+        if let Some(rest) = line.strip_prefix("class ") {
+            class_assignments.push(parse_class_statement(rest, line_no)?);
+            continue;
+        }
+        if contains_arrow(line) {
             parse_edge_line(
                 line,
                 line_no,
@@ -80,13 +108,23 @@ pub fn parse_flowchart(source: &str) -> Result<MermaidFlowchart, VivariumError> 
     if nodes.is_empty() {
         return Err(parse_err(0, "flowchart has no nodes"));
     }
+    apply_class_kinds(&mut nodes, &class_assignments);
+    assemble_flowchart(direction, nodes, edges)
+}
 
+/// Sort nodes/edges deterministically, then validate endpoints and reject
+/// cycles across all edges regardless of style.
+fn assemble_flowchart(
+    direction: String,
+    nodes: HashMap<String, MermaidNode>,
+    edges: Vec<MermaidEdge>,
+) -> Result<MermaidFlowchart, VivariumError> {
     let mut node_list: Vec<MermaidNode> = nodes.into_values().collect();
     node_list.sort_by(|a, b| a.source_id.cmp(&b.source_id));
+    let mut edges = edges;
     edges.sort_by(|a, b| (&a.from, &a.to).cmp(&(&b.from, &b.to)));
     validate_endpoints(&node_list, &edges)?;
     detect_cycle(&node_list, &edges)?;
-
     Ok(MermaidFlowchart {
         direction,
         nodes: node_list,
@@ -135,12 +173,54 @@ fn parse_subgraph_header(
     if let Some((id, after)) = rest.split_once('[') {
         let id = id.trim();
         validate_id(id, line_no)?;
-        let label = parse_bracket_label(after, line_no)?;
+        let (label, _) = parse_delimited_label(after, ']', line_no)?;
         return Ok((id.to_string(), Some(label)));
     }
     let id = rest.trim();
     validate_id(id, line_no)?;
     Ok((id.to_string(), None))
+}
+
+/// `class id1,id2 name` — applies a gate kind when the class name is one,
+/// otherwise records styling to ignore. Whitespace inside the id list is
+/// tolerated (`class a, b name`).
+fn parse_class_statement(
+    rest: &str,
+    line_no: usize,
+) -> Result<(Vec<String>, String), VivariumError> {
+    let parts: Vec<&str> = rest.split_whitespace().collect();
+    let Some((class, id_parts)) = parts.split_last() else {
+        return Err(parse_err(
+            line_no,
+            "class statement requires node ids and a class name",
+        ));
+    };
+    let ids = id_parts
+        .join("")
+        .split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .collect();
+    Ok((ids, class.to_string()))
+}
+
+/// Apply gate-kind class assignments after parsing so statement order
+/// relative to node declarations does not matter.
+fn apply_class_kinds(
+    nodes: &mut HashMap<String, MermaidNode>,
+    assignments: &[(Vec<String>, String)],
+) {
+    for (ids, class) in assignments {
+        if !is_gate_kind(class) {
+            continue;
+        }
+        for id in ids {
+            if let Some(node) = nodes.get_mut(id) {
+                node.kind = class.clone();
+            }
+        }
+    }
 }
 
 fn parse_node_line(
@@ -149,17 +229,14 @@ fn parse_node_line(
     subgraph_stack: &[String],
     nodes: &mut HashMap<String, MermaidNode>,
 ) -> Result<(), VivariumError> {
-    let (id, label) = if let Some((id, after)) = line.split_once('[') {
-        let id = id.trim();
-        validate_id(id, line_no)?;
-        let label = parse_bracket_label(after, line_no)?;
-        (id.to_string(), label)
-    } else {
-        let id = line.trim();
-        validate_id(id, line_no)?;
-        (id.to_string(), id.to_string())
-    };
-    ensure_node(nodes, &id, &label, current_subgraph(subgraph_stack));
+    let shape = parse_shape(line, line_no)?;
+    ensure_node(
+        nodes,
+        &shape.id,
+        shape.label.as_deref().unwrap_or(&shape.id),
+        current_subgraph(subgraph_stack),
+        shape.kind.as_deref(),
+    );
     Ok(())
 }
 
@@ -179,65 +256,102 @@ fn parse_edge_line(
         ));
     }
     for window in parts.windows(2) {
-        let (from_raw, edge_label) = &window[0];
-        let (to_raw, _) = &window[1];
-        let (from_id, from_label) = parse_endpoint(from_raw, line_no)?;
-        let (to_id, to_label) = parse_endpoint(to_raw, line_no)?;
+        let from_seg = &window[0];
+        let to_seg = &window[1];
+        let from = parse_shape(&from_seg.raw, line_no)?;
+        let to = parse_shape(&to_seg.raw, line_no)?;
         ensure_node(
             nodes,
-            &from_id,
-            from_label.as_deref().unwrap_or(from_id.as_str()),
+            &from.id,
+            from.label.as_deref().unwrap_or(&from.id),
             current_subgraph(subgraph_stack),
+            from.kind.as_deref(),
         );
         ensure_node(
             nodes,
-            &to_id,
-            to_label.as_deref().unwrap_or(to_id.as_str()),
+            &to.id,
+            to.label.as_deref().unwrap_or(&to.id),
             current_subgraph(subgraph_stack),
+            to.kind.as_deref(),
         );
-        let key = (from_id.clone(), to_id.clone());
+        let key = (from.id.clone(), to.id.clone());
         if edge_set.insert(key) {
             edges.push(MermaidEdge {
-                from: from_id,
-                to: to_id,
-                label: edge_label.clone(),
+                from: from.id,
+                to: to.id,
+                label: from_seg.label.clone(),
+                style: from_seg.style.clone().unwrap_or_else(|| "solid".into()),
             });
         }
     }
     Ok(())
 }
 
-/// Split `a --> b -->|lbl| c` into endpoint tokens with the outbound edge label.
-fn split_edge_chain(
-    line: &str,
-    line_no: usize,
-) -> Result<Vec<(String, Option<String>)>, VivariumError> {
+/// One endpoint plus the arrow leaving it (absent on the final endpoint).
+struct ChainSegment {
+    raw: String,
+    label: Option<String>,
+    style: Option<String>,
+}
+
+/// Split `a --> b -.->|lbl| c` into endpoint segments carrying the style of
+/// the arrow that leaves them.
+fn split_edge_chain(line: &str, line_no: usize) -> Result<Vec<ChainSegment>, VivariumError> {
     let mut out = Vec::new();
     let mut rest = line;
     loop {
-        if let Some(idx) = find_arrow(rest) {
+        if let Some((idx, len, style)) = find_arrow(rest) {
             let left = rest[..idx].trim().to_string();
             if left.is_empty() {
                 return Err(parse_err(line_no, "empty edge endpoint"));
             }
-            let after_arrow = &rest[idx + 3..];
+            let after_arrow = &rest[idx + len..];
             let (edge_label, next) = parse_optional_edge_label(after_arrow, line_no)?;
-            out.push((left, edge_label));
+            out.push(ChainSegment {
+                raw: left,
+                label: edge_label,
+                style: Some(style.to_string()),
+            });
             rest = next;
         } else {
             let right = rest.trim().to_string();
             if right.is_empty() {
                 return Err(parse_err(line_no, "edge chain ends without endpoint"));
             }
-            out.push((right, None));
+            out.push(ChainSegment {
+                raw: right,
+                label: None,
+                style: None,
+            });
             break;
         }
     }
     Ok(out)
 }
 
-fn find_arrow(s: &str) -> Option<usize> {
-    s.find("-->")
+/// Arrow tokens, longest-first so `-.->` wins over its `-.-` prefix.
+const ARROW_TOKENS: [(&str, &str); 3] = [("-.->", "dotted"), ("-->", "solid"), ("-.-", "dotted")];
+
+fn find_arrow(s: &str) -> Option<(usize, usize, &'static str)> {
+    let mut best: Option<(usize, usize, &'static str)> = None;
+    for (text, style) in ARROW_TOKENS {
+        if let Some(idx) = s.find(text) {
+            let better = match best {
+                Some((best_idx, best_len, _)) => {
+                    idx < best_idx || (idx == best_idx && text.len() > best_len)
+                }
+                None => true,
+            };
+            if better {
+                best = Some((idx, text.len(), style));
+            }
+        }
+    }
+    best
+}
+
+fn contains_arrow(s: &str) -> bool {
+    find_arrow(s).is_some()
 }
 
 fn parse_optional_edge_label(
@@ -256,44 +370,128 @@ fn parse_optional_edge_label(
     }
 }
 
-fn parse_endpoint(raw: &str, line_no: usize) -> Result<(String, Option<String>), VivariumError> {
-    let raw = raw.trim();
-    if let Some((id, after)) = raw.split_once('[') {
-        let id = id.trim();
-        validate_id(id, line_no)?;
-        let label = parse_bracket_label(after, line_no)?;
-        return Ok((id.to_string(), Some(label)));
-    }
-    validate_id(raw, line_no)?;
-    Ok((raw.to_string(), None))
+/// One endpoint (or standalone node line) after shape and class parsing.
+struct ParsedShape {
+    id: String,
+    label: Option<String>,
+    kind: Option<String>,
 }
 
-fn parse_bracket_label(after_open: &str, line_no: usize) -> Result<String, VivariumError> {
-    let after_open = after_open.trim();
+/// Parse `id`, `id[label]`, `id{label}`, `id([label])`, each with an
+/// optional trailing `:::kind`. Rhombus implies `decision`; an explicit
+/// gate kind overrides the shape default.
+fn parse_shape(raw: &str, line_no: usize) -> Result<ParsedShape, VivariumError> {
+    let raw = raw.trim();
+    let (id, rest) = split_id(raw, line_no)?;
+    let rest = rest.trim_start();
+    if rest.is_empty() {
+        return Ok(ParsedShape {
+            id,
+            label: None,
+            kind: None,
+        });
+    }
+    if let Some(after) = rest.strip_prefix("([") {
+        let (label, trailing) = parse_stadium_label(after, line_no)?;
+        return finish_shape(id, Some(label), &trailing, line_no);
+    }
+    if let Some(after) = rest.strip_prefix('[') {
+        let (label, trailing) = parse_delimited_label(after, ']', line_no)?;
+        return finish_shape(id, Some(label), &trailing, line_no);
+    }
+    if let Some(after) = rest.strip_prefix('{') {
+        let (label, trailing) = parse_delimited_label(after, '}', line_no)?;
+        let mut shape = finish_shape(id, Some(label), &trailing, line_no)?;
+        let kind = shape.kind.take().or_else(|| Some("decision".into()));
+        shape.kind = kind;
+        return Ok(shape);
+    }
+    Err(parse_err(
+        line_no,
+        &format!("unexpected text '{rest}' after node id '{id}'; {SUBSET_HINT}"),
+    ))
+}
+
+fn finish_shape(
+    id: String,
+    label: Option<String>,
+    trailing: &str,
+    line_no: usize,
+) -> Result<ParsedShape, VivariumError> {
+    let trailing = trailing.trim();
+    let kind = if trailing.is_empty() {
+        None
+    } else if let Some(class) = trailing.strip_prefix(":::") {
+        is_gate_kind(class.trim()).then(|| class.trim().to_string())
+    } else {
+        return Err(parse_err(
+            line_no,
+            &format!("unexpected text '{trailing}' after node shape; {SUBSET_HINT}"),
+        ));
+    };
+    Ok(ParsedShape { id, label, kind })
+}
+
+fn split_id(raw: &str, line_no: usize) -> Result<(String, &str), VivariumError> {
+    let end = raw
+        .char_indices()
+        .find(|(_, c)| !is_id_char(*c))
+        .map_or(raw.len(), |(idx, _)| idx);
+    if end == 0 {
+        return Err(parse_err(line_no, &format!("missing node id in '{raw}'")));
+    }
+    Ok((raw[..end].to_string(), &raw[end..]))
+}
+
+fn parse_stadium_label<'a>(
+    after_open: &'a str,
+    line_no: usize,
+) -> Result<(String, &'a str), VivariumError> {
     if let Some(inner) = after_open.strip_prefix('"') {
         let end = inner
             .find('"')
             .ok_or_else(|| parse_err(line_no, "unclosed quoted node label"))?;
         let label = inner[..end].to_string();
         let rest = inner[end + 1..].trim_start();
-        if !rest.starts_with(']') {
-            return Err(parse_err(line_no, "expected ] after quoted node label"));
+        if !rest.starts_with("])") {
+            return Err(parse_err(
+                line_no,
+                "expected '])' after quoted stadium label",
+            ));
         }
-        let trailing = rest[1..].trim();
-        if !trailing.is_empty() {
-            return Err(parse_err(line_no, "unexpected tokens after node label"));
-        }
-        return Ok(label);
+        return Ok((label, &rest[2..]));
     }
     let end = after_open
-        .find(']')
+        .find("])")
+        .ok_or_else(|| parse_err(line_no, "unclosed stadium label (expected '])'"))?;
+    let label = after_open[..end].trim().to_string();
+    Ok((label, &after_open[end + 2..]))
+}
+
+fn parse_delimited_label<'a>(
+    after_open: &'a str,
+    close: char,
+    line_no: usize,
+) -> Result<(String, &'a str), VivariumError> {
+    if let Some(inner) = after_open.strip_prefix('"') {
+        let end = inner
+            .find('"')
+            .ok_or_else(|| parse_err(line_no, "unclosed quoted node label"))?;
+        let label = inner[..end].to_string();
+        let rest = inner[end + 1..].trim_start();
+        if !rest.starts_with(close) {
+            return Err(parse_err(
+                line_no,
+                &format!("expected '{close}' after quoted node label"),
+            ));
+        }
+        return Ok((label, &rest[close.len_utf8()..]));
+    }
+    let end = after_open
+        .find(close)
         .ok_or_else(|| parse_err(line_no, "unclosed node label"))?;
     let label = after_open[..end].trim().to_string();
-    let trailing = after_open[end + 1..].trim();
-    if !trailing.is_empty() {
-        return Err(parse_err(line_no, "unexpected tokens after node label"));
-    }
-    Ok(label)
+    Ok((label, &after_open[end + close.len_utf8()..]))
 }
 
 fn ensure_node(
@@ -301,6 +499,7 @@ fn ensure_node(
     source_id: &str,
     label: &str,
     subgraph: Option<String>,
+    kind: Option<&str>,
 ) {
     nodes
         .entry(source_id.to_string())
@@ -311,11 +510,15 @@ fn ensure_node(
             if existing.subgraph.is_none() {
                 existing.subgraph.clone_from(&subgraph);
             }
+            if existing.kind == "task" && kind.is_some_and(|k| is_gate_kind(k)) {
+                existing.kind = kind.unwrap_or("task").to_string();
+            }
         })
         .or_insert_with(|| MermaidNode {
             source_id: source_id.to_string(),
             label: label.to_string(),
             subgraph,
+            kind: kind.unwrap_or("task").to_string(),
         });
 }
 
@@ -327,16 +530,21 @@ fn validate_id(id: &str, line_no: usize) -> Result<(), VivariumError> {
     if id.is_empty() {
         return Err(parse_err(line_no, "empty node id"));
     }
-    if !id
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
+    if !id.chars().all(is_id_char) {
         return Err(parse_err(
             line_no,
-            &format!("invalid node id '{id}' (use [A-Za-z0-9_-]+)"),
+            &format!("invalid node id '{id}' (use [A-Za-z0-9_-]+); {SUBSET_HINT}"),
         ));
     }
     Ok(())
+}
+
+fn is_id_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-'
+}
+
+fn is_styling_line(line: &str) -> bool {
+    line.starts_with("classDef") || line.starts_with("style ")
 }
 
 fn validate_endpoints(nodes: &[MermaidNode], edges: &[MermaidEdge]) -> Result<(), VivariumError> {
@@ -397,7 +605,7 @@ fn dfs_cycle<'a>(
             }
         }
     }
-    visiting.remove(node);
+    visiting.remove(&node);
     visited.insert(node);
     Ok(false)
 }

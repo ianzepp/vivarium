@@ -2856,6 +2856,236 @@ fn graph_import_rejects_cycle_without_writes() {
 }
 
 #[test]
+fn graph_import_accepts_planning_vocabulary() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let mermaid = project.path().join("planning.mmd");
+    std::fs::write(
+        &mermaid,
+        r#"
+flowchart LR
+  classDef done fill:#cfc,stroke:#393;
+  work["unit"]
+  dec40{"operator ruling"}
+  stadium(["kick off"])
+  res_provision["provision index"]:::stub
+  open["not done"]
+  stadium --> work
+  work --> dec40
+  dec40 -.-> res_provision
+  open -.-> work
+  class dec40 decision
+"#,
+    )
+    .unwrap();
+    let import = vivi([
+        "graph",
+        "import",
+        "--code",
+        "planning",
+        "--file",
+        mermaid.to_str().unwrap(),
+        "--json",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&import);
+    let import_v: Value = serde_json::from_str(&stdout(&import)).unwrap();
+    assert_eq!(import_v["node_count"], 5);
+    assert_eq!(import_v["edge_count"], 4);
+    let ready_list = import_v["ready"].as_array().unwrap();
+    assert!(
+        ready_list.contains(&Value::String("stadium".into())),
+        "{ready_list:?}"
+    );
+    assert!(
+        !ready_list.iter().any(|v| v == "res_provision"),
+        "{ready_list:?}"
+    );
+    let gates = import_v["gates"].as_array().unwrap();
+    assert_eq!(gates.len(), 1, "{gates:?}");
+    assert_eq!(gates[0]["source_id"], "res_provision");
+    assert_eq!(gates[0]["kind"], "stub");
+
+    // Dotted couplings never gate readiness: work stays blocked only by the
+    // solid stadium edge; the stub gates instead of dispatching; dec40 is
+    // blocked by the solid work edge.
+    let ready = vivi(["graph", "ready", "planning", "--project", project_s]);
+    assert_success(&ready);
+    let ready_out = stdout(&ready);
+    assert!(ready_out.contains("gates"), "{ready_out}");
+    assert!(ready_out.contains("res_provision (stub)"), "{ready_out}");
+    assert!(ready_out.contains("dec40"), "{ready_out}");
+
+    // Export round-trips the vocabulary.
+    let exported = vivi(["graph", "export", "planning", "--project", project_s]);
+    assert_success(&exported);
+    let exported_mermaid = stdout(&exported);
+    assert!(exported_mermaid.contains("dec40{"), "{exported_mermaid}");
+    assert!(exported_mermaid.contains(":::stub"), "{exported_mermaid}");
+    assert!(exported_mermaid.contains("-.->"), "{exported_mermaid}");
+}
+
+#[test]
+fn graph_activate_refuses_decision_nodes() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let mermaid = project.path().join("gates.mmd");
+    std::fs::write(
+        &mermaid,
+        "flowchart LR\nwork[\"unit\"]\ndec40{\"operator ruling\"}\n",
+    )
+    .unwrap();
+    assert_success(&vivi([
+        "graph",
+        "import",
+        "--code",
+        "gates",
+        "--file",
+        mermaid.to_str().unwrap(),
+        "--project",
+        project_s,
+    ]));
+    let task = send_work(
+        project.path(),
+        "task",
+        "cto",
+        "probe",
+        "done_when: probe lands",
+    );
+    let activate = vivi([
+        "graph",
+        "activate",
+        "dec40",
+        "--graph",
+        "gates",
+        "--task",
+        &task,
+        "--project",
+        project_s,
+    ]);
+    assert!(!activate.status.success());
+    let activate_err = stderr(&activate);
+    assert!(activate_err.contains("decision"), "{activate_err}");
+    assert!(activate_err.contains("graph complete"), "{activate_err}");
+
+    let complete = vivi([
+        "graph",
+        "complete",
+        "dec40",
+        "--graph",
+        "gates",
+        "--note",
+        "ruling: proceed",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&complete);
+}
+
+#[test]
+fn graph_complete_ignores_task_flag_with_hint() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let mermaid = project.path().join("tiny.mmd");
+    std::fs::write(&mermaid, "flowchart TD\na[\"A\"]\nb[\"B\"]\na --> b\n").unwrap();
+    assert_success(&vivi([
+        "graph",
+        "import",
+        "--code",
+        "tiny",
+        "--file",
+        mermaid.to_str().unwrap(),
+        "--project",
+        project_s,
+    ]));
+    let out = vivi([
+        "graph",
+        "complete",
+        "a",
+        "--graph",
+        "tiny",
+        "--task",
+        "whatever",
+        "--project",
+        project_s,
+    ]);
+    assert_success(&out);
+    let err = stderr(&out);
+    assert!(err.contains("--task is ignored"), "{err}");
+    assert!(err.contains("graph activate"), "{err}");
+}
+
+#[test]
+fn task_send_without_done_when_warns_on_stderr() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let p = project.path().to_str().unwrap();
+    let vague = vivi([
+        "task",
+        "send",
+        "--project",
+        p,
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "vague work",
+        "--body",
+        "just do it",
+    ]);
+    assert_success(&vague);
+    assert!(
+        stderr(&vague).contains("no_done_when"),
+        "{}",
+        stderr(&vague)
+    );
+
+    let clear = vivi([
+        "task",
+        "send",
+        "--project",
+        p,
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "clear work",
+        "--body",
+        "done_when: it works",
+    ]);
+    assert_success(&clear);
+    assert!(
+        !stderr(&clear).contains("no_done_when"),
+        "{}",
+        stderr(&clear)
+    );
+
+    // Wants stay quiet: they are parked by design.
+    let want = vivi([
+        "want",
+        "send",
+        "--project",
+        p,
+        "--from",
+        "ceo",
+        "--to",
+        "ceo",
+        "--subject",
+        "someday",
+        "--body",
+        "someday",
+    ]);
+    assert_success(&want);
+    assert!(!stderr(&want).contains("no_done_when"), "{}", stderr(&want));
+}
+
+#[test]
 fn graph_apply_complete_and_export() {
     let project = tempfile::tempdir().unwrap();
     init_roster(project.path());

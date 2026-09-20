@@ -462,6 +462,16 @@ pub enum GraphCommand {
 }
 
 /// Import a Mermaid flowchart into the project mailspace.
+///
+/// Accepted subset: `flowchart`/`graph` header with direction TD|TB|BT|RL|LR;
+/// nodes as `id`, `id[label]`, `id{label}` (decision), `id([label])`
+/// (stadium), each with an optional `id:::kind` suffix (decision, stub, or
+/// parked); edges `-->` (prerequisite) and `-.->` / `-.-` (dotted couplings
+/// that never gate readiness), optionally labeled `-->|text|`;
+/// `subgraph id ... end`; `%%` comments. `classDef` and `style` lines are
+/// ignored; `class a,b <kind>` sets gate kinds. Cycles are rejected.
+/// Imported graphs are never adjudicated by `vivi step`, which reads only
+/// the backlog graph.
 #[derive(Debug, Clone, Parser)]
 pub struct GraphImportCommand {
     /// Project-unique graph code
@@ -490,6 +500,9 @@ pub struct GraphImportCommand {
 }
 
 /// Apply a Mermaid revision to an existing graph.
+///
+/// Uses the same Mermaid subset as `graph import` (see its help for the
+/// full syntax summary).
 #[derive(Debug, Clone, Parser)]
 pub struct GraphApplyCommand {
     /// Graph code or handle
@@ -581,6 +594,10 @@ pub struct GraphCompleteCommand {
     #[arg(long)]
     pub note: Option<String>,
 
+    /// Ignored; task binding happens at `graph activate`
+    #[arg(long)]
+    pub task: Option<String>,
+
     /// Output compact JSON receipt (not full topology)
     #[arg(long)]
     pub json: bool,
@@ -653,6 +670,11 @@ pub struct GraphNodeAddCommand {
     /// Display label (defaults to id)
     #[arg(long)]
     pub label: Option<String>,
+
+    /// Node kind: task (default), decision, stub, or parked; gated kinds
+    /// never dispatch and are resolved with `graph complete`
+    #[arg(long)]
+    pub kind: Option<String>,
 
     /// Output compact JSON receipt (not full topology)
     #[arg(long)]

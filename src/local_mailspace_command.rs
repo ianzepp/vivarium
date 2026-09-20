@@ -135,6 +135,9 @@ fn handle_graph_ready(command: &vivarium::cli::GraphReadyCommand) -> Result<(), 
 }
 
 fn handle_graph_complete(command: &GraphCompleteCommand) -> Result<(), VivariumError> {
+    if command.task.is_some() {
+        eprintln!("note: --task is ignored by complete; task binding happens at graph activate");
+    }
     let mailspace = Mailspace::discover(command.project.as_deref())?;
     let (graph, source_id) = split_graph_node(&command.node, command.graph.as_deref())?;
     let show = mailspace.graph_complete(&graph, &source_id, command.note.as_deref())?;
@@ -161,8 +164,12 @@ fn handle_graph_node_command(command: &GraphNodeCommand) -> Result<(), VivariumE
     match command {
         GraphNodeCommand::Add(command) => {
             let mailspace = Mailspace::discover(command.project.as_deref())?;
-            let show =
-                mailspace.graph_node_add(&command.graph, &command.id, command.label.as_deref())?;
+            let show = mailspace.graph_node_add(
+                &command.graph,
+                &command.id,
+                command.label.as_deref(),
+                command.kind.as_deref(),
+            )?;
             let receipt = vivarium::mailspace::action_receipt_from_show(
                 "node_add",
                 &show,
@@ -796,16 +803,18 @@ fn task_from_source(command: &vivarium::cli::TaskFromCommand) -> Result<(), Viva
 
 fn send_task(command: &TaskSendCommand) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.send.project.as_deref())?;
+    let body = vivarium::mailspace::read_body_input(
+        command.send.body.as_deref(),
+        command.send.body_file.as_deref(),
+    )?;
+    let lacks_clause = !vivarium::mailspace::body_has_labeled_clause(&body, "done_when");
     let result = mailspace.send(SendRequest {
         from: command.send.from.clone(),
         to: command.send.to.clone(),
         cc: command.send.cc.clone(),
         bcc: command.send.bcc.clone(),
         subject: command.send.subject.clone(),
-        body: vivarium::mailspace::read_body_input(
-            command.send.body.as_deref(),
-            command.send.body_file.as_deref(),
-        )?,
+        body,
         role: "tasks".into(),
         kind: Some("task".into()),
         reply_to: command.send.reply_to.clone(),
@@ -815,6 +824,12 @@ fn send_task(command: &TaskSendCommand) -> Result<(), VivariumError> {
         println!("created {} {}", delivered.identity, delivered.handle);
     }
     println!("sent {}", result.sent);
+    if lacks_clause {
+        eprintln!(
+            "note: body declares no 'done_when:' clause; vivi step will report this task as \
+             no_done_when"
+        );
+    }
     Ok(())
 }
 

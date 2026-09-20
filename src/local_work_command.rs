@@ -316,16 +316,20 @@ fn send_local_item(
     depends_on: &[String],
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
+    let body = vivarium::mailspace::read_body_input(
+        command.body.as_deref(),
+        command.body_file.as_deref(),
+    )?;
+    // Wants are parked by design; only task/need bodies feed step clauses.
+    let lacks_clause = matches!(kind, "task" | "need")
+        && !vivarium::mailspace::body_has_labeled_clause(&body, "done_when");
     let result = mailspace.send(SendRequest {
         from: command.from.clone(),
         to: command.to.clone(),
         cc: command.cc.clone(),
         bcc: command.bcc.clone(),
         subject: command.subject.clone(),
-        body: vivarium::mailspace::read_body_input(
-            command.body.as_deref(),
-            command.body_file.as_deref(),
-        )?,
+        body,
         role: role.into(),
         kind: Some(kind.into()),
         reply_to: command.reply_to.clone(),
@@ -335,6 +339,12 @@ fn send_local_item(
         println!("{verb} {} {}", delivered.identity, delivered.handle);
     }
     println!("sent {}", result.sent);
+    if lacks_clause {
+        eprintln!(
+            "note: body declares no 'done_when:' clause; vivi step will report this {kind} as \
+             no_done_when"
+        );
+    }
     Ok(())
 }
 

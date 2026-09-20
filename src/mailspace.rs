@@ -37,9 +37,9 @@ pub use dump::{
 };
 pub use goals::GoalView;
 pub use graph::{
-    GraphActionReceipt, GraphEdgeView, GraphFrontier, GraphImportReceipt, GraphNodeView, GraphShow,
-    action_receipt_from_show, frontier_from_show, print_action_receipt, print_frontier,
-    print_frontiers, print_import_report,
+    GraphActionReceipt, GraphEdgeView, GraphFrontier, GraphFrontierGate, GraphImportReceipt,
+    GraphNodeView, GraphShow, action_receipt_from_show, format_gates, frontier_from_show,
+    print_action_receipt, print_frontier, print_frontiers, print_import_report, split_ready_gates,
 };
 pub use graph_mutate::{GraphApplyReceipt, print_apply_report};
 pub use identity::{
@@ -51,7 +51,8 @@ pub use lifecycle::{
     WantListRecord, WantMetadataUpdate,
 };
 pub use merge::{MailspaceImportOptions, MailspaceImportReport, import_mailspace};
-pub use step::{StepDispatch, StepException, StepManifest};
+pub use mermaid::is_gate_kind;
+pub use step::{StepDispatch, StepException, StepManifest, body_has_labeled_clause};
 pub use thread::{MailspaceThreadMessage, print_thread};
 pub use trace::{print_trace, print_trace_json};
 pub use watch::{MailspaceWatchRequest, run_watch};

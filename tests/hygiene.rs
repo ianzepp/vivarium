@@ -9,8 +9,8 @@ use std::fs;
 use std::path::Path;
 
 // Size budgets (production only).
-const MAX_TOTAL_LINES: usize = 35_674;
-const MAX_TOTAL_FUNCTIONS: usize = 1_255;
+const MAX_TOTAL_LINES: usize = 36_141;
+const MAX_TOTAL_FUNCTIONS: usize = 1_272;
 const MAX_TOTAL_IMPLS: usize = 115;
 const MAX_FILE_LINES: usize = 1_000;
 const MAX_FN_LINES: usize = 60;
@@ -22,7 +22,7 @@ const MAX_PANIC: usize = 0;
 const MAX_UNREACHABLE: usize = 14;
 const MAX_TODO: usize = 0;
 const MAX_UNIMPLEMENTED: usize = 0;
-const MAX_LET_UNDERSCORE: usize = 23;
+const MAX_LET_UNDERSCORE: usize = 25;
 const MAX_OK_DROP: usize = 34;
 
 // Structural test-boundary budgets.

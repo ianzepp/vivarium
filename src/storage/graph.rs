@@ -26,11 +26,13 @@ pub struct WorkGraphNodeRow {
     pub label: String,
     pub state: String,
     pub subgraph: Option<String>,
+    pub kind: String,
     pub created_at: String,
     pub updated_at: String,
 }
 
-/// Directed dependency edge: `to_node` requires `from_node`.
+/// Directed dependency edge: `to_node` requires `from_node` when the style
+/// is `solid`; `dotted` edges are non-gating couplings.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct WorkGraphEdgeRow {
     pub handle: String,
@@ -38,6 +40,7 @@ pub struct WorkGraphEdgeRow {
     pub from_node: String,
     pub to_node: String,
     pub label: Option<String>,
+    pub style: String,
     pub created_at: String,
 }
 
@@ -57,6 +60,7 @@ pub struct WorkGraphNodeInput {
     pub source_id: String,
     pub label: String,
     pub subgraph: Option<String>,
+    pub kind: String,
 }
 
 /// Edge fields using Mermaid source IDs (resolved to handles on write).
@@ -65,6 +69,7 @@ pub struct WorkGraphEdgeInput {
     pub from_source_id: String,
     pub to_source_id: String,
     pub label: Option<String>,
+    pub style: String,
 }
 
 /// Result of committing a graph import.
@@ -143,7 +148,7 @@ impl Storage {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT handle, graph_handle, source_id, label, state, subgraph,
+                "SELECT handle, graph_handle, source_id, label, state, subgraph, kind,
                         created_at, updated_at
                  FROM work_graph_nodes WHERE graph_handle = ?1
                  ORDER BY source_id",
@@ -166,7 +171,7 @@ impl Storage {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT handle, graph_handle, from_node, to_node, label, created_at
+                "SELECT handle, graph_handle, from_node, to_node, label, style, created_at
                  FROM work_graph_edges WHERE graph_handle = ?1
                  ORDER BY from_node, to_node",
             )
@@ -546,13 +551,15 @@ fn insert_nodes(
             label: node.label.clone(),
             state: "open".into(),
             subgraph: node.subgraph.clone(),
+            kind: node.kind.clone(),
             created_at: now.to_string(),
             updated_at: now.to_string(),
         };
         tx.execute(
             "INSERT INTO work_graph_nodes
-               (handle, graph_handle, source_id, label, state, subgraph, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+               (handle, graph_handle, source_id, label, state, subgraph, kind,
+                created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 row.handle,
                 row.graph_handle,
@@ -560,6 +567,7 @@ fn insert_nodes(
                 row.label,
                 row.state,
                 row.subgraph,
+                row.kind,
                 row.created_at,
                 row.updated_at
             ],
@@ -586,18 +594,20 @@ pub(super) fn insert_edges(
             from_node,
             to_node,
             label: edge.label.clone(),
+            style: edge.style.clone(),
             created_at: now.to_string(),
         };
         tx.execute(
             "INSERT INTO work_graph_edges
-               (handle, graph_handle, from_node, to_node, label, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+               (handle, graph_handle, from_node, to_node, label, style, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 row.handle,
                 row.graph_handle,
                 row.from_node,
                 row.to_node,
                 row.label,
+                row.style,
                 row.created_at
             ],
         )
@@ -626,8 +636,9 @@ pub(super) fn map_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkGrap
         label: row.get(3)?,
         state: row.get(4)?,
         subgraph: row.get(5)?,
-        created_at: row.get(6)?,
-        updated_at: row.get(7)?,
+        kind: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
     })
 }
 
@@ -638,7 +649,8 @@ fn map_edge_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkGraphEdgeRow> {
         from_node: row.get(2)?,
         to_node: row.get(3)?,
         label: row.get(4)?,
-        created_at: row.get(5)?,
+        style: row.get(5)?,
+        created_at: row.get(6)?,
     })
 }
 
@@ -764,9 +776,9 @@ fn apply_node_updates(
         let handle = node_handle_for(&plan.graph_handle, &node.source_id);
         tx.execute(
             "UPDATE work_graph_nodes
-             SET label = ?1, subgraph = ?2, updated_at = ?3
-             WHERE handle = ?4",
-            params![node.label, node.subgraph, now, handle],
+             SET label = ?1, subgraph = ?2, kind = ?3, updated_at = ?4
+             WHERE handle = ?5",
+            params![node.label, node.subgraph, node.kind, now, handle],
         )
         .map_err(|e| VivariumError::Other(format!("failed to update graph node: {e}")))?;
     }

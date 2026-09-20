@@ -7,8 +7,11 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::Mailspace;
-use super::graph::{GraphEdgeView, GraphNodeView, GraphShow, project_edges, project_nodes};
-use super::mermaid::{MermaidFlowchart, MermaidNode, parse_flowchart};
+use super::graph::{
+    GraphEdgeView, GraphFrontierGate, GraphNodeView, GraphShow, project_edges, project_nodes,
+    split_ready_gates,
+};
+use super::mermaid::{MermaidFlowchart, MermaidNode, is_gate_kind, parse_flowchart};
 use crate::error::VivariumError;
 use crate::storage::{
     Storage, WorkGraphActivateInput, WorkGraphApplyPlan, WorkGraphEdgeInput, WorkGraphEdgeRow,
@@ -94,7 +97,7 @@ impl Mailspace {
         self.graph_apply(code_or_handle, &source, check_only)
     }
 
-    /// Append one open node.
+    /// Append one open node, optionally as an operator gate.
     ///
     /// # Errors
     /// Returns validation or storage errors.
@@ -103,10 +106,17 @@ impl Mailspace {
         code_or_handle: &str,
         source_id: &str,
         label: Option<&str>,
+        kind: Option<&str>,
     ) -> Result<GraphShow, VivariumError> {
         validate_source_id(source_id)?;
+        validate_node_kind(kind)?;
         let show = self.graph_show(code_or_handle)?;
-        let merged = merge_export_with_extra_node(&show, source_id, label.unwrap_or(source_id))?;
+        let merged = merge_export_with_extra_node(
+            &show,
+            source_id,
+            label.unwrap_or(source_id),
+            kind.unwrap_or("task"),
+        )?;
         self.graph_apply(code_or_handle, &merged, false)?;
         self.graph_show(code_or_handle)
     }
@@ -198,6 +208,13 @@ impl Mailspace {
                 source_id, target.state
             )));
         }
+        if is_gate_kind(&target.kind) {
+            return Err(VivariumError::Message(format!(
+                "cannot activate {} node '{}'; operator-gated nodes are resolved with \
+                 graph complete --note, not dispatched",
+                target.kind, source_id
+            )));
+        }
         let (_, ready, _) = project_nodes(&rows, &edges);
         if !ready.iter().any(|n| n.handle == target.handle) {
             return Err(VivariumError::Message(format!(
@@ -269,6 +286,7 @@ pub struct GraphApplyReceipt {
     pub edges_added: usize,
     pub edges_removed: usize,
     pub ready: Vec<String>,
+    pub gates: Vec<GraphFrontierGate>,
 }
 
 /// Print apply report as compact text or JSON receipt.
@@ -280,6 +298,7 @@ pub fn print_apply_report(
     json: bool,
     confirm_large: bool,
 ) -> Result<(), VivariumError> {
+    let (ready, gates) = split_ready_gates(&report.ready);
     let receipt = GraphApplyReceipt {
         check_only: report.check_only,
         idempotent: report.idempotent,
@@ -292,7 +311,8 @@ pub fn print_apply_report(
         nodes_removed: report.nodes_removed.clone(),
         edges_added: report.edges_added,
         edges_removed: report.edges_removed,
-        ready: report.ready.iter().map(|n| n.source_id.clone()).collect(),
+        ready,
+        gates,
     };
     if json {
         return crate::stdout_budget::print_pretty_json(
@@ -324,6 +344,7 @@ pub fn print_apply_report(
         receipt.ready.join(", ")
     };
     println!("  ready    {ready}");
+    println!("  gates    {}", super::graph::format_gates(&receipt.gates));
     Ok(())
 }
 
@@ -379,6 +400,7 @@ fn plan_node_upserts(
                 source_id: node.source_id.clone(),
                 label: node.label.clone(),
                 subgraph: node.subgraph.clone(),
+                kind: node.kind.clone(),
             }),
             Some(existing) => plan_node_update(existing, node, &mut nodes_update)?,
         }
@@ -418,7 +440,8 @@ fn plan_node_update(
 ) -> Result<(), VivariumError> {
     let label_changed = existing.label != desired.label;
     let sub_changed = existing.subgraph != desired.subgraph;
-    if !label_changed && !sub_changed {
+    let kind_changed = existing.kind != desired.kind;
+    if !label_changed && !sub_changed && !kind_changed {
         return Ok(());
     }
     if existing.state != "open" {
@@ -431,12 +454,15 @@ fn plan_node_update(
         source_id: desired.source_id.clone(),
         label: desired.label.clone(),
         subgraph: desired.subgraph.clone(),
+        kind: desired.kind.clone(),
     });
     Ok(())
 }
 
-type EdgePair = (String, String);
-type EdgeDiff = (Vec<WorkGraphEdgeInput>, Vec<EdgePair>);
+/// Edge diff key: endpoints plus style, so flipping a coupling between
+/// solid and dotted revises the edge instead of silently keeping the old one.
+type EdgeKey = (String, String, String);
+type EdgeDiff = (Vec<WorkGraphEdgeInput>, Vec<(String, String)>);
 
 fn plan_edge_diff(
     flowchart: &MermaidFlowchart,
@@ -444,21 +470,21 @@ fn plan_edge_diff(
     existing_edges: &[WorkGraphEdgeRow],
     by_source: &HashMap<&str, &WorkGraphNodeRow>,
 ) -> Result<EdgeDiff, VivariumError> {
-    let existing_pairs = existing_edge_pairs(existing_nodes, existing_edges);
-    let desired_pairs: HashSet<EdgePair> = flowchart
+    let existing_keys = existing_edge_keys(existing_nodes, existing_edges);
+    let desired_keys: HashSet<EdgeKey> = flowchart
         .edges
         .iter()
-        .map(|e| (e.from.clone(), e.to.clone()))
+        .map(|e| (e.from.clone(), e.to.clone(), e.style.clone()))
         .collect();
-    let edges_add = plan_edges_add(flowchart, &existing_pairs, by_source)?;
-    let edges_remove = plan_edges_remove(&existing_pairs, &desired_pairs, by_source)?;
+    let edges_add = plan_edges_add(flowchart, &existing_keys, by_source)?;
+    let edges_remove = plan_edges_remove(&existing_keys, &desired_keys, by_source)?;
     Ok((edges_add, edges_remove))
 }
 
-fn existing_edge_pairs(
+fn existing_edge_keys(
     existing_nodes: &[WorkGraphNodeRow],
     existing_edges: &[WorkGraphEdgeRow],
-) -> HashSet<EdgePair> {
+) -> HashSet<EdgeKey> {
     let handle_to_source: HashMap<&str, &str> = existing_nodes
         .iter()
         .map(|n| (n.handle.as_str(), n.source_id.as_str()))
@@ -468,20 +494,20 @@ fn existing_edge_pairs(
         .filter_map(|e| {
             let from = handle_to_source.get(e.from_node.as_str())?;
             let to = handle_to_source.get(e.to_node.as_str())?;
-            Some(((*from).to_string(), (*to).to_string()))
+            Some(((*from).to_string(), (*to).to_string(), e.style.clone()))
         })
         .collect()
 }
 
 fn plan_edges_add(
     flowchart: &MermaidFlowchart,
-    existing_pairs: &HashSet<EdgePair>,
+    existing_keys: &HashSet<EdgeKey>,
     by_source: &HashMap<&str, &WorkGraphNodeRow>,
 ) -> Result<Vec<WorkGraphEdgeInput>, VivariumError> {
     let mut edges_add = Vec::new();
     for edge in &flowchart.edges {
-        let pair = (edge.from.clone(), edge.to.clone());
-        if existing_pairs.contains(&pair) {
+        let key = (edge.from.clone(), edge.to.clone(), edge.style.clone());
+        if existing_keys.contains(&key) {
             continue;
         }
         if let Some(target) = by_source
@@ -497,19 +523,20 @@ fn plan_edges_add(
             from_source_id: edge.from.clone(),
             to_source_id: edge.to.clone(),
             label: edge.label.clone(),
+            style: edge.style.clone(),
         });
     }
     Ok(edges_add)
 }
 
 fn plan_edges_remove(
-    existing_pairs: &HashSet<EdgePair>,
-    desired_pairs: &HashSet<EdgePair>,
+    existing_keys: &HashSet<EdgeKey>,
+    desired_keys: &HashSet<EdgeKey>,
     by_source: &HashMap<&str, &WorkGraphNodeRow>,
-) -> Result<Vec<EdgePair>, VivariumError> {
+) -> Result<Vec<(String, String)>, VivariumError> {
     let mut edges_remove = Vec::new();
-    for (from, to) in existing_pairs {
-        if desired_pairs.contains(&(from.clone(), to.clone())) {
+    for (from, to, style) in existing_keys {
+        if desired_keys.contains(&(from.clone(), to.clone(), style.clone())) {
             continue;
         }
         if let Some(target) = by_source
@@ -672,6 +699,19 @@ pub(super) fn validate_source_id(id: &str) -> Result<(), VivariumError> {
     Ok(())
 }
 
+fn validate_node_kind(kind: Option<&str>) -> Result<(), VivariumError> {
+    let Some(kind) = kind else {
+        return Ok(());
+    };
+    if kind == "task" || is_gate_kind(kind) {
+        Ok(())
+    } else {
+        Err(VivariumError::Message(format!(
+            "invalid node kind '{kind}' (use task, decision, stub, or parked)"
+        )))
+    }
+}
+
 fn escape_label(label: &str) -> String {
     label.replace('"', "'")
 }
@@ -680,19 +720,38 @@ pub(super) fn export_mermaid(show: &GraphShow, include_state: bool) -> String {
     let mut out = String::from("flowchart LR\n");
     for node in &show.nodes {
         let label = escape_label(&node.label);
-        let _ = writeln!(out, "  {}[\"{label}\"]", node.source_id);
+        match node.kind.as_str() {
+            "decision" => {
+                let _ = writeln!(out, "  {}{{\"{label}\"}}", node.source_id);
+            }
+            "stub" | "parked" => {
+                let _ = writeln!(out, "  {}[\"{label}\"]:::{}", node.source_id, node.kind);
+            }
+            _ => {
+                let _ = writeln!(out, "  {}[\"{label}\"]", node.source_id);
+            }
+        }
     }
     for edge in &show.edges {
+        let arrow = if edge.style == "dotted" {
+            "-.->"
+        } else {
+            "-->"
+        };
         if let Some(label) = &edge.label {
             let _ = writeln!(
                 out,
-                "  {} -->|{}| {}",
+                "  {} {arrow}|{}| {}",
                 edge.from_source_id,
                 escape_label(label),
                 edge.to_source_id
             );
         } else {
-            let _ = writeln!(out, "  {} --> {}", edge.from_source_id, edge.to_source_id);
+            let _ = writeln!(
+                out,
+                "  {} {arrow} {}",
+                edge.from_source_id, edge.to_source_id
+            );
         }
     }
     if include_state {
@@ -719,6 +778,7 @@ fn merge_export_with_extra_node(
     show: &GraphShow,
     source_id: &str,
     label: &str,
+    kind: &str,
 ) -> Result<String, VivariumError> {
     if show.nodes.iter().any(|n| n.source_id == source_id) {
         return Err(VivariumError::Message(format!(
@@ -732,6 +792,7 @@ fn merge_export_with_extra_node(
         label: label.to_string(),
         state: "open".into(),
         subgraph: None,
+        kind: kind.into(),
         readiness: "ready".into(),
         blocked_by: Vec::new(),
         successors: Vec::new(),
@@ -777,6 +838,7 @@ fn merge_export_with_extra_edge(
         from_source_id: from.to_string(),
         to_source_id: to.to_string(),
         label: label.map(str::to_string),
+        style: "solid".into(),
     });
     let synthetic = GraphShow {
         edges,

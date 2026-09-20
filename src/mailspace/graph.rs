@@ -50,6 +50,7 @@ pub struct GraphNodeView {
     pub label: String,
     pub state: String,
     pub subgraph: Option<String>,
+    pub kind: String,
     pub readiness: String,
     pub blocked_by: Vec<String>,
     pub successors: Vec<String>,
@@ -64,6 +65,7 @@ pub struct GraphEdgeView {
     pub from_source_id: String,
     pub to_source_id: String,
     pub label: Option<String>,
+    pub style: String,
 }
 
 impl Mailspace {
@@ -146,6 +148,15 @@ pub struct GraphFrontier {
     pub ready: Vec<String>,
     pub blocked: Vec<String>,
     pub active: Vec<String>,
+    pub gates: Vec<GraphFrontierGate>,
+}
+
+/// One operator-gated ready node (decision/stub/parked): ready by
+/// prerequisites, but never dispatchable as work.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GraphFrontierGate {
+    pub source_id: String,
+    pub kind: String,
 }
 
 /// Compact receipt after complete / activate / node|edge append.
@@ -160,6 +171,7 @@ pub struct GraphActionReceipt {
     pub ready: Vec<String>,
     pub blocked: Vec<String>,
     pub active: Vec<String>,
+    pub gates: Vec<GraphFrontierGate>,
 }
 
 /// Compact import receipt for CLI (no full node/edge topology).
@@ -176,16 +188,20 @@ pub struct GraphImportReceipt {
     pub edge_count: usize,
     pub roots: Vec<String>,
     pub ready: Vec<String>,
+    pub gates: Vec<GraphFrontierGate>,
 }
 
-/// Build a frontier projection from a full show view.
+/// Build a frontier projection from a full show view. Ready nodes split into
+/// dispatchable work and operator gates (decision/stub/parked kinds).
 #[must_use]
 pub fn frontier_from_show(show: &GraphShow) -> GraphFrontier {
+    let (work, gates) = split_ready_gates(&show.ready);
     GraphFrontier {
         code: show.graph.code.clone(),
         handle: show.graph.handle.clone(),
         revision: show.graph.current_revision,
-        ready: source_ids(&show.ready),
+        ready: work,
+        gates,
         blocked: source_ids(&show.blocked),
         active: show
             .nodes
@@ -194,6 +210,24 @@ pub fn frontier_from_show(show: &GraphShow) -> GraphFrontier {
             .map(|n| n.source_id.clone())
             .collect(),
     }
+}
+
+/// Partition ready node views into dispatchable source ids and gates.
+#[must_use]
+pub fn split_ready_gates(ready: &[GraphNodeView]) -> (Vec<String>, Vec<GraphFrontierGate>) {
+    let mut work = Vec::new();
+    let mut gates = Vec::new();
+    for node in ready {
+        if super::mermaid::is_gate_kind(&node.kind) {
+            gates.push(GraphFrontierGate {
+                source_id: node.source_id.clone(),
+                kind: node.kind.clone(),
+            });
+        } else {
+            work.push(node.source_id.clone());
+        }
+    }
+    (work, gates)
 }
 
 /// Build a lifecycle/mutation receipt from a show view.
@@ -215,6 +249,7 @@ pub fn action_receipt_from_show(
         ready: frontier.ready,
         blocked: frontier.blocked,
         active: frontier.active,
+        gates: frontier.gates,
     }
 }
 
@@ -227,6 +262,7 @@ pub fn print_import_report(
     json: bool,
     confirm_large: bool,
 ) -> Result<(), VivariumError> {
+    let (ready, gates) = split_ready_gates(&report.ready);
     let receipt = GraphImportReceipt {
         check_only: report.check_only,
         created: report.created,
@@ -238,7 +274,8 @@ pub fn print_import_report(
         node_count: report.node_count,
         edge_count: report.edge_count,
         roots: report.roots.clone(),
-        ready: source_ids(&report.ready),
+        ready,
+        gates,
     };
     if json {
         return crate::stdout_budget::print_pretty_json(
@@ -264,7 +301,21 @@ pub fn print_import_report(
     println!("  edges    {}", receipt.edge_count);
     println!("  roots    {}", receipt.roots.join(", ").if_empty("(none)"));
     println!("  ready    {}", receipt.ready.join(", ").if_empty("(none)"));
+    println!(
+        "  gates    {}",
+        format_gates(&receipt.gates).if_empty("(none)")
+    );
     Ok(())
+}
+
+/// Render gates as `id (kind)` pairs for compact text output.
+#[must_use]
+pub fn format_gates(gates: &[GraphFrontierGate]) -> String {
+    gates
+        .iter()
+        .map(|gate| format!("{} ({})", gate.source_id, gate.kind))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Print a frontier as compact text or JSON.
@@ -298,6 +349,10 @@ pub fn print_frontier(
     println!(
         "  active   {}",
         frontier.active.join(", ").if_empty("(none)")
+    );
+    println!(
+        "  gates    {}",
+        format_gates(&frontier.gates).if_empty("(none)")
     );
     Ok(())
 }
@@ -368,6 +423,10 @@ pub fn print_action_receipt(
         "  active   {}",
         receipt.active.join(", ").if_empty("(none)")
     );
+    println!(
+        "  gates    {}",
+        format_gates(&receipt.gates).if_empty("(none)")
+    );
     Ok(())
 }
 
@@ -409,6 +468,7 @@ fn compile_import(
                 source_id: n.source_id.clone(),
                 label: n.label.clone(),
                 subgraph: n.subgraph.clone(),
+                kind: n.kind.clone(),
             })
             .collect(),
         edges: flowchart
@@ -418,6 +478,7 @@ fn compile_import(
                 from_source_id: e.from.clone(),
                 to_source_id: e.to.clone(),
                 label: e.label.clone(),
+                style: e.style.clone(),
             })
             .collect(),
     }
@@ -439,6 +500,7 @@ fn preview_import(
             label: n.label.clone(),
             state: "open".into(),
             subgraph: n.subgraph.clone(),
+            kind: n.kind.clone(),
             created_at: String::new(),
             updated_at: String::new(),
         })
@@ -455,6 +517,7 @@ fn preview_import(
                 from_node,
                 to_node,
                 label: e.label.clone(),
+                style: e.style.clone(),
                 created_at: String::new(),
             }
         })
@@ -582,14 +645,18 @@ pub(super) fn project_nodes(
 
 type NodeAdj<'a> = HashMap<&'a str, Vec<&'a str>>;
 
+/// Solid prerequisite adjacency (dotted couplings never gate readiness) and
+/// full successor adjacency (all edges, informational).
 fn adjacency(edges: &[WorkGraphEdgeRow]) -> (NodeAdj<'_>, NodeAdj<'_>) {
     let mut prereqs: NodeAdj<'_> = HashMap::new();
     let mut successors: NodeAdj<'_> = HashMap::new();
     for edge in edges {
-        prereqs
-            .entry(edge.to_node.as_str())
-            .or_default()
-            .push(edge.from_node.as_str());
+        if edge.style != "dotted" {
+            prereqs
+                .entry(edge.to_node.as_str())
+                .or_default()
+                .push(edge.from_node.as_str());
+        }
         successors
             .entry(edge.from_node.as_str())
             .or_default()
@@ -631,6 +698,7 @@ fn node_view(
         label: node.label.clone(),
         state: node.state.clone(),
         subgraph: node.subgraph.clone(),
+        kind: node.kind.clone(),
         readiness,
         blocked_by: unfinished,
         successors: succ,
@@ -655,6 +723,7 @@ pub(super) fn project_edges(
                 from_source_id: from.source_id.clone(),
                 to_source_id: to.source_id.clone(),
                 label: e.label.clone(),
+                style: e.style.clone(),
             })
         })
         .collect();

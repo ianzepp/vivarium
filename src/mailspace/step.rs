@@ -163,11 +163,15 @@ fn adjudicate_node(
     let body = item_body(storage, &message.message_id)?;
     let clauses = count_labeled_clauses(&body, "done_when");
     if kind == "want" {
+        let mut detail = "parked: wants never dispatch before explicit promotion".to_string();
+        if clauses == 0 {
+            detail.push_str("; body declares no done_when clause");
+        }
         return Ok(StepOutcome::Exception(exception(
             node,
             &kind,
             "want_requires_promotion",
-            "wants never dispatch before explicit promotion",
+            &detail,
         )));
     }
     if !storage
@@ -186,7 +190,7 @@ fn adjudicate_node(
             node,
             &kind,
             "no_done_when",
-            "body declares no done_when clause; completion could not be verified",
+            &no_done_when_detail(&body),
         )));
     }
     Ok(StepOutcome::Dispatch(StepDispatch {
@@ -240,6 +244,45 @@ fn has_labeled_field(body: &str, label: &str) -> bool {
             .to_ascii_lowercase()
             .starts_with(&format!("{label}:"))
     })
+}
+
+/// Whether a body carries at least one `label:` clause line. Shared with
+/// the send runners' clause warning.
+#[must_use]
+pub fn body_has_labeled_clause(body: &str, label: &str) -> bool {
+    has_labeled_field(body, label)
+}
+
+/// Detail for clauseless bodies: name the labeled fields the body does
+/// carry, so coordination work (verdict/output bodies) reads as such
+/// instead of as a defect.
+fn no_done_when_detail(body: &str) -> String {
+    let mut detail = String::from("body declares no done_when clause");
+    let mut fields: Vec<String> = Vec::new();
+    for label in body.lines().filter_map(labeled_line_label) {
+        if label == "done_when" || fields.iter().any(|f| f == &label) || fields.len() >= 5 {
+            continue;
+        }
+        fields.push(label);
+    }
+    if fields.is_empty() {
+        detail.push_str("; completion could not be verified");
+    } else {
+        detail.push_str(&format!("; labeled fields present: {}", fields.join(", ")));
+    }
+    detail
+}
+
+/// Lowercase `label:` prefix of a line; prose labels (capitalized, spaced)
+/// and continuation lines do not count.
+fn labeled_line_label(line: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    let end = trimmed.find(':')?;
+    let label = &trimmed[..end];
+    let mut chars = label.chars();
+    let valid = chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    valid.then(|| label.to_ascii_lowercase())
 }
 
 /// Extract the text of each labeled clause (e.g. every `done_when:` line).

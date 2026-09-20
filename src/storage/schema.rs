@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use crate::error::VivariumError;
 
-const STORAGE_SCHEMA_VERSION: &str = "7";
+const STORAGE_SCHEMA_VERSION: &str = "8";
 
 pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
     let existing: Option<String> = conn
@@ -22,6 +22,7 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
     conn.execute_batch(SCHEMA_DDL)
         .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))?;
     ensure_absorb_columns(conn)?;
+    ensure_work_graph_columns(conn)?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS message_metadata_from_addr_date_idx ON message_metadata(from_addr, date)",
         [],
@@ -146,6 +147,7 @@ const SCHEMA_DDL: &str = "BEGIN;
            label TEXT NOT NULL,
            state TEXT NOT NULL DEFAULT 'open',
            subgraph TEXT,
+           kind TEXT NOT NULL DEFAULT 'task',
            created_at TEXT NOT NULL,
            updated_at TEXT NOT NULL,
            UNIQUE (graph_handle, source_id)
@@ -158,6 +160,7 @@ const SCHEMA_DDL: &str = "BEGIN;
            from_node TEXT NOT NULL REFERENCES work_graph_nodes(handle) ON DELETE CASCADE,
            to_node TEXT NOT NULL REFERENCES work_graph_nodes(handle) ON DELETE CASCADE,
            label TEXT,
+           style TEXT NOT NULL DEFAULT 'solid',
            created_at TEXT NOT NULL,
            UNIQUE (graph_handle, from_node, to_node)
          );
@@ -201,6 +204,21 @@ const SCHEMA_DDL: &str = "BEGIN;
          CREATE INDEX IF NOT EXISTS mailspace_goals_path_idx
            ON mailspace_goals(path);
          COMMIT;";
+
+fn ensure_work_graph_columns(conn: &Connection) -> Result<(), VivariumError> {
+    add_column_if_missing(
+        conn,
+        "work_graph_nodes",
+        "kind",
+        "TEXT NOT NULL DEFAULT 'task'",
+    )?;
+    add_column_if_missing(
+        conn,
+        "work_graph_edges",
+        "style",
+        "TEXT NOT NULL DEFAULT 'solid'",
+    )
+}
 
 fn ensure_absorb_columns(conn: &Connection) -> Result<(), VivariumError> {
     add_column_if_missing(conn, "messages", "absorbed_at", "TEXT")?;

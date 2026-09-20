@@ -156,7 +156,7 @@ impl Storage {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT handle, graph_handle, source_id, label, state, subgraph,
+                "SELECT handle, graph_handle, source_id, label, state, subgraph, kind,
                         created_at, updated_at
                  FROM work_graph_nodes WHERE graph_handle = ?1 AND subgraph = ?2
                  ORDER BY source_id",
