@@ -120,6 +120,34 @@ impl Storage {
     ///
     /// # Errors
     /// Returns a [`VivariumError`] if the query fails.
+    pub fn message_ids_by_content(&self, content_id: &str) -> Result<Vec<String>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT message_id FROM messages
+                 WHERE content_id = ?1 AND deleted_at IS NULL
+                   AND local_role IN ('tasks', 'needs', 'wants', 'done')
+                 ORDER BY message_id",
+            )
+            .map_err(|e| {
+                VivariumError::Other(format!("failed to prepare content messages: {e}"))
+            })?;
+        let rows = stmt
+            .query_map(params![content_id], |row| row.get::<_, String>(0))
+            .map_err(|e| VivariumError::Other(format!("failed to query content messages: {e}")))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| {
+                VivariumError::Other(format!("failed to read content message: {e}"))
+            })?);
+        }
+        Ok(out)
+    }
+
+    /// Load nodes whose `subgraph` names the given parent source id.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the query fails.
     pub fn work_graph_nodes_by_subgraph(
         &self,
         graph_handle: &str,

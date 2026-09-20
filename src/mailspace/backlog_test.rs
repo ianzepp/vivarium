@@ -348,3 +348,75 @@ fn reopen_cascades_to_done_join_parent() {
     mailspace.backlog_complete_item(&second).unwrap();
     assert_eq!(node(&mailspace, &need).state, "done");
 }
+
+#[test]
+fn dependency_edges_canonicalize_across_copies() {
+    let (mailspace, _tmp) = roster();
+    // One need, two recipients: two delivered copies of the same content.
+    let result = mailspace
+        .send(SendRequest {
+            from: "ceo".into(),
+            to: vec!["cto".into(), "ceo".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "shared dep".into(),
+            body: "done_when: exists".into(),
+            role: "needs".into(),
+            kind: Some("need".into()),
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap();
+    let copies: Vec<String> = result.delivered.iter().map(|d| d.handle.clone()).collect();
+    assert_eq!(copies.len(), 2, "two delivered copies");
+
+    // Dependents citing different copies share one canonical edge source.
+    mailspace
+        .backlog_attach("want", "wcop0001", "cites copy 1", &[copies[0].clone()])
+        .unwrap();
+    mailspace
+        .backlog_attach("want", "wcop0002", "cites copy 2", &[copies[1].clone()])
+        .unwrap();
+    let show = mailspace.graph_show("backlog").unwrap();
+    let sources: std::collections::BTreeSet<String> = show
+        .edges
+        .iter()
+        .map(|e| e.from_source_id.clone())
+        .collect();
+    assert_eq!(sources.len(), 1, "one canonical dep node: {sources:?}");
+}
+
+#[test]
+fn completing_any_copy_unlocks_dependents_of_the_other() {
+    let (mailspace, _tmp) = roster();
+    let result = mailspace
+        .send(SendRequest {
+            from: "ceo".into(),
+            to: vec!["cto".into(), "ceo".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "shared dep".into(),
+            body: "done_when: exists".into(),
+            role: "needs".into(),
+            kind: Some("need".into()),
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap();
+    let copies: Vec<String> = result.delivered.iter().map(|d| d.handle.clone()).collect();
+
+    // The dependent cites copy 2, but copy 1 is the one that gets done.
+    mailspace
+        .backlog_attach("want", "wany0001", "follow", &[copies[1].clone()])
+        .unwrap();
+    assert_eq!(node(&mailspace, "wany0001").readiness, "blocked");
+
+    mailspace.backlog_complete_item(&copies[0]).unwrap();
+    assert_eq!(
+        node(&mailspace, "wany0001").readiness,
+        "ready",
+        "sibling completion must propagate"
+    );
+    // The sibling copy's own node completed too.
+    assert_eq!(node(&mailspace, &copies[1]).state, "done");
+}

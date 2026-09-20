@@ -115,7 +115,13 @@ impl Mailspace {
             &newly_ready,
             Some(via),
         )?;
+        let siblings = sibling_display_handles(&storage, handle)?;
         drop(storage);
+        // A multi-recipient item is one work item with per-copy nodes:
+        // completing any copy completes the copies' nodes too.
+        for sibling in siblings {
+            self.backlog_complete_item_via(&sibling, "via=sibling")?;
+        }
         if let Some(parent) = target.subgraph.clone() {
             self.backlog_complete_if_join_complete(&parent)?;
         }
@@ -215,7 +221,11 @@ impl Mailspace {
         }
         let parent = target.subgraph.clone();
         storage.set_work_graph_node_state(&graph.handle, &target.handle, "open", None)?;
+        let siblings = sibling_display_handles(&storage, handle)?;
         drop(storage);
+        for sibling in siblings {
+            self.reopen_item_cascading(&sibling, visited)?;
+        }
         if let Some(parent) = parent {
             self.reopen_item_cascading(&parent, visited)?;
         }
@@ -259,7 +269,7 @@ fn resolve_backlog_dep(storage: &Storage, token: &str) -> Result<BacklogDep, Viv
             )));
         }
     };
-    let handle = storage.display_handle(&message_id)?;
+    let handle = canonical_content_handle(storage, &message_id)?;
     validate_source_id(&handle)
         .map_err(|e| VivariumError::Message(format!("dependency '{token}': {e}")))?;
     Ok(BacklogDep {
@@ -268,6 +278,46 @@ fn resolve_backlog_dep(storage: &Storage, token: &str) -> Result<BacklogDep, Viv
         state,
         kind,
     })
+}
+
+/// Canonical display handle for a message's content: a multi-recipient send
+/// delivers per-identity copies of one item, so dependency edges cite one
+/// deterministic copy (lowest message id) rather than whichever copy the
+/// sender happened to reference.
+fn canonical_content_handle(storage: &Storage, message_id: &str) -> Result<String, VivariumError> {
+    let Some(view) = storage.message_by_id(message_id)? else {
+        return Err(VivariumError::Message(format!(
+            "message not found: {message_id}"
+        )));
+    };
+    let canonical = storage
+        .message_ids_by_content(&view.content_id)?
+        .into_iter()
+        .min()
+        .unwrap_or_else(|| message_id.to_string());
+    storage.display_handle(&canonical)
+}
+
+/// Display handles of the other active copies of this handle's content.
+fn sibling_display_handles(storage: &Storage, handle: &str) -> Result<Vec<String>, VivariumError> {
+    let message_id = storage.resolve_message_token(handle)?;
+    content_sibling_handles(storage, &message_id)
+}
+
+/// Display handles of the other active copies of this message's content.
+fn content_sibling_handles(
+    storage: &Storage,
+    message_id: &str,
+) -> Result<Vec<String>, VivariumError> {
+    let Some(view) = storage.message_by_id(message_id)? else {
+        return Ok(Vec::new());
+    };
+    storage
+        .message_ids_by_content(&view.content_id)?
+        .into_iter()
+        .filter(|candidate| candidate != message_id)
+        .map(|candidate| storage.display_handle(&candidate))
+        .collect()
 }
 
 #[cfg(test)]

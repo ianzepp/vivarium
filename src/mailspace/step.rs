@@ -118,14 +118,19 @@ impl Mailspace {
             return Ok(manifest);
         }
         let display = self.storage()?.display_handle(&message_id)?;
+        // Screen every settled item — the lifecycle hook usually completed
+        // the node at settle time, so the screen must not depend on apply
+        // being the completer. Shadow: the corpus records the answers; only
+        // transitions this call performed appear in manifest decisions.
+        let note = match provider {
+            Some(provider) => Some(screen_receipt(self, provider, &display, &message_id)?),
+            None => None,
+        };
         if self.backlog_complete_item_via(&display, "via=step-apply")? {
-            let note = match provider {
-                Some(provider) => screen_receipt(self, provider, &display, &message_id)?,
-                None => "judgment=off".to_string(),
-            };
-            manifest
-                .decisions
-                .push(format!("complete item={display} via=step-apply {note}"));
+            manifest.decisions.push(format!(
+                "complete item={display} via=step-apply {}",
+                note.as_deref().unwrap_or("judgment=off")
+            ));
         }
         Ok(manifest)
     }
