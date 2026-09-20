@@ -1,11 +1,13 @@
 # Vivarium 9.1.0
 
 Vivarium 9.1.0 answers the first field feedback from v9 graph coordination
-(the mintedgeek VFS epic #35 campaign run, ~40 dispatched seats, two imported
-work graphs). The theme: the graph's planning vocabulary is now executable —
-decisions, stubs, and parked nodes are first-class gates that can never be
-dispatched as work, dotted couplings never block readiness, and the Mermaid
-import subset is documented where failures happen.
+(the mintedgeek VFS epic #35 campaign run, ~40 dispatched seats, two
+imported work graphs, plus a same-day addendum on task-body anchoring).
+The theme: the graph's planning vocabulary is now executable — decisions,
+stubs, and parked nodes are first-class gates that can never be dispatched
+as work, dotted couplings never block readiness, the Mermaid import subset
+is documented where failures happen, and dispatched task bodies carry a
+freezable content pin.
 
 ## Operator gates (node kinds — schema 8)
 
@@ -58,15 +60,6 @@ twin into the acting identity's own inbox for self-addressed items — the
 normal shape of wants. Other participants still receive their receipt; the
 actor keeps the read `sent` copy as the thread record.
 
-## Smaller
-
-- `graph complete` accepts `--task` and ignores it with a stderr hint
-  ("task binding happens at `graph activate`") instead of a generic usage
-  error.
-- `vivi step` adjudicates only the `backlog` graph; imported topologies
-  never enter the manifest — now stated explicitly in README, the skill,
-  and `graph import --help`.
-
 ## Task-body content pins
 
 Task bodies that carry a unit's meat (write scope + `done_when` + riders,
@@ -85,8 +78,34 @@ SHA pins a delivery spec:
 Audits cite the hash from the activate receipt (or any `show`); the blob
 store verifies it.
 
+## Smaller
+
+- `graph complete` accepts `--task` and ignores it with a stderr hint
+  ("task binding happens at `graph activate`") instead of a generic usage
+  error.
+- `vivi step` adjudicates only the `backlog` graph; imported topologies
+  never enter the manifest — now stated explicitly in README, the skill,
+  and `graph import --help`.
+- Dropped the codebase-wide hygiene totals (total lines, functions, and
+  impls): they moved with nearly every feature commit and carried no
+  signal. The per-file (1,000-line) and per-function (60-line) ceilings
+  and the monotonic banned-pattern budgets remain the enforced checks.
+- vivi-pty bumps to 9.1.0 in lockstep with vivarium.
+
+## Deferred
+
+- Blocked-task query flags: `task list --blocked` / `--blocking` (the
+  2026-07-21 issues.md ask) never shipped, and no such flag exists —
+  the 9.0.0 release notes' claim that `task list --blocked` "derives from
+  `X-Vivi-Depends-On` headers" was inaccurate. Blocked state is queried
+  through the graph instead: `graph ready`'s blocked frontier and node
+  `blocked_by`, the one dependency substrate since 9.0.
+- Provider-gated apply: receipt screens stay shadow (recorded, never
+  gating) until calibrated on real corpus data — unchanged from 9.0.0.
+
 ## Records
 
 - Feedback source: `factory/notes/2026-09-20-vivi9-graph-coordination-feedback.md`
-  (mintedgeek workspace)
-- Issues log: `issues.md` entries dated 2026-09-20 (all six items)
+  (mintedgeek workspace, including the same-day addendum)
+- Issues log: `issues.md` entries dated 2026-09-20 (all six items plus the
+  addendum)
