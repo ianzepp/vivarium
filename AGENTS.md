@@ -39,8 +39,20 @@ normalized edges + node state.
 | `vivi graph ready` | Compact ready/blocked/active frontier (status loops) |
 | `vivi graph complete` / `activate` | Lifecycle receipts; activate binds a task attempt |
 | `vivi board --graph` | Frontier projection without replacing task/need board items |
+| `vivi need bind` | Lowering: bind unit tasks to a need; join completes the need |
+| `vivi step [--apply <handle>]` | Manifest of dispatches/exceptions over the `backlog` graph; apply completes settled items |
 | `vivi goal add` / `list` / `show` / `drop` | Register goal file paths; board always surfaces them |
 | `vivi trace` | **Communication** tree — not work-graph topology |
+
+**Backlog citizenship.** Every `task` / `need` / `want` send mints an open
+node in the per-mailspace `backlog` graph (`source_id` = item handle).
+`--depends-on` (task/need/want handles, validated before send) becomes a
+prerequisite edge. Lifecycle moves keep node state in step: done moves
+complete nodes and unlock dependents; reopen re-locks; `want promote` never
+changes node state, and wants never dispatch in `vivi step` before explicit
+promotion. Node completions write a `step_decision` graph event in the same
+transaction (`via=lifecycle|graph-complete|step-apply`). No schema beyond
+the graph tables; no network anywhere in these paths.
 
 Invariant: Vivi decides which graph nodes are eligible (ready). The Mind
 dispatches. Fleet (`prepare --node` → claim → activate) proves execution.

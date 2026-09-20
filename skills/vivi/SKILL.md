@@ -107,8 +107,13 @@ hand.
 
 ## Work Graphs
 
-Work graphs are project-local DAGs authored through the supported Mermaid
-subset. Confirm the installed Vivi version and graph command help before use.
+Work graphs are project-local DAGs. Topology can be authored through the
+supported Mermaid subset (`graph import` / `apply`) — or it accumulates
+automatically: every `task` / `need` / `want` send mints an open node in the
+per-mailspace `backlog` graph, and `--depends-on` on any work-kind send
+(accepting task/need/want handles, validated before send) becomes a
+prerequisite edge. Confirm the installed Vivi version and command help
+before use.
 
 Core semantics:
 
@@ -116,13 +121,26 @@ Core semantics:
 - source node identifiers remain stable across label changes;
 - a node is ready when all prerequisites are done;
 - activation binds one task attempt to a ready node;
-- completion may unlock successors;
+- completion may unlock successors, and writes a `step_decision` graph
+  event in the same transaction recording the deciding path;
 - active or completed prerequisites cannot be rewritten incompatibly;
 - graph readiness describes eligibility, not scheduling policy.
 
-Use `graph show`, `graph ready`, and `board --graph` for inspection. The
-coordination host decides which ready nodes to dispatch and records attempts
-through Vivi tasks.
+Lifecycle moves keep backlog nodes in step: `task done` / `need done` /
+`want done|drop` complete the item's node and unlock dependents; `reopen`
+re-locks them; `want promote` never changes node state and wants never
+dispatch in `vivi step` before explicit promotion. Lowering is a graph fact:
+`vivi need bind <need> <task>...` binds unit tasks to a need, and the need
+auto-completes when every bound unit lands.
+
+Use `graph show`, `graph ready`, and `board --graph` for inspection. Use
+`vivi step [--json]` for a mechanical adjudication of the backlog into
+`dispatches` (ready, verifiable work with clause counts) and `exceptions`
+(reason vocabulary: `want_requires_promotion`, `lowered_awaiting_units`,
+`no_done_when`, `item_missing`, `not_settled`). `vivi step --apply <handle>`
+completes an already-settled item's node (never settles it) and lists the
+transition under `decisions`. The coordination host decides which ready
+nodes to dispatch and records attempts through Vivi tasks.
 
 ## Watches and Cycle Intake
 

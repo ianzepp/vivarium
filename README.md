@@ -414,14 +414,24 @@ single logical node. Use `--json` for agent consumption and `--max-depth` /
 ### Executable work graphs
 
 `vivi graph` stores **executable work topology** separately from `vivi trace`
-(communication tree) and from task-only `--depends-on` filters.
+(communication tree). The whole backlog lives in the graph: every `task` /
+`need` / `want` send mints a node in the per-mailspace `backlog` graph, and
+`--depends-on` on any work-kind send (task/need/want handles) becomes a
+prerequisite edge — one dependency substrate for all kinds.
 
 | Concern | Authority |
 | --- | --- |
 | Planning topology + ready frontier | `vivi graph` (project `mail.sqlite`) |
+| Backlog citizenship + dependencies | `backlog` graph (auto-minted; `--depends-on` on send) |
+| Lowering: need → unit tasks | `need bind`; the need completes when all units land |
+| Dispatch/exception manifest | `vivi step [--json]`; `--apply <handle>` completes settled items |
 | Communication history | `vivi trace` |
-| Standalone task deps | `task send --depends-on` / `task list --blocked` |
 | Who to spawn / when | The host, not Vivi. Bind an attempt with `graph activate --task` |
+
+Lifecycle moves keep nodes in step (`task done` completes and unlocks
+dependents; `reopen` re-locks; `want promote` changes nothing and wants never
+dispatch in `vivi step` before promotion). Every node completion records a
+`step_decision` graph event in the same transaction.
 
 Import a narrow Mermaid `flowchart` / `graph` with `-->` edges; Vivi assigns
 immutable handles, keeps Mermaid as revision evidence, and reports the ready
@@ -698,6 +708,8 @@ vivi compose --to you@example.com --subject hi # create a new local draft
 vivi compose --to you@example.com --subject hi --body "Plain text" --html-body-auto
 vivi exec send --account agent-proton --from agent@proton.me path/to/draft.eml
 vivi agent poll --from person@example.com --json  # trusted-inbox Codex helper
+vivi step --project . --json                      # backlog dispatch/exception manifest
+vivi step --apply <settled-handle> --project .    # complete a settled item's graph node
 ```
 
 `compose` and `reply` can create multipart drafts with both plain text and HTML.

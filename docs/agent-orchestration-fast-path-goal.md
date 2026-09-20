@@ -212,6 +212,23 @@ Verified against live CLI (`--help`) on 2026-09-20 at vivarium 8.1.0:
 
 ## Implementation Shape
 
+**Status (2026-09-20).** Phases 1–4 are implemented, tested, and released:
+backlog citizenship + dependency sugar + mechanical unlock (`cae4d5f`,
+release 8.2.0), task dependency unification (`7adaad2`), lowering-as-expansion
+join via `need bind` (`bea90ae`), `vivi step` shadow manifest (`f8d1c01`), and
+step apply with atomic decision records (`1ef1236`, release 8.3.0). Delivery
+specs live in `docs/factory/agent-orchestration-phase-01..05-delivery.md`.
+Docs, skills, and AGENTS truth updated in the 8.3.0 closeout.
+
+**Deferred with reason: the judgment provider (Phase 5 of the original
+shape).** A network + secrets integration inside Vivi core deserves its own
+factory session with fresh context; shipping it at the tail of a long run
+risks exactly the isolation sloppiness the stop conditions forbid. The
+mechanical `step` is a complete, supported posture; the provider phase
+remains specified above and unblocked. Recheck trigger: the next factory
+session opened on this goal, or operator request. This deferral is an
+amendment for the operator to accept or reject.
+
 ### Phase 1 — Backlog citizenship (smallest useful)
 
 - Mint open nodes on `need send` / `want send`; handle↔node identity mapping.
