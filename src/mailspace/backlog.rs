@@ -182,12 +182,26 @@ impl Mailspace {
         self.backlog_complete_item(parent).map(|_| ())
     }
 
-    /// Reopen the backlog node for `handle` after a done→open lifecycle move.
-    /// No-op when the graph, the node, or a non-done state says so.
+    /// Reopen the backlog node for `handle` after a done→open lifecycle move,
+    /// cascading to the subgraph parent: reopening a bound unit invalidates
+    /// the join, so a done parent need re-opens too. No-op when the graph,
+    /// the node, or a non-done state says so.
     ///
     /// # Errors
     /// Returns a [`VivariumError`] on storage failure.
     pub fn backlog_reopen_item(&self, handle: &str) -> Result<(), VivariumError> {
+        self.reopen_item_cascading(handle, &mut Vec::new())
+    }
+
+    fn reopen_item_cascading(
+        &self,
+        handle: &str,
+        visited: &mut Vec<String>,
+    ) -> Result<(), VivariumError> {
+        if visited.iter().any(|seen| seen == handle) {
+            return Ok(());
+        }
+        visited.push(handle.to_string());
         let mut storage = self.storage()?;
         let Some(graph) = storage.work_graph_by_code(BACKLOG_GRAPH_CODE)? else {
             return Ok(());
@@ -199,7 +213,12 @@ impl Mailspace {
         if target.state != "done" {
             return Ok(());
         }
+        let parent = target.subgraph.clone();
         storage.set_work_graph_node_state(&graph.handle, &target.handle, "open", None)?;
+        drop(storage);
+        if let Some(parent) = parent {
+            self.reopen_item_cascading(&parent, visited)?;
+        }
         Ok(())
     }
 

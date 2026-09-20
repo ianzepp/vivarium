@@ -323,3 +323,28 @@ fn bind_rejects_done_parent() {
     let err = mailspace.backlog_bind_units(&need, &[unit]).unwrap_err();
     assert!(err.to_string().contains("state"), "{err}");
 }
+
+#[test]
+fn reopen_cascades_to_done_join_parent() {
+    let (mailspace, _tmp) = roster();
+    let need = send_item(&mailspace, "needs", Some("need"), "join me", Vec::new());
+    let first = send_item(&mailspace, "tasks", Some("task"), "unit 1", Vec::new());
+    let second = send_item(&mailspace, "tasks", Some("task"), "unit 2", Vec::new());
+    mailspace
+        .backlog_bind_units(&need, &[first.clone(), second.clone()])
+        .unwrap();
+    mailspace.backlog_complete_item(&first).unwrap();
+    mailspace.backlog_complete_item(&second).unwrap();
+    assert_eq!(node(&mailspace, &need).state, "done");
+
+    // Reopening one unit invalidates the join: the done parent re-opens.
+    mailspace.backlog_reopen_item(&second).unwrap();
+    assert_eq!(node(&mailspace, &second).state, "open");
+    assert_eq!(node(&mailspace, &need).state, "open");
+    // The untouched sibling keeps its state.
+    assert_eq!(node(&mailspace, &first).state, "done");
+
+    // Re-completing the reopened unit closes the join again.
+    mailspace.backlog_complete_item(&second).unwrap();
+    assert_eq!(node(&mailspace, &need).state, "done");
+}
