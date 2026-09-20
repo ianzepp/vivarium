@@ -202,12 +202,12 @@ fn split_graph_node(
     {
         return Ok((graph.to_string(), source_id.to_string()));
     }
-    let graph = graph_flag.ok_or_else(|| {
-        VivariumError::Message(
-            "complete requires graph:source-id or --graph with a source id".into(),
-        )
-    })?;
-    Ok((graph.to_string(), node.to_string()))
+    // Bare source ids address the backlog graph: its ids are mailspace
+    // handles, so the common dispatch path needs no prefix.
+    let graph = graph_flag
+        .map(str::to_string)
+        .unwrap_or_else(|| "backlog".to_string());
+    Ok((graph, node.to_string()))
 }
 
 fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumError> {

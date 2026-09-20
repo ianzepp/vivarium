@@ -3423,3 +3423,48 @@ fn handle_after(output: &str, prefix: &str) -> String {
         .unwrap_or_else(|| panic!("missing '{prefix}' in output:\n{output}"))
         .to_string()
 }
+
+#[test]
+fn graph_activate_accepts_bare_backlog_handles() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let task = send_work(project.path(), "task", "cto", "bare handle", "work");
+
+    let activate = vivi([
+        "graph",
+        "activate",
+        &task,
+        "--task",
+        &task,
+        "--project",
+        project_s,
+    ]);
+    assert_success(&activate);
+    let receipt: Value = serde_json::from_str(&stdout(&vivi([
+        "graph",
+        "ready",
+        "backlog",
+        "--json",
+        "--project",
+        project_s,
+    ])))
+    .unwrap();
+    assert!(
+        receipt["active"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n.as_str() == Some(task.as_str())),
+        "{receipt}"
+    );
+
+    // An unknown bare handle names the backlog graph in its error.
+    let missing = vivi(["graph", "complete", "deadbee0", "--project", project_s]);
+    assert!(!missing.status.success());
+    assert!(
+        stderr(&missing).contains("deadbee0"),
+        "{}",
+        stderr(&missing)
+    );
+}
