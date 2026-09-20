@@ -42,17 +42,19 @@ full dumps are noisy and can hide the current frontier.
 Default inspection order:
 
 ```sh
+vivi step --project <root> --json
 vivi board --project <root> --for <role> --process --graph --json
 vivi task list --project <root> --for <role> --status open
 vivi need list --project <root> --for <role> --status open
-vivi want list --project <root> --for <role>
 vivi mail list --project <root> --for <role>
 vivi task show --project <root> <handle>
 ```
 
-Prefer JSON plus a narrow time, status, sender, or handle filter for automation.
-Use `vivi trace <handle>` to reconstruct communication lineage; do not confuse
-that tree with an executable work graph.
+`vivi step --json` is the bounded intake: a fixed-shape manifest of
+dispatches and exceptions over the backlog graph. Prefer it (and the delta
+tools below) over dumps and raw graph exports as loop input. Use `vivi trace
+<handle>` to reconstruct communication lineage; do not confuse that tree
+with the executable work graph.
 
 ## Roles and Goals
 
@@ -84,12 +86,16 @@ document.
 ## Lifecycle
 
 Use `send` to create a project-local record and `mail reply` to continue its
-thread. Use task dependencies for small standalone relationships and work
-graphs for multi-unit executable topology.
+thread. `--depends-on` on any work-kind send (task, need, or want handles)
+creates a graph edge; handles are validated before anything is created, so
+an unknown dependency fails the send. `X-Vivi-Depends-On` headers remain on
+the message as evidence. There is one dependency substrate — the graph — for
+small and multi-unit relationships alike.
 
 Closing a task, need, or want records its current disposition. Reopen when the
 CLI permits and evidence changes. `want promote` moves deferred work into the
-must-do queue.
+must-do queue; promotion is request-only and never fires because a
+dependency completed.
 
 `absorb` seals a record. After absorption it cannot be changed, reopened,
 promoted, dropped, reprioritized, or deleted. A later reply or derived task is
@@ -128,27 +134,65 @@ Core semantics:
 
 Lifecycle moves keep backlog nodes in step: `task done` / `need done` /
 `want done|drop` complete the item's node and unlock dependents; `reopen`
-re-locks them; `want promote` never changes node state and wants never
-dispatch in `vivi step` before explicit promotion. Lowering is a graph fact:
+re-locks them (cascading through join parents and content siblings);
+`want promote` never changes node state and wants never dispatch in
+`vivi step` before explicit promotion. Lowering is a graph fact:
 `vivi need bind <need> <task>...` binds unit tasks to a need, and the need
-auto-completes when every bound unit lands.
+auto-completes when every bound unit lands. Imported Mermaid graphs are for
+non-item topology (pipelines, environment flows); delivery lowering uses
+`need bind` in the backlog, so work is never double-represented.
+
+**Dependency grammar.** Structural dependencies — a handle cited with
+`--depends-on` — become edges and derive readiness. Ambient conditions
+("when a seat is free", time windows, operator approval) stay prose in the
+body and are evaluated by the host at dispatch; they are never encoded as
+topology. Multi-recipient sends are one work item: dependency handles may
+cite any copy (edges canonicalize to one copy per content), and completing
+any copy completes its siblings.
+
+**Dispatch sequence.** `task send` mints the node; `graph activate
+<handle> --task <handle>` binds the attempt and marks it active — active
+nodes leave the `vivi step` manifest, so in-flight work is not re-offered.
+Bare source ids address the backlog graph; imported topologies use
+`graph:source-id`. **Settle sequence.** The worker settles with
+`task done --verdict/--repo/--tip` (the node completes, dependents unlock,
+a `step_decision via=lifecycle` event records the transition); the host
+then runs `vivi step --apply <handle>` — idempotent, never settles itself —
+which records `via=step-apply` and runs the receipt screen when a judgment
+provider is configured.
 
 Use `graph show`, `graph ready`, and `board --graph` for inspection. Use
 `vivi step [--json]` for a mechanical adjudication of the backlog into
 `dispatches` (ready, verifiable work with clause counts) and `exceptions`
 (reason vocabulary: `want_requires_promotion`, `lowered_awaiting_units`,
 `no_done_when`, `item_missing`, `not_settled`). `vivi step --apply <handle>`
-completes an already-settled item's node (never settles it) and lists the
-transition under `decisions`. The coordination host decides which ready
-nodes to dispatch and records attempts through Vivi tasks.
+completes an already-settled item's node and lists transitions under
+`decisions`. The coordination host decides which ready nodes to dispatch.
 
-With a user-level `[judgment]` section in `~/.vivarium/config.toml`
-(`provider = "typesafe"`, `key_cmd` returning the API key — never an envvar
-or inline key), `step --apply` also screens the receipt through System One
-judgments (one yes/no per `done_when` clause plus a completion-honesty
-check) and appends the answers to `.vivi/judgment-corpus.jsonl`. This is
-shadow evidence: it never gates the mechanical completion, and absent or
-unreachable providers degrade to `judgment=skipped(...)`.
+### Judgment provider (optional, off by default)
+
+A user-level `[judgment]` section enables System One receipt screens on
+`step --apply`: one yes/no judgment per `done_when` clause plus a
+completion-honesty check, answers appended to
+`.vivi/judgment-corpus.jsonl` as calibration evidence. Screens are shadow —
+they never gate the mechanical completion — and absent or unreachable
+providers degrade to `judgment=skipped(<class>)`. No read path makes
+provider calls.
+
+```toml
+[judgment]
+provider = "typesafe"
+key_cmd  = "cat ~/.config/secrets/typesafe-ai.key"
+```
+
+Authentication is exclusively `key_cmd` (`sh -c`, `password_cmd` semantics):
+never an envvar (ambient to spawned processes) and never an inline key
+(no field exists). Resolve the real config path before editing — it is
+`VIVI_HOME` if set, else the legacy `~/.config/vivarium/` when it exists,
+else `~/.vivarium/`. A wrong path fails silently (`judgment=off`, empty
+corpus), so verify with one apply after configuring. Screens judge the
+receipt against the clauses: tasks that want meaningful screens should
+carry their validation claim in the body, not only verdict flags.
 
 ## Watches and Cycle Intake
 
