@@ -95,7 +95,9 @@ small and multi-unit relationships alike.
 Closing a task, need, or want records its current disposition. Reopen when the
 CLI permits and evidence changes. `want promote` moves deferred work into the
 must-do queue; promotion is request-only and never fires because a
-dependency completed.
+dependency completed. Lifecycle notes (`--note`) never inbox the acting
+identity: other participants receive the receipt, and the actor keeps only a
+read sent copy.
 
 `absorb` seals a record. After absorption it cannot be changed, reopened,
 promoted, dropped, reprioritized, or deleted. A later reply or derived task is
@@ -125,12 +127,28 @@ Core semantics:
 
 - import or apply validates the whole graph atomically;
 - source node identifiers remain stable across label changes;
-- a node is ready when all prerequisites are done;
-- activation binds one task attempt to a ready node;
-- completion may unlock successors, and writes a `step_decision` graph
-  event in the same transaction recording the deciding path;
+- a node is ready when all solid-arrow prerequisites are done;
+- activation binds one task attempt to a ready, dispatchable node;
+- completion may unlock successors, and writes a `step_decision` graph event
+  in the same transaction recording the deciding path;
 - active or completed prerequisites cannot be rewritten incompatibly;
 - graph readiness describes eligibility, not scheduling policy.
+
+**Node kinds and operator gates.** Rhombus nodes (`id{label}`) import as
+`decision`; an `id:::kind` suffix or `class <ids> <kind>` statement marks
+`decision`, `stub`, or `parked`; stadium `id([label])` and rect nodes are
+ordinary work. Gated kinds never dispatch: `graph ready` lists them under
+`gates` instead of `ready`, and `graph activate` refuses them. Resolve a
+gate with `graph complete --note` (the ruling is the completion record).
+Dotted edges (`-.->`, `-.-`) are non-gating couplings — topology evidence
+that never blocks readiness; `-->` is the only prerequisite arrow. Run
+`vivi graph import --help` for the accepted-subset summary; parse errors
+name the rejected construct and the subset.
+
+**Step scope.** `vivi step` adjudicates only the `backlog` graph. Imported
+topologies never enter the step manifest — dispatch their nodes with
+`graph activate` at dispatch time and complete them at reconcile. `graph
+ready` without an argument lists every graph's frontier, including backlog.
 
 Lifecycle moves keep backlog nodes in step: `task done` / `need done` /
 `want done|drop` complete the item's node and unlock dependents; `reopen`
@@ -165,9 +183,13 @@ Use `graph show`, `graph ready`, and `board --graph` for inspection. Use
 `vivi step [--json]` for a mechanical adjudication of the backlog into
 `dispatches` (ready, verifiable work with clause counts) and `exceptions`
 (reason vocabulary: `want_requires_promotion`, `lowered_awaiting_units`,
-`no_done_when`, `item_missing`, `not_settled`). `vivi step --apply <handle>`
-completes an already-settled item's node and lists transitions under
-`decisions`. The coordination host decides which ready nodes to dispatch.
+`no_done_when`, `item_missing`, `not_settled`). Wants render as parked in
+their exception detail. A clauseless task/need body warns at send time, and
+its `no_done_when` detail names the labeled fields the body does carry
+(verdict, repo, …) so coordination work is legible as such. `vivi step
+--apply <handle>` completes an already-settled item's node and lists
+transitions under `decisions`. The coordination host decides which ready
+nodes to dispatch.
 
 ### Judgment provider (optional, off by default)
 

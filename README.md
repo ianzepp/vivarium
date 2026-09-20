@@ -433,7 +433,24 @@ dependents; `reopen` re-locks; `want promote` changes nothing and wants never
 dispatch in `vivi step` before promotion). Every node completion records a
 `step_decision` graph event in the same transaction.
 
-Import a narrow Mermaid `flowchart` / `graph` with `-->` edges; Vivi assigns
+**Operator gates.** Imported nodes carry kinds: rhombus `id{label}` imports as
+`decision`, an `id:::kind` suffix or `class <ids> <kind>` statement marks
+`decision` / `stub` / `parked`, and everything else is dispatchable `task`.
+Gated kinds never appear in `graph ready`'s ready list (they render under
+`gates`), `graph activate` refuses them, and they resolve with
+`graph complete --note` — an operator ruling is recorded, never dispatched.
+
+**Dotted couplings never gate.** `-.->` / `-.-` edges import as non-gating
+couplings: topology evidence that never blocks readiness. Export round-trips
+them dotted. `-->` remains the only prerequisite arrow.
+
+`vivi step` adjudicates **only the `backlog` graph**. Imported topologies never
+enter the step manifest — their nodes are dispatched with `graph activate` and
+completed at reconcile. `graph ready` without an argument lists every graph's
+frontier, including backlog.
+
+Import a narrow Mermaid `flowchart` / `graph` (run `vivi graph import --help`
+for the full accepted-subset summary); Vivi assigns
 immutable handles, keeps Mermaid as revision evidence, and reports the ready
 frontier (open roots). Use `--check` to validate without writing. Re-importing
 identical source is idempotent. Later revisions use `graph apply` (source-id
@@ -444,9 +461,10 @@ reconciliation, freezes active/done prerequisites, allows new successors).
 | `graph import --code … --file …` | First create (or idempotent re-import) |
 | `graph apply <code> --file …` | Additive revision of an existing graph |
 | `graph show` / `export` | Mermaid topology only (`--include-state` optional) |
-| `graph ready` | Compact ready/blocked/active frontier for status loops |
+| `graph ready` | Compact ready/blocked/active/gates frontier for status loops |
 | `graph complete <code>:<id>` | Mark done; compact receipt (not full topology) |
 | `graph activate <code>:<id> --task <h>` | Bind task attempt; compact receipt |
+| `graph node add … [--kind <k>]` | Append a node, optionally a gate kind |
 | `board --graph` | Frontier on the board JSON/text surface |
 
 Watch graph lifecycle with `--kinds graph --events node_ready` (also

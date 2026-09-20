@@ -1,5 +1,45 @@
 # Vivarium Issues & Agent Observations
 
+## [2026-09-20] Vivi 9 graph-coordination field feedback (six items)
+
+**Severity:** High (item 1) down to Low (items 5-6)
+**Version affected:** vivi 9.0.0 / 9.0.1
+**Source:** first full campaign run under v9 (Mind, mintedgeek workspace —
+VFS epic #35 core close + deferred reevaluation, ~40 dispatched seats, two
+imported work graphs). Full notes:
+`factory/notes/2026-09-20-vivi9-graph-coordination-feedback.md`.
+**Status:** **All six fixed 2026-09-20** in 9.1.0.
+
+1. **Decision/stub/parked nodes pollute `ready`** (fixed). Imported
+   decision/stub/parked nodes appeared as ready work in `graph ready`, and
+   `graph activate` would have accepted them. 9.1.0 adds node kinds
+   (schema 8): rhombus/`:::kind`/`class` mark gates, `graph ready` lists
+   them under `gates`, and `activate` refuses them. Correction to the
+   report: `step` was never exposed — it hardcodes the `backlog` graph, so
+   imported nodes could not flow into dispatches; the real accident path
+   was activate.
+2. **`no_done_when` on coordination tasks** (fixed). The exception now
+   names the labeled fields the body carries; want exceptions read
+   "parked: …"; clauseless task/need sends warn at send time. Correction:
+   an unpromoted want surfaces as `want_requires_promotion` (the want check
+   precedes the clause check), never `no_done_when` — the observed
+   `72d0d0a1` was promoted or misread.
+3. **Mermaid subset strict and undocumented at the failure point** (fixed).
+   The subset now accepts rhombus/stadium/dotted/`:::kind`/`class` and
+   tolerates `classDef`/`style`; parse errors name the rejected construct
+   and print the accepted subset; `graph import --help` documents it.
+4. **Send-twins in the actor's own inbox** (fixed, pre-v9 root cause).
+   `note_reply`'s recipient fallback delivered lifecycle notes to the
+   acting identity on self-addressed items. The fallback is gone: notes
+   mint only the read `sent` copy for the actor; cross-identity receipts
+   unchanged.
+5. **`graph complete` rejects `--task`** (fixed). Accepted-and-ignored with
+   a stderr hint pointing at `graph activate`.
+6. **Multiple graphs vs one `step` manifest** (documented). `step`
+   adjudicates only the `backlog` graph; imported topologies are dispatched
+   via `graph activate` and completed at reconcile. Now stated in README,
+   the skill, and `graph import --help`.
+
 ## [2026-09-20] `vivi goal add` fails on mailspaces created before the goals table
 
 **Severity:** Medium — goal registration is unavailable on older project
