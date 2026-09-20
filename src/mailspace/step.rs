@@ -71,6 +71,45 @@ impl Mailspace {
             decisions: Vec::new(),
         })
     }
+
+    /// Apply mode: adjudicate one settled item, complete its backlog node if
+    /// it is still completable (recording the decision atomically with the
+    /// transition), then emit the full manifest. An item that is not settled
+    /// yet becomes a `not_settled` exception — apply never settles work
+    /// itself; settling (`task done` with its receipt flags) stays with the
+    /// caller.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] on storage failure or when the handle
+    /// does not resolve.
+    pub fn step_apply(&self, handle: &str) -> Result<StepManifest, VivariumError> {
+        let mut manifest = self.step_shadow()?;
+        let storage = self.storage()?;
+        let message_id = storage
+            .resolve_message_token(handle)
+            .map_err(|e| VivariumError::Message(format!("step item '{handle}': {e}")))?;
+        let message = storage
+            .message_by_id(&message_id)?
+            .ok_or_else(|| VivariumError::Message(format!("step item not found: {handle}")))?;
+        drop(storage);
+        if message.local_role != "done" {
+            manifest.exceptions.push(StepException {
+                node: String::new(),
+                item: handle.to_string(),
+                kind: kind_for_role(&message.local_role),
+                reason: "not_settled".into(),
+                detail: "settle the item (task done with receipt flags) before apply".into(),
+            });
+            return Ok(manifest);
+        }
+        let display = self.storage()?.display_handle(&message_id)?;
+        if self.backlog_complete_item_via(&display, "via=step-apply")? {
+            manifest
+                .decisions
+                .push(format!("complete item={display} via=step-apply"));
+        }
+        Ok(manifest)
+    }
 }
 
 /// Per-node adjudication result.

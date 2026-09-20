@@ -353,7 +353,10 @@ impl Storage {
         Ok(())
     }
 
-    /// Complete a node and emit `node_ready` events for newly ready successors.
+    /// Complete a node and emit `node_ready` events for newly ready
+    /// successors. When `decision` is provided, a `step_decision` event is
+    /// written in the same transaction — the durable record of who decided
+    /// the transition and why.
     ///
     /// # Errors
     /// Returns a [`VivariumError`] if the transaction fails.
@@ -363,6 +366,7 @@ impl Storage {
         node_handle: &str,
         note: Option<&str>,
         newly_ready_node_handles: &[String],
+        decision: Option<&str>,
     ) -> Result<(), VivariumError> {
         let now = Utc::now().to_rfc3339();
         let tx = self
@@ -383,6 +387,15 @@ impl Storage {
                 ],
             )
             .map_err(|e| VivariumError::Other(format!("failed to insert ready event: {e}")))?;
+        }
+        if let Some(decision) = decision {
+            tx.execute(
+                "INSERT INTO work_graph_events
+                   (graph_handle, occurred_at, event_type, node_handle, note)
+                 VALUES (?1, ?2, 'step_decision', ?3, ?4)",
+                params![graph_handle, now, node_handle, decision],
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to insert decision event: {e}")))?;
         }
         tx.commit()
             .map_err(|e| VivariumError::Other(format!("failed to commit complete: {e}")))?;

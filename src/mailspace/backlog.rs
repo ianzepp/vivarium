@@ -72,34 +72,54 @@ impl Mailspace {
         Ok(())
     }
 
-    /// Complete the backlog node for `handle`, unlocking dependents, then
-    /// cascade the join rule: a parent need whose bound units are now all
-    /// done completes too. No-op when the backlog graph or the node does not
-    /// exist (pre-feature items) or the node is not completable.
+    /// Complete the backlog node for `handle` via the lifecycle hook, then
+    /// cascade the join rule. Returns whether a transition occurred.
     ///
     /// # Errors
     /// Returns a [`VivariumError`] on storage failure.
-    pub fn backlog_complete_item(&self, handle: &str) -> Result<(), VivariumError> {
+    pub fn backlog_complete_item(&self, handle: &str) -> Result<bool, VivariumError> {
+        self.backlog_complete_item_via(handle, "via=lifecycle")
+    }
+
+    /// Complete the backlog node for `handle`, recording the decision
+    /// (`via=<origin>`) atomically with the transition, then cascade the join
+    /// rule. Returns whether a transition occurred; no-op when the backlog
+    /// graph or the node does not exist (pre-feature items) or the node is
+    /// not completable.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] on storage failure.
+    pub fn backlog_complete_item_via(
+        &self,
+        handle: &str,
+        via: &str,
+    ) -> Result<bool, VivariumError> {
         let mut storage = self.storage()?;
         let Some(graph) = storage.work_graph_by_code(BACKLOG_GRAPH_CODE)? else {
-            return Ok(());
+            return Ok(false);
         };
         let nodes = storage.work_graph_nodes(&graph.handle)?;
         let edges = storage.work_graph_edges(&graph.handle)?;
         let Some(target) = nodes.iter().find(|n| n.source_id == handle) else {
-            return Ok(());
+            return Ok(false);
         };
         if !matches!(target.state.as_str(), "open" | "active") {
-            return Ok(());
+            return Ok(false);
         }
         let ready_before = ready_handles(&nodes, &edges);
         let newly_ready = newly_ready_after_done(&nodes, &edges, &target.handle, &ready_before);
-        storage.complete_work_graph_node(&graph.handle, &target.handle, None, &newly_ready)?;
+        storage.complete_work_graph_node(
+            &graph.handle,
+            &target.handle,
+            None,
+            &newly_ready,
+            Some(via),
+        )?;
         drop(storage);
         if let Some(parent) = target.subgraph.clone() {
             self.backlog_complete_if_join_complete(&parent)?;
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Bind unit tasks to a parent need: each unit node's `subgraph` becomes
@@ -159,7 +179,7 @@ impl Mailspace {
             return Ok(());
         }
         drop(storage);
-        self.backlog_complete_item(parent)
+        self.backlog_complete_item(parent).map(|_| ())
     }
 
     /// Reopen the backlog node for `handle` after a done→open lifecycle move.
@@ -193,7 +213,7 @@ impl Mailspace {
         handle: &str,
     ) -> Result<(), VivariumError> {
         match (from_role, to_role) {
-            ("tasks" | "needs" | "wants", "done") => self.backlog_complete_item(handle),
+            ("tasks" | "needs" | "wants", "done") => self.backlog_complete_item(handle).map(|_| ()),
             ("done", "tasks" | "needs" | "wants") => self.backlog_reopen_item(handle),
             _ => Ok(()),
         }

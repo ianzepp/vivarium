@@ -161,7 +161,13 @@ impl Mailspace {
         }
         let ready_before = ready_handles(&rows, &edges);
         let newly_ready = newly_ready_after_done(&rows, &edges, &target.handle, &ready_before);
-        storage.complete_work_graph_node(&graph.handle, &target.handle, note, &newly_ready)?;
+        storage.complete_work_graph_node(
+            &graph.handle,
+            &target.handle,
+            note,
+            &newly_ready,
+            Some("via=graph-complete"),
+        )?;
         self.graph_show(code_or_handle)
     }
 

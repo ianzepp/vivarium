@@ -326,6 +326,10 @@ pub enum Command {
 
     /// Adjudicate the backlog graph into a dispatch/exception manifest
     Step {
+        /// Settled item handle to adjudicate and complete (apply mode)
+        #[arg(long)]
+        apply: Option<String>,
+
         /// Project root to use
         #[arg(long)]
         project: Option<PathBuf>,

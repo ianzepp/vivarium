@@ -157,3 +157,90 @@ fn blocked_nodes_do_not_appear() {
         "{manifest:?}"
     );
 }
+
+#[test]
+fn apply_rejects_unsettled_item() {
+    let (mailspace, _tmp) = roster();
+    let task = send_item(
+        &mailspace,
+        "tasks",
+        "task",
+        "still open",
+        "done_when: lands",
+    );
+    let manifest = mailspace.step_apply(&task).unwrap();
+    let exception = manifest
+        .exceptions
+        .iter()
+        .find(|e| e.item == task)
+        .unwrap_or_else(|| panic!("expected not_settled: {manifest:?}"));
+    assert_eq!(exception.reason, "not_settled");
+    assert!(manifest.decisions.is_empty());
+}
+
+#[test]
+fn apply_completes_settled_task_and_records_decision() {
+    let (mailspace, _tmp) = roster();
+    let task = send_item(
+        &mailspace,
+        "tasks",
+        "task",
+        "settled work",
+        "done_when: lands",
+    );
+    mailspace
+        .move_item("cto", &task, "done", None, "task done", None)
+        .unwrap();
+
+    // Rewind the node to open to model an out-of-band settle the hook
+    // never saw, then let apply complete it.
+    let storage = mailspace.storage().unwrap();
+    let graph = storage.work_graph_by_code("backlog").unwrap().unwrap();
+    let node = storage
+        .work_graph_nodes(&graph.handle)
+        .unwrap()
+        .into_iter()
+        .find(|n| n.source_id == task)
+        .unwrap();
+    drop(storage);
+    mailspace
+        .storage()
+        .unwrap()
+        .set_work_graph_node_state(&graph.handle, &node.handle, "open", None)
+        .unwrap();
+
+    let manifest = mailspace.step_apply(&task).unwrap();
+    assert_eq!(manifest.decisions.len(), 1, "{manifest:?}");
+    assert!(manifest.decisions[0].contains("via=step-apply"));
+
+    let storage = mailspace.storage().unwrap();
+    let events = storage.list_work_graph_events_after(0).unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| e.event_type == "step_decision"
+                && e.note.as_deref() == Some("via=step-apply")),
+        "{events:?}"
+    );
+
+    // Applying again is a no-op: the node is done, no new decision.
+    let again = mailspace.step_apply(&task).unwrap();
+    assert!(again.decisions.is_empty(), "{again:?}");
+}
+
+#[test]
+fn lifecycle_completion_records_decision_event() {
+    let (mailspace, _tmp) = roster();
+    let task = send_item(&mailspace, "tasks", "task", "unit work", "done_when: lands");
+    mailspace
+        .move_item("cto", &task, "done", None, "task done", None)
+        .unwrap();
+    let storage = mailspace.storage().unwrap();
+    let events = storage.list_work_graph_events_after(0).unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| e.event_type == "step_decision" && e.note.as_deref() == Some("via=lifecycle")),
+        "{events:?}"
+    );
+}

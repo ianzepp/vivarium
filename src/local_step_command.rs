@@ -2,11 +2,15 @@ use vivarium::VivariumError;
 use vivarium::mailspace::Mailspace;
 
 pub(crate) fn handle_step_command(
+    apply: Option<&str>,
     project: Option<&std::path::Path>,
     json: bool,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    let manifest = mailspace.step_shadow()?;
+    let manifest = match apply {
+        Some(handle) => mailspace.step_apply(handle)?,
+        None => mailspace.step_shadow()?,
+    };
     if json {
         println!(
             "{}",
@@ -48,6 +52,15 @@ fn print_manifest(manifest: &vivarium::mailspace::StepManifest) {
                 "  {}  {}  {}  {}  {}",
                 exception.node, exception.item, exception.kind, exception.reason, exception.detail
             );
+        }
+    }
+    println!();
+    if manifest.decisions.is_empty() {
+        println!("  no decisions");
+    } else {
+        println!("  decisions");
+        for decision in &manifest.decisions {
+            println!("  {decision}");
         }
     }
 }
