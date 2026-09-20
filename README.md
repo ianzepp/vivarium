@@ -461,7 +461,9 @@ reconciliation, freezes active/done prerequisites, allows new successors).
 | `graph import --code … --file …` | First create (or idempotent re-import) |
 | `graph apply <code> --file …` | Additive revision of an existing graph |
 | `graph show` / `export` | Mermaid topology only (`--include-state` optional) |
-| `graph ready` | Compact ready/blocked/active/gates frontier for status loops |
+| `graph ready [--kind <k>]` | Compact frontier with counts for status loops |
+| `graph audit [--repair]` | Backlog citizenship check; repair drift |
+| `graph connect <dependent> <prereq>` | Post-hoc prerequisite between backlog items |
 | `graph complete <code>:<id>` | Mark done; compact receipt (not full topology) |
 | `graph activate <code>:<id> --task <h>` | Bind task attempt; compact receipt |
 | `graph node add … [--kind <k>]` | Append a node, optionally a gate kind |

@@ -413,3 +413,43 @@ The clean-break replacement is:
 
 Under this model, `agent` is removed from the active CLI. Agents and humans use
 the same effect-oriented surfaces.
+
+## [2026-09-20] Faberlang defect handoff — six items (V-1..V-6)
+
+**Severity:** P1 (V-1, V-2) down to P3 (V-5, V-6)
+**Version affected:** vivi 9.1.0 (faberlang mailspace, ~270 work sends)
+**Source:** `vivi-defects-handoff-2026-09-20.md` (Tugboat Mind session).
+**Status:** **All six fixed 2026-09-20 in 9.2.0; live board repaired.**
+
+1. **Three task sends minted no backlog node (V-1, P1)** (fixed; root
+   cause was binary skew, not a race). The failing sends ran a Homebrew
+   vivi 8.1.0 (`/opt/homebrew/bin/vivi`) that never minted nodes — same
+   send events, no errors — while the rest of the session ran the cargo
+   9.1.0. Verified against the live DB: no mint events at 22:20, no
+   orphan nodes, hour-21's 252-item loop minted 265/265. Fixed by
+   making citizenship auditable: `vivi graph audit [--repair]`,
+   activate/bind error hints, `mailspace status` version line, kind
+   persisted at mint, drift-tolerant node lookups. The live board's 24
+   missing nodes (including `d19bee2b`/`8063d36e`/`2934e23f`), 10 state
+   drifts, and 283 kind drifts were repaired 2026-09-20.
+2. **`need bind` joins never auto-completed the needs (V-2, P1)**
+   (fixed). The join fired — each need's node completed within ~1s of
+   its unit settling — but only in graph space: the need's mailbox item
+   never left `needs`, so lists/boards showed it open until a manual
+   `need done` (observed as a 4-second manual loop at 22:36 UTC). The
+   join now settles all copies (`via=join`), reopen restores, `need
+   show` lists bound units, and `bind` refuses non-need parents.
+3. **The `created` handle is not closeable by the sender (V-3, P2)**
+   (fixed). Cross-identity lifecycle errors now name the holder:
+   "held by identity '<holder>'; retry with --for <holder>".
+4. **No post-hoc dependency edge (V-4, P2)** (fixed). `vivi graph
+   connect <dependent> <prereq>` adds the edge idempotently without
+   drop-and-refile.
+5. **Duplicate sends are silent (V-5, P3)** (fixed). Same-sender,
+   same-subject, still-open work items warn on stderr at send time.
+6. **Observability (V-6, P3)** (fixed). `graph ready` counts + `--kind`;
+   `step --apply` says "already settled via lifecycle" instead of
+   "no decisions"; `trace` documented as audit-grade, not status-loop.
+
+Not Vivi (recorded to avoid mis-filing): `scripta/hand-packet` python
+3.9 crash is faberlang tooling, filed as faberlang want `16468d35`.
