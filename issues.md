@@ -1,5 +1,44 @@
 # Vivarium Issues & Agent Observations
 
+## [2026-09-20] `vivi goal add` fails on mailspaces created before the goals table
+
+**Severity:** Medium — goal registration is unavailable on older project
+mailspaces; board goal surfacing and Mind orientation silently miss goals  
+**Version affected:** vivi 8.3.0 (and since the goals feature shipped inside
+schema version 6 without a version bump)
+
+### What happened
+
+`vivi goal add --path ... --project .` fails with
+`failed to register goal: no such table: mailspace_goals` on any mailspace
+whose `mail.sqlite` was created at schema version 6 before the goals feature
+landed.
+
+### Root cause
+
+`ensure_schema` (`src/storage/schema.rs`) short-circuits when the stored
+`schema_version` equals `STORAGE_SCHEMA_VERSION`. `mailspace_goals` was
+added to `SCHEMA_DDL` without bumping the schema version, so existing
+same-version databases never run the DDL that creates the table. The
+version-equality gate makes any table added mid-version invisible to
+upgrades.
+
+### Fix direction
+
+Either bump `STORAGE_SCHEMA_VERSION` (7) so old DBs re-run the migration
+path, or run idempotent `CREATE TABLE IF NOT EXISTS` statements for
+additive tables outside the `existing.is_none()` gate (the `from_addr`
+index at the end of `ensure_schema` is the template). Audit for other
+mid-version additions (backlog graph work in 8.2.0/8.3.0 added no tables,
+so it is unaffected).
+
+### Evidence
+
+- Reproduced on this repo's own `.vivi/` mailspace during the
+  agent-orchestration-fast-path closeout (2026-09-20), blocking goal
+  registration for `docs/agent-orchestration-fast-path-goal.md`.
+- `src/storage/schema.rs` `ensure_schema` early return on version equality.
+
 ## [2026-07-21] Role PID liveness is broken for subagent harnesses
 
 **Severity:** High — produces false signals across the entire fleet sensor chain  
