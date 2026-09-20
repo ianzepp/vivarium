@@ -2,7 +2,7 @@ use rusqlite::Connection;
 
 use crate::error::VivariumError;
 
-const STORAGE_SCHEMA_VERSION: &str = "6";
+const STORAGE_SCHEMA_VERSION: &str = "7";
 
 pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
     let existing: Option<String> = conn
@@ -15,12 +15,13 @@ pub(super) fn ensure_schema(conn: &Connection) -> Result<(), VivariumError> {
     if existing.as_deref() == Some(STORAGE_SCHEMA_VERSION) {
         return Ok(());
     }
-    if existing.is_none() {
-        conn.execute_batch(SCHEMA_DDL).map_err(|e| {
-            VivariumError::Other(format!("failed to initialize storage schema: {e}"))
-        })?;
-        ensure_absorb_columns(conn)?;
-    }
+    // The DDL is fully idempotent (CREATE TABLE/INDEX IF NOT EXISTS), so it
+    // runs for upgrades too: tables added to an existing schema version must
+    // still reach databases created before those tables existed. Bumping the
+    // version forces one repair pass over every old database.
+    conn.execute_batch(SCHEMA_DDL)
+        .map_err(|e| VivariumError::Other(format!("failed to initialize storage schema: {e}")))?;
+    ensure_absorb_columns(conn)?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS message_metadata_from_addr_date_idx ON message_metadata(from_addr, date)",
         [],

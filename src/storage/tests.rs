@@ -1,6 +1,41 @@
 use super::*;
 
 #[test]
+fn schema_upgrade_creates_mid_version_tables_on_old_databases() {
+    // Simulate a mailspace created at schema 6 before the goals and
+    // work-graph tables existed: metadata row only, no new tables.
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("mail.sqlite");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE storage_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO storage_metadata (key, value) VALUES ('schema_version', '6');",
+    )
+    .unwrap();
+    schema::ensure_schema(&conn).unwrap();
+
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    for table in ["work_graphs", "work_graph_nodes", "mailspace_goals"] {
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                rusqlite::params![table],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "table {table} missing after upgrade");
+    }
+    let version: String = conn
+        .query_row(
+            "SELECT value FROM storage_metadata WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(version, "7");
+}
+
+#[test]
 fn import_dedupes_blobs_but_keeps_distinct_message_rows() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = message_bytes("dup@example.com", "same body");
@@ -313,7 +348,7 @@ fn schema_v6_adds_from_addr_date_index_on_upgrade() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, "6");
+    assert_eq!(version, "7");
 }
 
 fn ingest_dated(
