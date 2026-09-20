@@ -6,6 +6,9 @@
 mailspaces; board goal surfacing and Mind orientation silently miss goals  
 **Version affected:** vivi 8.3.0 (and since the goals feature shipped inside
 schema version 6 without a version bump)
+**Status:** **Fixed 2026-09-20** (`1bf79f7`) — `ensure_schema` now runs the
+idempotent DDL on upgrades; schema version 7 forces one repair pass.
+Verified live on this repo's own mailspace.
 
 ### What happened
 

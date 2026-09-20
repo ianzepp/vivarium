@@ -35,29 +35,32 @@ re-offers it. Closing sequence taught and exercised here: dispatch =
 `task send` → `graph activate --task <handle>` → spawn. Active nodes are
 excluded from readiness.
 
-### G3 — Provider screen unreachable in normal flow — TEACHING, verified this run
+### G3 — Provider screen unreachable in normal flow — CLOSED (code + teaching, 64b1796)
 
-Screens only fire on `step --apply`. Closing sequence taught and exercised:
-on settle, run `vivi step --apply <handle>` (idempotent; triggers the
-screen and corpus append).
+Dogfood found the teaching-only plan insufficient: the lifecycle hook
+completes the node at settle, so `step --apply` screened nothing. Apply now
+screens every settled item regardless of which path completed the node.
+Verified live: corpus records with real `jev-latest` answers after the
+config fix (see finding F3).
 
 ### G4 — Plan-graph vs backlog duality — RULING, recorded here
 
 Delivery lowering uses `need bind` in the backlog graph only. Imported
 Mermaid graphs are for non-item topology. No code.
 
-### G5 — Reopen does not cascade the join — OPEN (task filed)
+### G5 — Reopen does not cascade the join — CLOSED (e11c265)
 
-A unit reopened after its parent need auto-completed leaves the parent
-`done` (stale join). Fix: reopening a bound unit whose parent is done
-re-opens the parent.
+Reopening a bound unit now re-opens its done parent (visited-set recursion
+guards hypothetical bind cycles); re-completing the unit closes the join
+again. Regression tested. Dogfooded as task 557ac8f8 under need 885652cd.
 
-### G6 — Multi-recipient minting splits identity — OPEN (task filed)
+### G6 — Multi-recipient minting splits identity — CLOSED (64b1796)
 
-A need sent to N identities mints N nodes; a dependent citing copy A never
-unlocks when copy B completes. Fix: (a) dependency edges canonicalize the
-cited handle to one copy per content; (b) completing any copy completes
-all sibling nodes of the same content.
+Dependency edges canonicalize the cited copy to one deterministic work-role
+copy per content (lowest message id; `sent` copies excluded); completing any
+copy completes its content siblings, and reopen propagates the same way.
+Dogfooded as tasks 265e176c + 9442a6db under need 7143887e; the join
+closed the need live when both units settled.
 
 ### G7 — `task list --blocked` reads headers, not edges — DEFERRED (want)
 
@@ -65,9 +68,31 @@ Same input today, so no lie; migrate opportunistically.
 
 ## New gaps found during this run
 
-(appended as discovered; none yet)
+- **F1** — `graph activate` failure prints "complete requires
+  graph:source-id": wrong verb in the shared argument-error text. Cosmetic;
+  fix with the next graph CLI touch.
+- **F2** — Backlog node addressing requires the `backlog:<handle>` form for
+  `graph activate`/`complete`. Since backlog source ids *are* handles, a
+  bare-handle convenience (default graph = backlog) would remove friction
+  from the taught dispatch sequence. Candidate small enhancement.
+- **F3** — User-level config resolution: the live config dir on this host is
+  `~/.config/vivarium` (legacy path), not `~/.vivarium`. The skill rewrite
+  must teach the real resolution (`VIVI_HOME` env, legacy detection) or
+  judgment config silently no-ops. Discovered by an empty corpus.
+- **F4** — Calibration observation, not a defect: Jev's first live screen
+  scored receipt coverage low (noul 0.31) because the settled item's state
+  carries verdict/repo/tip metadata but not the validation output. The
+  corpus is accumulating exactly the signal a future gating ruling needs;
+  if receipts should carry a validation-claim line for screens, that is a
+  body-convention teaching, not code.
 
 ## Verification log
 
 - 2026-09-20: migration repair verified live on this repo's mailspace
   (goal registration succeeded after upgrade).
+- 2026-09-20: dogfood board run — needs 885652cd + 7143887e filed, lowered,
+  bound; units dispatched (send → activate), implemented, settled
+  (`task done` with verdict/repo/tip), applied (`step --apply`); both
+  parents auto-completed through the join; `graph ready` drained to empty;
+  manifest excluded active nodes and flagged lowered parents throughout.
+  Two real provider screens in `.vivi/judgment-corpus.jsonl`.
