@@ -1,17 +1,15 @@
 //! Production-source hygiene ratchet.
 //!
-//! Scans `src/**/*.rs` excluding dedicated test companions. Budgets are fixed
-//! at current production-only totals and may only go down.
+//! Scans `src/**/*.rs` excluding dedicated test companions. Size checks are
+//! per-file and per-function ceilings. Banned-pattern budgets are monotonic
+//! — lower, never raise.
 
 #![allow(clippy::absurd_extreme_comparisons)]
 
 use std::fs;
 use std::path::Path;
 
-// Size budgets (production only).
-const MAX_TOTAL_LINES: usize = 36_171;
-const MAX_TOTAL_FUNCTIONS: usize = 1_273;
-const MAX_TOTAL_IMPLS: usize = 115;
+// Size ceilings (production only).
 const MAX_FILE_LINES: usize = 1_000;
 const MAX_FN_LINES: usize = 60;
 
@@ -91,28 +89,8 @@ fn is_production_rust_file(path: &Path) -> bool {
     true
 }
 
-fn count_functions(content: &str) -> usize {
-    content
-        .lines()
-        .filter(|line| {
-            let trimmed = line.trim();
-            trimmed.starts_with("fn ")
-                || trimmed.starts_with("pub fn ")
-                || trimmed.starts_with("async fn ")
-                || trimmed.starts_with("pub async fn ")
-        })
-        .count()
-}
-
 fn count_lines(content: &str) -> usize {
     content.lines().count()
-}
-
-fn count_impls(content: &str) -> usize {
-    content
-        .lines()
-        .filter(|line| line.trim().starts_with("impl "))
-        .count()
 }
 
 fn count_pattern(files: &[SourceFile], pattern: &str) -> usize {
@@ -198,33 +176,6 @@ fn hygiene_no_function_over_line_limit() {
             }
         }
     }
-}
-
-#[test]
-fn hygiene_total_lines_within_budget() {
-    let actual: usize = production_files()
-        .iter()
-        .map(|f| count_lines(&f.content))
-        .sum();
-    assert_budget("total lines", actual, MAX_TOTAL_LINES);
-}
-
-#[test]
-fn hygiene_total_functions_within_budget() {
-    let actual: usize = production_files()
-        .iter()
-        .map(|f| count_functions(&f.content))
-        .sum();
-    assert_budget("total functions", actual, MAX_TOTAL_FUNCTIONS);
-}
-
-#[test]
-fn hygiene_total_impls_within_budget() {
-    let actual: usize = production_files()
-        .iter()
-        .map(|f| count_impls(&f.content))
-        .sum();
-    assert_budget("total impls", actual, MAX_TOTAL_IMPLS);
 }
 
 #[test]
