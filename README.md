@@ -29,9 +29,9 @@ API contract, so Bridge remains the conservative compatibility option.
 
 ## Install
 
-Current release: **8.1.0**
+Current release: **9.0.0**
 ([GitHub releases](https://github.com/ianzepp/vivarium/releases),
-[notes](docs/release-v8.1.0.md)).
+[notes](docs/release-v9.0.0.md)).
 Each published archive and the Homebrew formula install both `vivi` and
 `vivi-pty`.
 
@@ -49,7 +49,7 @@ With curl on macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/ianzepp/vivarium/main/install.sh | bash
 ```
 
-Published binary archives for 8.1.0:
+Published binary archives for 9.0.0:
 
 - `vivi-aarch64-apple-darwin.tar.gz`
 - `vivi-x86_64-apple-darwin.tar.gz`
@@ -651,11 +651,12 @@ folder-and-UID identifiers like `inbox-2050`.
 
 ## Commands
 
-`vivi --help` is the live top-level list. In 8.1.0 that is: `init`, `sync`,
+`vivi --help` is the live top-level list. In 9.0.0 that is: `init`, `sync`,
 `sync-events`, `folders`, `doctor`, `proton`, `render`, `watch-inbox`, `list`,
 `board`, `mailspace`, `mail`, `task`, `need`, `want`, `memo`, `goal`, `role`,
-`cycle`, `show`, `thread`, `trace`, `graph`, `reply`, `compose`, `export`,
-`search`, `index`, `agent`, `exec`, `enqueue`, `queue`, `labels`, `label`.
+`cycle`, `show`, `thread`, `trace`, `graph`, `step`, `reply`, `compose`,
+`export`, `search`, `index`, `agent`, `exec`, `enqueue`, `queue`, `labels`,
+`label`.
 Project-mailspace commands are in the section above. Account-scoped examples:
 
 ```
