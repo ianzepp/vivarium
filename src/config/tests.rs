@@ -347,6 +347,7 @@ fn standard_provider_uses_config_default_for_certs() {
             reject_invalid_certs: true,
             ..types::Defaults::default()
         },
+        judgment: Default::default(),
     };
     let mut account = account_with_provider(types::Provider::Standard);
     account.name = "custom".into();

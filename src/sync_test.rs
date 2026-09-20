@@ -123,6 +123,7 @@ fn reset_managed_path_works_without_confirmation() {
             mail_root: Some(tmp.path().to_string_lossy().to_string()),
             ..Default::default()
         },
+        judgment: Default::default(),
     };
     let account = account_managed("managed-acct");
     let cache = account.mail_path(&config).join("INBOX/new");
@@ -148,6 +149,7 @@ fn reset_managed_path_under_home_succeeds_without_confirmation() {
             mail_root: Some(managed_root.to_string_lossy().to_string()),
             ..Default::default()
         },
+        judgment: Default::default(),
     };
     let account = account_managed("acct-under-home");
     let cache = account.mail_path(&config).join("INBOX/new");
@@ -170,6 +172,7 @@ fn reset_rejects_managed_root_under_cwd() {
             mail_root: Some(managed_root.to_string_lossy().to_string()),
             ..Default::default()
         },
+        judgment: Default::default(),
     };
     let account = account_managed("acct");
     std::fs::create_dir_all(managed_root.join("acct")).unwrap();
@@ -193,6 +196,7 @@ fn reset_rejects_managed_root_under_repo() {
             mail_root: Some(managed_root.to_string_lossy().to_string()),
             ..Default::default()
         },
+        judgment: Default::default(),
     };
     let account = account_managed("acct");
     std::fs::create_dir_all(managed_root.join("acct")).unwrap();
@@ -209,6 +213,7 @@ fn reset_rejects_managed_root_equal_to_home() {
             mail_root: Some(home.to_string_lossy().to_string()),
             ..Default::default()
         },
+        judgment: Default::default(),
     };
     let account = account_managed("acct");
     let err = reset_account_cache(&account, &config, false).unwrap_err();
@@ -226,6 +231,7 @@ fn reset_rejects_managed_root_that_is_ancestor_of_home() {
             mail_root: Some(ancestor.to_string_lossy().to_string()),
             ..Default::default()
         },
+        judgment: Default::default(),
     };
     let account = account_managed("acct");
     let err = reset_account_cache(&account, &config, false).unwrap_err();
@@ -240,6 +246,7 @@ fn reset_rejects_mail_root_itself() {
             mail_root: Some(tmp.path().to_string_lossy().to_string()),
             ..Default::default()
         },
+        judgment: Default::default(),
     };
     let account = account_with_mail_dir(tmp.path().to_path_buf());
     let err = reset_account_cache(&account, &config, true).unwrap_err();
@@ -281,6 +288,7 @@ fn reset_rejects_symlink_escape() {
             mail_root: Some(mail_root.to_string_lossy().to_string()),
             ..Default::default()
         },
+        judgment: Default::default(),
     };
     let account = account_managed("acct");
 
@@ -300,6 +308,7 @@ fn reset_rejects_dotdot_path_escape() {
             mail_root: Some(mail_root.to_string_lossy().to_string()),
             ..Default::default()
         },
+        judgment: Default::default(),
     };
     // Managed path that escapes via .. — the account name contains ..
     // This should be caught by validate_managed_reset since the canonical
@@ -352,6 +361,7 @@ fn reset_rejects_ancestor_of_managed_root() {
             mail_root: Some(mail_root.to_string_lossy().to_string()),
             ..Default::default()
         },
+        judgment: Default::default(),
     };
     // Custom mail_dir pointing at the parent of the mail root.
     let account = account_with_mail_dir(parent.to_path_buf());
@@ -422,6 +432,7 @@ fn reset_rejects_nested_symlink_to_existing_outside_target() {
             mail_root: Some(mail_root.to_string_lossy().to_string()),
             ..Default::default()
         },
+        judgment: Default::default(),
     };
     // mail_path for "acct" = mailroot/acct, which is a symlink to outside.
     // Canonicalizes to `outside`, which is outside the managed root.

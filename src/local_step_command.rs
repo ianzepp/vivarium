@@ -1,4 +1,6 @@
 use vivarium::VivariumError;
+use vivarium::config::Config;
+use vivarium::judgment::{JudgmentProvider, TypesafeProvider};
 use vivarium::mailspace::Mailspace;
 
 pub(crate) fn handle_step_command(
@@ -8,7 +10,14 @@ pub(crate) fn handle_step_command(
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
     let manifest = match apply {
-        Some(handle) => mailspace.step_apply(handle)?,
+        Some(handle) => {
+            let config = Config::load(&Config::default_path())?;
+            let provider = TypesafeProvider::from_config(&config.judgment)?;
+            mailspace.step_apply_with(
+                handle,
+                provider.as_ref().map(|p| p as &dyn JudgmentProvider),
+            )?
+        }
         None => mailspace.step_shadow()?,
     };
     if json {

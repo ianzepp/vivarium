@@ -72,17 +72,32 @@ impl Mailspace {
         })
     }
 
-    /// Apply mode: adjudicate one settled item, complete its backlog node if
-    /// it is still completable (recording the decision atomically with the
-    /// transition), then emit the full manifest. An item that is not settled
-    /// yet becomes a `not_settled` exception — apply never settles work
-    /// itself; settling (`task done` with its receipt flags) stays with the
-    /// caller.
+    /// Apply mode without a judgment provider (mechanical only).
     ///
     /// # Errors
     /// Returns a [`VivariumError`] on storage failure or when the handle
     /// does not resolve.
     pub fn step_apply(&self, handle: &str) -> Result<StepManifest, VivariumError> {
+        self.step_apply_with(handle, None)
+    }
+
+    /// Apply mode: adjudicate one settled item, complete its backlog node if
+    /// it is still completable (recording the decision atomically with the
+    /// transition), then emit the full manifest. When a judgment provider is
+    /// supplied, the item's receipt is screened (shadow: the provider's
+    /// answers are recorded to the calibration corpus and never gate the
+    /// mechanical completion). An item that is not settled yet becomes a
+    /// `not_settled` exception — apply never settles work itself; settling
+    /// (`task done` with its receipt flags) stays with the caller.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] on storage failure or when the handle
+    /// does not resolve.
+    pub fn step_apply_with(
+        &self,
+        handle: &str,
+        provider: Option<&dyn crate::judgment::JudgmentProvider>,
+    ) -> Result<StepManifest, VivariumError> {
         let mut manifest = self.step_shadow()?;
         let storage = self.storage()?;
         let message_id = storage
@@ -104,9 +119,13 @@ impl Mailspace {
         }
         let display = self.storage()?.display_handle(&message_id)?;
         if self.backlog_complete_item_via(&display, "via=step-apply")? {
+            let note = match provider {
+                Some(provider) => screen_receipt(self, provider, &display, &message_id)?,
+                None => "judgment=off".to_string(),
+            };
             manifest
                 .decisions
-                .push(format!("complete item={display} via=step-apply"));
+                .push(format!("complete item={display} via=step-apply {note}"));
         }
         Ok(manifest)
     }
@@ -216,6 +235,148 @@ fn has_labeled_field(body: &str, label: &str) -> bool {
             .to_ascii_lowercase()
             .starts_with(&format!("{label}:"))
     })
+}
+
+/// Extract the text of each labeled clause (e.g. every `done_when:` line).
+fn labeled_clauses(body: &str, label: &str) -> Vec<String> {
+    let prefix = format!("{label}:");
+    body.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            let lower = trimmed.to_ascii_lowercase();
+            lower
+                .starts_with(&prefix)
+                .then(|| trimmed[prefix.len()..].trim().to_string())
+        })
+        .collect()
+}
+
+/// Screen one settled item's receipt through the judgment provider. Shadow:
+/// answers are appended to the calibration corpus and the returned note
+/// summarizes them, but the caller's mechanical completion has already
+/// happened and is never gated on the provider.
+fn screen_receipt(
+    mailspace: &Mailspace,
+    provider: &dyn crate::judgment::JudgmentProvider,
+    display: &str,
+    message_id: &str,
+) -> Result<String, VivariumError> {
+    let storage = mailspace.storage()?;
+    let body = item_body(&storage, message_id)?;
+    let receipt = storage.item_metadata(message_id)?;
+    let subject = storage
+        .message_by_id(message_id)?
+        .map(|message| message.subject)
+        .unwrap_or_default();
+    let clauses = labeled_clauses(&body, "done_when");
+    let questions = receipt_questions(&clauses);
+    let state = serde_json::json!({
+        "item": display,
+        "subject": subject,
+        "clauses": clauses,
+        "validation": body,
+        "receipt": receipt,
+    });
+    match provider.ask(&state, &questions) {
+        Ok(answers) => {
+            append_corpus(
+                mailspace,
+                &corpus_record(provider, display, &questions, &answers),
+            )?;
+            let covered = answers
+                .iter()
+                .filter(|a| a.id != "completion-honesty" && a.noul >= 0.5)
+                .count();
+            let honesty = answers
+                .iter()
+                .find(|a| a.id == "completion-honesty")
+                .map_or(0.0, |a| a.noul);
+            Ok(format!(
+                "judgment=screened({covered}/{}) honesty={honesty:.2} model={}",
+                clauses.len(),
+                provider.model()
+            ))
+        }
+        Err(error) => Ok(format!(
+            "judgment=skipped({})",
+            error_class(&error.to_string())
+        )),
+    }
+}
+
+/// One coverage Noul per done_when clause, plus one completion-honesty Noul.
+fn receipt_questions(clauses: &[String]) -> Vec<crate::judgment::JudgmentQuestion> {
+    let mut questions: Vec<crate::judgment::JudgmentQuestion> = clauses
+        .iter()
+        .enumerate()
+        .map(|(index, clause)| {
+            crate::judgment::JudgmentQuestion::noul(
+                &format!("coverage-{}", index + 1),
+                &format!("A task reports completion with the validation evidence in state. Judge whether the evidence proves this acceptance clause: {clause}"),
+                "The validation evidence demonstrates the clause is satisfied.",
+                "The evidence does not address, or does not prove, the clause.",
+            )
+        })
+        .collect();
+    questions.push(crate::judgment::JudgmentQuestion::noul(
+        "completion-honesty",
+        "Judge whether anything in this completion report suggests the work did not actually finish (blocked, partial, placeholder, or deferred).",
+        "The report shows signs the work did not finish.",
+        "The report is a genuine completion.",
+    ));
+    questions
+}
+
+/// Build one shadow calibration-corpus record.
+fn corpus_record(
+    provider: &dyn crate::judgment::JudgmentProvider,
+    display: &str,
+    questions: &[crate::judgment::JudgmentQuestion],
+    answers: &[crate::judgment::JudgmentAnswer],
+) -> serde_json::Value {
+    serde_json::json!({
+        "ts": chrono::Utc::now().to_rfc3339(),
+        "item": display,
+        "via": "step-apply",
+        "provider": provider.name(),
+        "model": provider.model(),
+        "questions": questions.iter().map(|q| serde_json::json!({
+            "id": q.id, "kind": q.kind, "instructions": q.instructions,
+        })).collect::<Vec<_>>(),
+        "answers": answers,
+        "mechanical": "complete",
+        "shadow": true,
+    })
+}
+
+/// Short failure class for corpus-free skip notes.
+fn error_class(message: &str) -> &'static str {
+    if message.contains("timed out") {
+        "timeout"
+    } else if message.contains("credentials") {
+        "auth"
+    } else if message.contains("key_cmd") {
+        "key_cmd"
+    } else if message.contains("unreachable") {
+        "unreachable"
+    } else {
+        "provider"
+    }
+}
+
+/// Append one calibration-corpus record to `.vivi/judgment-corpus.jsonl`.
+fn append_corpus(mailspace: &Mailspace, record: &serde_json::Value) -> Result<(), VivariumError> {
+    use std::io::Write as _;
+    let path = mailspace.dir.join("judgment-corpus.jsonl");
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| VivariumError::Other(format!("failed to open judgment corpus: {e}")))?;
+    let line = serde_json::to_string(record)
+        .map_err(|e| VivariumError::Other(format!("failed to encode corpus record: {e}")))?;
+    writeln!(file, "{line}")
+        .map_err(|e| VivariumError::Other(format!("failed to append corpus record: {e}")))
 }
 
 #[cfg(test)]

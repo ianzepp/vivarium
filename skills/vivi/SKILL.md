@@ -142,6 +142,14 @@ completes an already-settled item's node (never settles it) and lists the
 transition under `decisions`. The coordination host decides which ready
 nodes to dispatch and records attempts through Vivi tasks.
 
+With a user-level `[judgment]` section in `~/.vivarium/config.toml`
+(`provider = "typesafe"`, `key_cmd` returning the API key — never an envvar
+or inline key), `step --apply` also screens the receipt through System One
+judgments (one yes/no per `done_when` clause plus a completion-honesty
+check) and appends the answers to `.vivi/judgment-corpus.jsonl`. This is
+shadow evidence: it never gates the mechanical completion, and absent or
+unreachable providers degrade to `judgment=skipped(...)`.
+
 ## Watches and Cycle Intake
 
 Project-local watch commands observe mailspace events. Prefer `--once` for

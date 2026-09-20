@@ -5,6 +5,9 @@ use serde::Deserialize;
 pub struct Config {
     #[serde(default)]
     pub defaults: Defaults,
+    /// Judgment provider for `vivi step` screens. Absent = feature off.
+    #[serde(default)]
+    pub judgment: Judgment,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -23,6 +26,25 @@ pub struct Defaults {
     /// Local document-rendering policy.
     #[serde(default)]
     pub render: RenderDefaults,
+}
+
+/// Judgment provider settings (`[judgment]` in user-level `config.toml`).
+/// There is deliberately no inline key field: authentication is only via
+/// `key_cmd`, mirroring the accounts `password_cmd` mechanism, so the secret
+/// never lives in a config file or the process environment.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Judgment {
+    /// Provider vendor; only `typesafe` is supported. `None` disables.
+    pub provider: Option<String>,
+    /// Endpoint URL override (vendor default when absent).
+    pub endpoint: Option<String>,
+    /// Model name (vendor default when absent).
+    pub model: Option<String>,
+    /// Request timeout in milliseconds (default 4000).
+    pub timeout_ms: Option<u64>,
+    /// Shell command whose stdout is the API key. Required when provider
+    /// is set.
+    pub key_cmd: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -212,22 +212,32 @@ Verified against live CLI (`--help`) on 2026-09-20 at vivarium 8.1.0:
 
 ## Implementation Shape
 
-**Status (2026-09-20).** Phases 1–4 are implemented, tested, and released:
-backlog citizenship + dependency sugar + mechanical unlock (`cae4d5f`,
-release 8.2.0), task dependency unification (`7adaad2`), lowering-as-expansion
-join via `need bind` (`bea90ae`), `vivi step` shadow manifest (`f8d1c01`), and
-step apply with atomic decision records (`1ef1236`, release 8.3.0). Delivery
-specs live in `docs/factory/agent-orchestration-phase-01..05-delivery.md`.
-Docs, skills, and AGENTS truth updated in the 8.3.0 closeout.
+**Status (2026-09-20, complete).** All phases are implemented, tested, and
+released: backlog citizenship + dependency sugar + mechanical unlock
+(`cae4d5f`, release 8.2.0), task dependency unification (`7adaad2`),
+lowering-as-expansion join via `need bind` (`bea90ae`), `vivi step` shadow
+manifest (`f8d1c01`), step apply with atomic decision records (`1ef1236`,
+release 8.3.0), and the judgment provider in shadow-screen form (see below).
+Delivery specs live in
+`docs/factory/agent-orchestration-phase-01..06-delivery.md`. Docs, skills,
+and AGENTS truth updated in the 8.3.0 closeout.
 
-**Deferred with reason: the judgment provider (Phase 5 of the original
-shape).** A network + secrets integration inside Vivi core deserves its own
-factory session with fresh context; shipping it at the tail of a long run
-risks exactly the isolation sloppiness the stop conditions forbid. The
-mechanical `step` is a complete, supported posture; the provider phase
-remains specified above and unblocked. Recheck trigger: the next factory
-session opened on this goal, or operator request. This deferral is an
-amendment for the operator to accept or reject.
+**Judgment provider (Phase 5 of the original shape) — landed as shadow
+screens.** Operator ruling 2026-09-20 settled the shape: user-level
+`[judgment]` section in `config.toml`, `key_cmd` authentication (mirroring
+`password_cmd`; deliberately no envvar and no inline key, per the
+ambient-secrets law), off by default. `vivi step --apply` screens the settled
+item's receipt (one Noul per `done_when` clause plus one completion-honesty
+Noul) and appends answers to `.vivi/judgment-corpus.jsonl` — shadow only:
+mechanical completion is never gated on provider answers. Absent, failing,
+or timed-out providers degrade cleanly (`judgment=skipped(<class>)`), and no
+read path has a provider parameter at all. The API contract was verified
+live against docs.typesafe.ai on 2026-09-20.
+
+**Remaining follow-up (not blocking): provider-gated apply.** The corpus is
+the calibration evidence a future release needs before any
+provider-informed gating of completions. That flip is a separate ruling on
+calibrated data, by design.
 
 ### Phase 1 — Backlog citizenship (smallest useful)
 

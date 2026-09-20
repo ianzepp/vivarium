@@ -52,7 +52,17 @@ complete nodes and unlock dependents; reopen re-locks; `want promote` never
 changes node state, and wants never dispatch in `vivi step` before explicit
 promotion. Node completions write a `step_decision` graph event in the same
 transaction (`via=lifecycle|graph-complete|step-apply`). No schema beyond
-the graph tables; no network anywhere in these paths.
+the graph tables.
+
+**Judgment provider (shadow screens).** User-level `[judgment]` in
+`config.toml` (`provider`/`endpoint`/`model`/`timeout_ms`/`key_cmd`) enables
+TypeSafe System One screens on `vivi step --apply` only: one Noul per
+`done_when` clause plus a completion-honesty Noul, answers appended to
+`.vivi/judgment-corpus.jsonl`. Shadow by design — provider answers never
+gate mechanical completions. Auth is exclusively `key_cmd` (`sh -c`,
+`password_cmd` semantics; no envvar, no inline key). Absent/failing/timed-out
+providers degrade to `judgment=skipped(<class>)`. No read path makes
+provider calls.
 
 Invariant: Vivi decides which graph nodes are eligible (ready). The Mind
 dispatches. Fleet (`prepare --node` → claim → activate) proves execution.

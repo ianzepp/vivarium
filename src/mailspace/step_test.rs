@@ -244,3 +244,137 @@ fn lifecycle_completion_records_decision_event() {
         "{events:?}"
     );
 }
+
+/// Deterministic fake provider for shadow-screen tests.
+struct FakeProvider {
+    answers: Vec<f64>,
+    fail: bool,
+}
+
+impl crate::judgment::JudgmentProvider for FakeProvider {
+    fn name(&self) -> &'static str {
+        "fake"
+    }
+
+    fn model(&self) -> &str {
+        "fake-1"
+    }
+
+    fn ask(
+        &self,
+        _state: &serde_json::Value,
+        questions: &[crate::judgment::JudgmentQuestion],
+    ) -> Result<Vec<crate::judgment::JudgmentAnswer>, crate::VivariumError> {
+        if self.fail {
+            return Err(crate::VivariumError::Message(
+                "judgment provider unreachable: boom".into(),
+            ));
+        }
+        Ok(questions
+            .iter()
+            .zip(&self.answers)
+            .map(|(q, noul)| crate::judgment::JudgmentAnswer {
+                id: q.id.clone(),
+                noul: *noul,
+            })
+            .collect())
+    }
+}
+
+/// Settle a two-clause task and rewind its node to open, ready for apply.
+fn settled_rewound_task(mailspace: &Mailspace) -> String {
+    let task = send_item(
+        mailspace,
+        "tasks",
+        "task",
+        "judged work",
+        "done_when: tests pass\ndone_when: lint clean\nwrite_scope: src/x.rs",
+    );
+    mailspace
+        .move_item("cto", &task, "done", None, "task done", None)
+        .unwrap();
+    let storage = mailspace.storage().unwrap();
+    let graph = storage.work_graph_by_code("backlog").unwrap().unwrap();
+    let node = storage
+        .work_graph_nodes(&graph.handle)
+        .unwrap()
+        .into_iter()
+        .find(|n| n.source_id == task)
+        .unwrap();
+    let (graph_handle, node_handle) = (graph.handle.clone(), node.handle.clone());
+    drop(storage);
+    mailspace
+        .storage()
+        .unwrap()
+        .set_work_graph_node_state(&graph_handle, &node_handle, "open", None)
+        .unwrap();
+    task
+}
+
+#[test]
+fn judged_apply_screens_and_records_corpus() {
+    let (mailspace, _tmp) = roster();
+    let task = settled_rewound_task(&mailspace);
+    let fake = FakeProvider {
+        answers: vec![0.9, 0.8, 0.1],
+        fail: false,
+    };
+
+    let manifest = mailspace.step_apply_with(&task, Some(&fake)).unwrap();
+    assert_eq!(manifest.decisions.len(), 1, "{manifest:?}");
+    let note = &manifest.decisions[0];
+    assert!(note.contains("judgment=screened(2/2)"), "{note}");
+    assert!(note.contains("model=fake-1"), "{note}");
+    assert!(note.contains("honesty=0.10"), "{note}");
+
+    let corpus = std::fs::read_to_string(_tmp.path().join(".vivi/judgment-corpus.jsonl")).unwrap();
+    assert!(corpus.contains("\"coverage-1\""), "{corpus}");
+    assert!(corpus.contains("\"completion-honesty\""), "{corpus}");
+    assert!(corpus.contains("\"shadow\":true"), "{corpus}");
+}
+
+#[test]
+fn judged_apply_is_shadow_and_never_gates() {
+    let (mailspace, _tmp) = roster();
+    let task = settled_rewound_task(&mailspace);
+    let fake = FakeProvider {
+        answers: vec![0.1, 0.2, 0.9],
+        fail: false,
+    };
+
+    let manifest = mailspace.step_apply_with(&task, Some(&fake)).unwrap();
+    assert!(manifest.decisions[0].contains("judgment=screened(0/2)"));
+    // Completion happened regardless of the provider's low coverage answers.
+    assert_eq!(
+        mailspace
+            .graph_show("backlog")
+            .unwrap()
+            .nodes
+            .into_iter()
+            .find(|n| n.source_id == task)
+            .unwrap()
+            .state,
+        "done"
+    );
+}
+
+#[test]
+fn judged_apply_skips_cleanly_on_provider_error() {
+    let (mailspace, _tmp) = roster();
+    let task = settled_rewound_task(&mailspace);
+    let fake = FakeProvider {
+        answers: Vec::new(),
+        fail: true,
+    };
+
+    let manifest = mailspace.step_apply_with(&task, Some(&fake)).unwrap();
+    assert!(
+        manifest.decisions[0].contains("judgment=skipped(unreachable)"),
+        "{}",
+        manifest.decisions[0]
+    );
+    assert!(
+        !_tmp.path().join(".vivi/judgment-corpus.jsonl").exists(),
+        "no corpus record on provider failure"
+    );
+}
