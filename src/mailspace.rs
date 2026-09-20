@@ -23,6 +23,7 @@ mod lifecycle;
 mod merge;
 mod mermaid;
 mod reply;
+mod step;
 #[cfg(test)]
 mod tests;
 mod thread;
@@ -50,6 +51,7 @@ pub use lifecycle::{
     WantListRecord, WantMetadataUpdate,
 };
 pub use merge::{MailspaceImportOptions, MailspaceImportReport, import_mailspace};
+pub use step::{StepDispatch, StepException, StepManifest};
 pub use thread::{MailspaceThreadMessage, print_thread};
 pub use trace::{print_trace, print_trace_json};
 pub use watch::{MailspaceWatchRequest, run_watch};

@@ -324,6 +324,17 @@ pub enum Command {
         command: GraphCommand,
     },
 
+    /// Adjudicate the backlog graph into a dispatch/exception manifest
+    Step {
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Create a reply draft for a message
     Reply(ReplyCommand),
 

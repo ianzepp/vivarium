@@ -63,6 +63,10 @@ pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumE
             handle_graph_command(command)?;
             Ok(true)
         }
+        Command::Step { project, json } => {
+            crate::local_step_command::handle_step_command(project.as_deref(), *json)?;
+            Ok(true)
+        }
         _ => Ok(false),
     }
 }

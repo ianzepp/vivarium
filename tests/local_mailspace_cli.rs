@@ -3293,6 +3293,78 @@ fn need_bind_joins_completion_via_cli() {
     assert_eq!(node_state(&need), "done");
 }
 
+#[test]
+fn step_manifest_reports_dispatches_and_exceptions() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+
+    let task_output = vivi([
+        "task",
+        "send",
+        "--project",
+        project_s,
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "unit A",
+        "--body",
+        "unit: U-1\ndone_when: malformed input rejected\nwrite_scope: src/validate.rs",
+    ]);
+    assert_success(&task_output);
+    let task = handle_after(&stdout(&task_output), "created cto");
+
+    let want_output = vivi([
+        "want",
+        "send",
+        "--project",
+        project_s,
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "later work",
+        "--body",
+        "done_when: exists",
+    ]);
+    assert_success(&want_output);
+    let want = handle_after(&stdout(&want_output), "created cto");
+
+    let step = vivi(["step", "--project", project_s, "--json"]);
+    assert_success(&step);
+    let manifest: Value = serde_json::from_str(&stdout(&step)).unwrap();
+    assert_eq!(manifest["graph"], "backlog");
+    assert!(manifest["decisions"].as_array().unwrap().is_empty());
+
+    let dispatches = manifest["dispatches"].as_array().unwrap();
+    let dispatch = dispatches
+        .iter()
+        .find(|d| d["item"] == task)
+        .unwrap_or_else(|| panic!("no dispatch for {task}: {manifest}"));
+    assert_eq!(dispatch["kind"], "task");
+    assert_eq!(dispatch["done_when_clauses"], 1);
+    assert_eq!(dispatch["write_scope"], true);
+
+    let exceptions = manifest["exceptions"].as_array().unwrap();
+    let exception = exceptions
+        .iter()
+        .find(|e| e["item"] == want)
+        .unwrap_or_else(|| panic!("no exception for {want}: {manifest}"));
+    assert_eq!(exception["reason"], "want_requires_promotion");
+
+    let text = vivi(["step", "--project", project_s]);
+    assert_success(&text);
+    assert!(stdout(&text).contains("unit A"), "{}", stdout(&text));
+    assert!(
+        stdout(&text).contains("want_requires_promotion"),
+        "{}",
+        stdout(&text)
+    );
+}
+
 fn vivi<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,
