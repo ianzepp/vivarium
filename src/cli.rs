@@ -17,14 +17,15 @@ pub use draft_command::{ComposeCommand, ReplyCommand};
 pub use index_command::IndexCommand;
 pub use mailspace_command::{
     AbsorbCommand, CycleCommand, GoalCommand, GraphActivateCommand, GraphApplyCommand,
-    GraphCommand, GraphCompleteCommand, GraphEdgeAddCommand, GraphEdgeCommand, GraphExportCommand,
-    GraphImportCommand, GraphNodeAddCommand, GraphNodeCommand, GraphReadyCommand, GraphShowCommand,
-    KindWatchCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
-    MailListCommand, MailReplyCommand, MailThreadCommand, MailspaceArchiveCommand,
-    MailspaceCommand, MailspaceIdentityCommand, MailspaceImportCommand, MailspaceWatchCommand,
-    MemoCommand, NeedCommand, NeedSendCommand, TaskCommand, TaskDumpCommand, TaskDumpStatusArg,
-    TaskFromCommand, TaskSendCommand, TaskStatus, TraceCommand, WantCommand, WantSendCommand,
-    WantStatus, WatchCommon,
+    GraphAuditCommand, GraphCommand, GraphCompleteCommand, GraphConnectCommand,
+    GraphEdgeAddCommand, GraphEdgeCommand, GraphExportCommand, GraphImportCommand,
+    GraphNodeAddCommand, GraphNodeCommand, GraphReadyCommand, GraphShowCommand, KindWatchCommand,
+    LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand, MailListCommand,
+    MailReplyCommand, MailThreadCommand, MailspaceArchiveCommand, MailspaceCommand,
+    MailspaceIdentityCommand, MailspaceImportCommand, MailspaceWatchCommand, MemoCommand,
+    NeedCommand, NeedSendCommand, TaskCommand, TaskDumpCommand, TaskDumpStatusArg, TaskFromCommand,
+    TaskSendCommand, TaskStatus, TraceCommand, WantCommand, WantSendCommand, WantStatus,
+    WatchCommon,
 };
 pub use proton_command::ProtonCommand;
 pub use render_command::{RenderCommand, RenderFormat};

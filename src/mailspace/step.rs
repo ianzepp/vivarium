@@ -131,6 +131,18 @@ impl Mailspace {
                 "complete item={display} via=step-apply {}",
                 note.as_deref().unwrap_or("judgment=off")
             ));
+        } else if self.backlog_item_tracked(&display)? {
+            manifest.decisions.push(format!(
+                "item={display} via=lifecycle (already settled; nothing to apply)"
+            ));
+        } else {
+            manifest.exceptions.push(StepException {
+                node: String::new(),
+                item: display.clone(),
+                kind: "task".into(),
+                reason: "untracked_item".into(),
+                detail: "no backlog node for this item; run vivi graph audit --repair".into(),
+            });
         }
         Ok(manifest)
     }

@@ -262,9 +262,11 @@ fn apply_completes_settled_task_and_records_decision() {
         "{events:?}"
     );
 
-    // Applying again is a no-op: the node is done, no new decision.
+    // Applying again does not re-complete: only the settled note remains.
     let again = mailspace.step_apply(&task).unwrap();
-    assert!(again.decisions.is_empty(), "{again:?}");
+    assert_eq!(again.decisions.len(), 1, "{again:?}");
+    assert!(again.decisions[0].contains("via=lifecycle"), "{again:?}");
+    assert!(!again.decisions[0].contains("via=step-apply"), "{again:?}");
 }
 
 #[test]

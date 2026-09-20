@@ -10,6 +10,7 @@ use crate::store::secure_create_dir_all;
 
 mod archive;
 mod backlog;
+mod backlog_audit;
 mod body;
 mod delivery;
 mod dump;
@@ -31,6 +32,8 @@ mod trace;
 mod watch;
 
 pub use archive::ArchiveExportReport;
+pub use backlog::BacklogBoundUnit;
+pub use backlog_audit::{BacklogAuditFinding, BacklogAuditReport, print_backlog_audit};
 pub use body::{read_body_arg, read_body_input};
 pub use dump::{
     DumpFilters, DumpRecord, MailDumpRequest, TaskDumpRequest, TaskDumpStatus, parse_time_bound,
@@ -82,6 +85,10 @@ pub struct MailspaceConfig {
 #[derive(Debug, Clone, Serialize)]
 pub struct MailspaceStatus {
     pub found: bool,
+    /// Version of the vivi binary producing this status — surfaces stale
+    /// binaries (e.g. an old Homebrew install shadowing PATH) that predate
+    /// backlog minting and silently skip graph citizenship.
+    pub vivi: String,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -305,6 +312,7 @@ impl Mailspace {
         }
         Ok(MailspaceStatus {
             found: true,
+            vivi: env!("CARGO_PKG_VERSION").to_string(),
             name: self.config.name.clone(),
             description: self.config.description.clone(),
             archive: self.config.archive.clone(),
@@ -318,6 +326,7 @@ impl Mailspace {
 
 pub fn print_status(status: &MailspaceStatus) {
     println!("mailspace {}", status.name);
+    println!("vivi      {}", status.vivi);
     if let Some(description) = &status.description {
         println!("descr     {description}");
     }

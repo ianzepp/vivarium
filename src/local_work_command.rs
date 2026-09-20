@@ -42,7 +42,7 @@ pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumE
             handle,
             json,
             project,
-        } => show_local_message(handle, *json, project.as_deref())?,
+        } => show_need(handle, *json, project.as_deref())?,
         NeedCommand::Dump(command) => dump_work_items(command, "needs", "need", "Vivi Need Dump")?,
         NeedCommand::Absorb(command) => {
             crate::local_mailspace_command::absorb_record("need", command)?;
@@ -377,6 +377,31 @@ fn show_local_message(
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
     vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, json)
+}
+
+/// Need show: the thread plus a bound-units block, so a need's lowering
+/// state (which units exist, which have settled) is answerable by reading.
+fn show_need(
+    handle: &str,
+    json: bool,
+    project: Option<&std::path::Path>,
+) -> Result<(), VivariumError> {
+    let mailspace = Mailspace::discover(project)?;
+    vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, json)?;
+    if json {
+        return Ok(());
+    }
+    let units = mailspace.backlog_bound_units(handle)?;
+    if units.is_empty() {
+        return Ok(());
+    }
+    let rendered = units
+        .iter()
+        .map(|unit| format!("{}:{}", unit.handle, unit.state))
+        .collect::<Vec<_>>()
+        .join("  ");
+    println!("  units    {rendered}");
+    Ok(())
 }
 
 fn status_roles<'a>(status: &TaskStatus, open_role: &'a str) -> Vec<&'a str> {

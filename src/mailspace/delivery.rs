@@ -56,6 +56,16 @@ impl Mailspace {
             &request,
             reply_parent.as_ref().map(|(_, data)| data.as_slice()),
         )?;
+        if work_kind.is_some() {
+            let from_addr = self.address_for(&from);
+            warn_duplicate_work_subjects(
+                &storage,
+                &request.role,
+                &request.subject,
+                &from_addr,
+                &recipients,
+            );
+        }
         let seed = Utc::now().timestamp_nanos_opt().unwrap_or_default();
         let delivered_ids =
             ingest_for_recipients(&mut storage, recipients, &request.role, &eml, seed)?;
@@ -485,7 +495,10 @@ impl Mailspace {
         let names = sorted_identity_names(self.identity_names(&identity));
         let role = canonical_local_role(role)?;
         let mut storage = self.storage()?;
-        let resolved = storage.resolve_message_token_for_accounts(handle, &names)?;
+        let resolved = match storage.resolve_message_token_for_accounts(handle, &names) {
+            Ok(resolved) => resolved,
+            Err(_) => return Err(self.cross_identity_error(&storage, handle)),
+        };
         let Some(before) = storage.message_by_id(&resolved)? else {
             return Err(VivariumError::Message(format!(
                 "message not found: {handle}"
@@ -539,6 +552,25 @@ impl Mailspace {
             recipients.insert(self.resolve_identity(value)?);
         }
         Ok(recipients)
+    }
+
+    /// Error for a token that resolves globally but is not held by the
+    /// acting identity: name the holder so the operator can retry with
+    /// `--for <holder>`. Falls back to a plain not-found error.
+    pub(super) fn cross_identity_error(&self, storage: &Storage, token: &str) -> VivariumError {
+        let Ok(message_id) = storage.resolve_message_token(token) else {
+            return VivariumError::Message(format!("message not found: {token}"));
+        };
+        let holder = match storage.message_by_id(&message_id) {
+            Ok(Some(view)) => self.identity_owning_account(&view.account),
+            _ => None,
+        };
+        match holder {
+            Some(holder) => VivariumError::Message(format!(
+                "message '{token}' is held by identity '{holder}'; retry with --for {holder}"
+            )),
+            None => VivariumError::Message(format!("message not found: {token}")),
+        }
     }
 }
 
@@ -659,5 +691,34 @@ fn collect_addresses<'a>(
         if let Some(address) = addr.address.as_deref() {
             out.insert(address.to_string());
         }
+    }
+}
+
+/// Warn (stderr, never blocking) when the same sender already has an open
+/// item with the same subject in a recipient's work folder — the signature
+/// of a re-run filing loop minting duplicates. Still-open items only:
+/// resending a subject whose earlier copy settled is a normal follow-up.
+fn warn_duplicate_work_subjects(
+    storage: &Storage,
+    role: &str,
+    subject: &str,
+    from_addr: &str,
+    recipients: &BTreeSet<String>,
+) {
+    for recipient in recipients {
+        let Ok(existing) = storage.list_messages_by_account_role(recipient, role) else {
+            continue;
+        };
+        let Some(duplicate) = existing
+            .iter()
+            .find(|view| view.subject == subject && view.from_addr == from_addr)
+        else {
+            continue;
+        };
+        eprintln!(
+            "warning: an open {role} with subject '{subject}' from {from_addr} already exists \
+             for {recipient} as {}; this send may be a duplicate",
+            duplicate.handle
+        );
     }
 }

@@ -36,7 +36,9 @@ normalized edges + node state.
 | --- | --- |
 | `vivi graph import` / `apply` | Atomic create / revise from narrow Mermaid `flowchart` |
 | `vivi graph show` / `export` | Mermaid topology only |
-| `vivi graph ready` | Compact ready/blocked/active/gates frontier (status loops) |
+| `vivi graph ready` | Compact ready/blocked/active/gates frontier (status loops; `counts` line, `--kind` filter) |
+| `vivi graph audit [--repair]` | Backlog citizenship check; repair mints/completes/settles drifted items |
+| `vivi graph connect` | Post-hoc prerequisite edge between two backlog items |
 | `vivi graph complete` / `activate` | Lifecycle receipts; activate binds a task attempt and refuses operator gates |
 | `vivi board --graph` | Frontier projection without replacing task/need board items |
 | `vivi need bind` | Lowering: bind unit tasks to a need; join completes the need |
@@ -47,12 +49,18 @@ normalized edges + node state.
 **Backlog citizenship.** Every `task` / `need` / `want` send mints an open
 node in the per-mailspace `backlog` graph (`source_id` = item handle).
 `--depends-on` (task/need/want handles, validated before send) becomes a
-prerequisite edge. Lifecycle moves keep node state in step: done moves
-complete nodes and unlock dependents; reopen re-locks; `want promote` never
-changes node state, and wants never dispatch in `vivi step` before explicit
-promotion. Node completions write a `step_decision` graph event in the same
-transaction (`via=lifecycle|graph-complete|step-apply`). No schema beyond
-the graph tables.
+prerequisite edge (`graph connect` adds one post-hoc). Lifecycle moves keep
+node state in step: done moves complete nodes and unlock dependents; reopen
+re-locks; `want promote` never changes node state, and wants never dispatch
+in `vivi step` before explicit promotion. The `need bind` join completes
+the need's node **and** settles its mailbox item (`via=join`); reopening a
+bound unit restores both. Node completions write a `step_decision` graph
+event in the same transaction
+(`via=lifecycle|graph-complete|step-apply|repair|join`). `graph audit`
+detects and repairs citizenship drift — including items sent by vivi
+binaries too old to mint nodes (check the version in `mailspace status`;
+stale PATH-shadowing installs have caused silent untracked items). No
+schema beyond the graph tables.
 
 **Judgment provider (shadow screens).** User-level `[judgment]` in
 `config.toml` (`provider`/`endpoint`/`model`/`timeout_ms`/`key_cmd`) enables

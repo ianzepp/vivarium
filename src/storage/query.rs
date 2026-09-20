@@ -124,6 +124,24 @@ impl Storage {
         )
     }
 
+    /// List active work-role messages (tasks/needs/wants/done) updated at or
+    /// after `since`. These are the backlog audit candidates: items that
+    /// existed while the backlog graph did, so citizenship is expected.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the database query or handle
+    /// decoration fails.
+    pub fn work_role_messages_updated_since(
+        &self,
+        since: &str,
+    ) -> Result<Vec<StoredMessageView>, VivariumError> {
+        self.list_messages_by_query(
+            "WHERE m.local_role IN ('tasks', 'needs', 'wants', 'done') \
+             AND m.deleted_at IS NULL AND m.updated_at >= ?1",
+            params![since],
+        )
+    }
+
     /// List messages filtered by account and a single role.
     ///
     /// # Errors

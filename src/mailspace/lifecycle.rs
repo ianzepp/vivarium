@@ -89,13 +89,14 @@ impl Mailspace {
         expected_kind: &str,
     ) -> Result<String, VivariumError> {
         let (identity, message) = self.resolve_owned_message(identity, handle)?;
-        let kind = self.source_kind(&message)?;
+        let storage = self.storage()?;
+        let kind = self.source_kind(&storage, &message)?;
         if kind != expected_kind {
             return Err(VivariumError::Message(format!(
                 "{handle} is {kind}, not {expected_kind}"
             )));
         }
-        let mut storage = self.storage()?;
+        let mut storage = storage;
         let newly = storage.absorb_message(&message.account, &message.message_id, &identity)?;
         if newly {
             storage.append_mailspace_event(&absorb_event(
@@ -134,7 +135,7 @@ impl Mailspace {
         request: SourceTaskRequest,
     ) -> Result<SourceTaskResult, VivariumError> {
         let (actor, source) = self.resolve_owned_message(&request.actor, &request.source_handle)?;
-        let source_kind = self.source_kind(&source)?;
+        let source_kind = self.source_kind(&self.storage()?, &source)?;
         if source_kind != "want" {
             return Err(VivariumError::Message(format!(
                 "task from currently supports wants only; {} is {source_kind}",
@@ -175,7 +176,7 @@ impl Mailspace {
         update: WantMetadataUpdate,
     ) -> Result<String, VivariumError> {
         let (identity, want) = self.resolve_owned_message(identity, handle)?;
-        if self.source_kind(&want)? != "want" {
+        if self.source_kind(&self.storage()?, &want)? != "want" {
             return Err(VivariumError::Message(format!("{handle} is not a want")));
         }
         if want.absorbed_at.is_some() {
@@ -342,15 +343,19 @@ impl Mailspace {
             )));
         };
         if !names.contains(&message.account) {
-            return Err(VivariumError::Message(format!(
-                "message not found for {identity}: {handle}"
-            )));
+            return Err(self.cross_identity_error(&storage, handle));
         }
         Ok((identity, message))
     }
 
-    pub(super) fn source_kind(&self, message: &StoredMessageView) -> Result<String, VivariumError> {
-        let storage = self.storage()?;
+    /// Effective kind of a stored message, reading blob and events through
+    /// the caller's storage handle — opening a fresh connection here would
+    /// rebuild the short-handle map per call on large boards.
+    pub(super) fn source_kind(
+        &self,
+        storage: &crate::storage::Storage,
+        message: &StoredMessageView,
+    ) -> Result<String, VivariumError> {
         let data = storage.read_message(&message.message_id)?;
         let events = storage.list_mailspace_events(&message.message_id)?;
         Ok(effective_kind(&message.local_role, &data, &events).unwrap_or_else(|| "mail".into()))

@@ -3752,3 +3752,361 @@ fn graph_activate_accepts_bare_backlog_handles() {
         stderr(&missing)
     );
 }
+
+#[test]
+fn graph_audit_detects_and_repairs_untracked_work() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    // A tracked send creates the backlog graph.
+    send_work(
+        project.path(),
+        "task",
+        "cto",
+        "tracked unit",
+        "done_when: x",
+    );
+
+    // An .eml delivered straight into tasks never mints a node — the state
+    // an older vivi binary leaves behind.
+    let identity_list = stdout(&vivi([
+        "mailspace",
+        "identity",
+        "list",
+        "--project",
+        project_s,
+    ]));
+    let cto_addr = identity_list
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix("cto "))
+        .expect("cto address")
+        .trim()
+        .to_string();
+    let ceo_addr = identity_list
+        .lines()
+        .find_map(|l| l.trim_start().strip_prefix("ceo "))
+        .expect("ceo address")
+        .trim()
+        .to_string();
+    let eml_path = project.path().join("untracked.eml");
+    std::fs::write(
+        &eml_path,
+        format!(
+            "From: {ceo_addr}\r\nTo: {cto_addr}\r\nSubject: untracked unit\r\nX-Vivi-Kind: \
+             task\r\n\r\ndone_when: y\r\n"
+        ),
+    )
+    .unwrap();
+    assert_success(&vivi([
+        "mail",
+        "deliver",
+        eml_path.to_str().unwrap(),
+        "--folder",
+        "tasks",
+        "--project",
+        project_s,
+    ]));
+    let task_list = stdout(&vivi([
+        "task",
+        "list",
+        "--for",
+        "cto",
+        "--project",
+        project_s,
+    ]));
+    let untracked = task_list
+        .lines()
+        .find(|l| l.contains("untracked unit"))
+        .and_then(|l| l.split_whitespace().next())
+        .expect("untracked handle")
+        .to_string();
+
+    let audit = vivi(["graph", "audit", "--project", project_s]);
+    assert_success(&audit);
+    let audit_out = stdout(&audit);
+    assert!(audit_out.contains("missing_node"), "{audit_out}");
+    assert!(audit_out.contains(&untracked), "{audit_out}");
+
+    // activate points at the repair path before repair runs.
+    let activate = vivi([
+        "graph",
+        "activate",
+        &untracked,
+        "--task",
+        &untracked,
+        "--project",
+        project_s,
+    ]);
+    assert!(!activate.status.success());
+    assert!(
+        stderr(&activate).contains("graph audit --repair"),
+        "{}",
+        stderr(&activate)
+    );
+
+    let repair = vivi(["graph", "audit", "--repair", "--project", project_s]);
+    assert_success(&repair);
+    assert!(stdout(&repair).contains("[repaired]"));
+
+    let after = vivi(["graph", "audit", "--project", project_s]);
+    assert_success(&after);
+    assert!(
+        !stdout(&after).contains("missing_node"),
+        "{}",
+        stdout(&after)
+    );
+    assert_success(&vivi([
+        "graph",
+        "activate",
+        &untracked,
+        "--task",
+        &untracked,
+        "--project",
+        project_s,
+    ]));
+}
+
+#[test]
+fn graph_connect_adds_post_hoc_prerequisite() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let prereq = send_work(project.path(), "task", "cto", "prereq unit", "done_when: x");
+    let dependent = send_work(
+        project.path(),
+        "task",
+        "cto",
+        "dependent unit",
+        "done_when: y",
+    );
+
+    assert_success(&vivi([
+        "graph",
+        "connect",
+        &dependent,
+        &prereq,
+        "--project",
+        project_s,
+    ]));
+
+    let ready: Value = serde_json::from_str(&stdout(&vivi([
+        "graph",
+        "ready",
+        "backlog",
+        "--json",
+        "--project",
+        project_s,
+    ])))
+    .unwrap();
+    let ready_list = ready["ready"].as_array().unwrap();
+    assert!(
+        !ready_list
+            .iter()
+            .any(|n| n.as_str() == Some(dependent.as_str())),
+        "{ready}"
+    );
+
+    // Settling the prerequisite unlocks the dependent.
+    assert_success(&vivi([
+        "task",
+        "done",
+        "--for",
+        "cto",
+        &prereq,
+        "--project",
+        project_s,
+    ]));
+    let unlocked: Value = serde_json::from_str(&stdout(&vivi([
+        "graph",
+        "ready",
+        "backlog",
+        "--json",
+        "--project",
+        project_s,
+    ])))
+    .unwrap();
+    assert!(
+        unlocked["ready"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n.as_str() == Some(dependent.as_str())),
+        "{unlocked}"
+    );
+}
+
+#[test]
+fn need_bind_join_settles_need_item_and_lists_units() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let need = send_work(
+        project.path(),
+        "need",
+        "cto",
+        "lowered outcome",
+        "done_when: z",
+    );
+    let unit = send_work(
+        project.path(),
+        "task",
+        "cto",
+        "unit for need",
+        "done_when: w",
+    );
+
+    assert_success(&vivi([
+        "need",
+        "bind",
+        &need,
+        &unit,
+        "--project",
+        project_s,
+    ]));
+
+    let show = stdout(&vivi(["need", "show", &need, "--project", project_s]));
+    assert!(show.contains("units"), "{show}");
+    assert!(show.contains(&unit), "{show}");
+
+    // Settling the unit must close the need item itself, not only its node.
+    assert_success(&vivi([
+        "task",
+        "done",
+        "--for",
+        "cto",
+        &unit,
+        "--project",
+        project_s,
+    ]));
+    let open = stdout(&vivi([
+        "need",
+        "list",
+        "--for",
+        "cto",
+        "--status",
+        "open",
+        "--project",
+        project_s,
+    ]));
+    assert!(!open.contains("lowered outcome"), "{open}");
+    let done = stdout(&vivi([
+        "need",
+        "list",
+        "--for",
+        "cto",
+        "--status",
+        "done",
+        "--project",
+        project_s,
+    ]));
+    assert!(done.contains("lowered outcome"), "{done}");
+}
+
+#[test]
+fn cross_identity_close_names_the_holder() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let task = send_work(project.path(), "task", "cto", "routed unit", "done_when: x");
+
+    let out = vivi([
+        "task",
+        "done",
+        "--for",
+        "ceo",
+        &task,
+        "--project",
+        project_s,
+    ]);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(err.contains("held by identity 'cto'"), "{err}");
+    assert!(err.contains("--for cto"), "{err}");
+}
+
+#[test]
+fn duplicate_work_send_warns_on_open_same_subject() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    send_work(project.path(), "want", "cto", "same want", "note: x");
+    let dup = vivi([
+        "want",
+        "send",
+        "--project",
+        project_s,
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "same want",
+        "--body",
+        "note: x",
+    ]);
+    assert_success(&dup);
+    assert!(
+        stderr(&dup).contains("may be a duplicate"),
+        "{}",
+        stderr(&dup)
+    );
+}
+
+#[test]
+fn graph_ready_prints_counts_and_filters_by_kind() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    send_work(project.path(), "task", "cto", "a task", "done_when: x");
+    send_work(project.path(), "need", "cto", "a need", "done_when: y");
+
+    let ready = stdout(&vivi(["graph", "ready", "backlog", "--project", project_s]));
+    assert!(ready.contains("counts   ready="), "{ready}");
+
+    let tasks_only: Value = serde_json::from_str(&stdout(&vivi([
+        "graph",
+        "ready",
+        "backlog",
+        "--kind",
+        "need",
+        "--json",
+        "--project",
+        project_s,
+    ])))
+    .unwrap();
+    let subjects = tasks_only["ready"].as_array().unwrap().len();
+    assert_eq!(subjects, 1, "{tasks_only}");
+
+    let bad = vivi([
+        "graph",
+        "ready",
+        "backlog",
+        "--kind",
+        "spam",
+        "--project",
+        project_s,
+    ]);
+    assert!(!bad.status.success());
+}
+
+#[test]
+fn status_reports_vivi_version() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let out = stdout(&vivi([
+        "mailspace",
+        "status",
+        "--project",
+        project.path().to_str().unwrap(),
+    ]));
+    assert!(out.contains("vivi      "), "{out}");
+    let json: Value = serde_json::from_str(&stdout(&vivi([
+        "mailspace",
+        "status",
+        "--json",
+        "--project",
+        project.path().to_str().unwrap(),
+    ])))
+    .unwrap();
+    assert!(!json["vivi"].as_str().unwrap().is_empty());
+}

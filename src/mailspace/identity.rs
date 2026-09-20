@@ -227,6 +227,17 @@ impl Mailspace {
         names
     }
 
+    /// Canonical identity name owning a (possibly historical) account name.
+    /// Messages keep the account they were ingested under, so a renamed
+    /// identity still owns its old name's rows.
+    pub(super) fn identity_owning_account(&self, account: &str) -> Option<String> {
+        self.config.identities.iter().find_map(|identity| {
+            self.identity_names(&identity.name)
+                .contains(account)
+                .then(|| identity.name.clone())
+        })
+    }
+
     /// Resolve a string to a canonical identity name. Accepts `name@domain`,
     /// `name`, and aliases.
     ///

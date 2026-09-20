@@ -240,6 +240,35 @@ impl Storage {
         Ok(())
     }
 
+    /// Correct a node's kind without touching state or readiness. Audit
+    /// repair uses this for nodes minted before kinds were persisted.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the update fails or the node is
+    /// missing.
+    pub fn set_work_graph_node_kind(
+        &mut self,
+        graph_handle: &str,
+        node_handle: &str,
+        kind: &str,
+    ) -> Result<(), VivariumError> {
+        let now = Utc::now().to_rfc3339();
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE work_graph_nodes SET kind = ?3, updated_at = ?4
+                 WHERE graph_handle = ?1 AND handle = ?2",
+                params![graph_handle, node_handle, kind, now],
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to set node kind: {e}")))?;
+        if changed == 0 {
+            return Err(VivariumError::Message(format!(
+                "graph node not found: {node_handle}"
+            )));
+        }
+        Ok(())
+    }
+
     /// List all work graphs ordered by code.
     ///
     /// # Errors

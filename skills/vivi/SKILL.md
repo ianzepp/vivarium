@@ -156,12 +156,18 @@ re-locks them (cascading through join parents and content siblings);
 `want promote` never changes node state and wants never dispatch in
 `vivi step` before explicit promotion. Lowering is a graph fact:
 `vivi need bind <need> <task>...` binds unit tasks to a need, and the need
-auto-completes when every bound unit lands. Imported Mermaid graphs are for
+auto-completes when every bound unit lands — node and mailbox item together
+(`via=join` in the event log); reopening a bound unit restores the need to
+open the same way. `vivi need show <handle>` prints the bound units with
+their states. Imported Mermaid graphs are for
 non-item topology (pipelines, environment flows); delivery lowering uses
 `need bind` in the backlog, so work is never double-represented.
 
 **Dependency grammar.** Structural dependencies — a handle cited with
-`--depends-on` — become edges and derive readiness. Ambient conditions
+`--depends-on` — become edges and derive readiness. Dependencies discovered
+after filing use `vivi graph connect <dependent> <prereq>` (idempotent;
+refuses self edges, active/done dependents, and handles without nodes).
+Ambient conditions
 ("when a seat is free", time windows, operator approval) stay prose in the
 body and are evaluated by the host at dispatch; they are never encoded as
 topology. Multi-recipient sends are one work item: dependency handles may
@@ -175,24 +181,42 @@ The activate receipt and `attempt_bound` event record the task's content
 hash (`content=<sha256>`) — the citable pin for "task body as dispatched";
 every record's `show` output prints its `Content:` hash the same way.
 Bare source ids address the backlog graph; imported topologies use
-`graph:source-id`. **Settle sequence.** The worker settles with
+`graph:source-id`. Lifecycle moves act as the identity holding the item
+(`--for`): the send receipt's `created <recipient> <handle>` line names the
+holder, and closing under the wrong identity fails with the holder named in
+the error. **Settle sequence.** The worker settles with
 `task done --verdict/--repo/--tip` (the node completes, dependents unlock,
 a `step_decision via=lifecycle` event records the transition); the host
 then runs `vivi step --apply <handle>` — idempotent, never settles itself —
 which records `via=step-apply` and runs the receipt screen when a judgment
 provider is configured.
 
-Use `graph show`, `graph ready`, and `board --graph` for inspection. Use
-`vivi step [--json]` for a mechanical adjudication of the backlog into
+Use `graph show`, `graph ready`, and `board --graph` for inspection.
+`graph ready` prints a `counts` line first — use it (or `--kind
+task|need|want|decision|stub|parked`) instead of reading long id lists.
+Use `vivi step [--json]` for a mechanical adjudication of the backlog into
 `dispatches` (ready, verifiable work with clause counts) and `exceptions`
 (reason vocabulary: `want_requires_promotion`, `lowered_awaiting_units`,
-`no_done_when`, `item_missing`, `not_settled`). Wants render as parked in
-their exception detail. A clauseless task/need body warns at send time, and
-its `no_done_when` detail names the labeled fields the body does carry
-(verdict, repo, …) so coordination work is legible as such. `vivi step
+`no_done_when`, `item_missing`, `not_settled`, `untracked_item`). Wants
+render as parked in their exception detail. A clauseless task/need body
+warns at send time, and a duplicate work send (same sender, same subject,
+still open in the recipient's folder) warns on stderr without blocking.
+`vivi step
 --apply <handle>` completes an already-settled item's node and lists
-transitions under `decisions`. The coordination host decides which ready
-nodes to dispatch.
+transitions under `decisions`; applying an item the lifecycle already
+settled records `via=lifecycle (already settled; nothing to apply)` instead
+of silence. The coordination host decides which ready nodes to dispatch.
+
+**Citizenship audit.** `vivi graph audit [--repair]` checks the backlog
+invariant — every work item sent while the graph existed has a node in step
+with its folder state — and reports `missing_node`, `node_state`,
+`node_kind`, and `orphan_node` findings. `--repair` mints missing nodes
+(from folder state and dependency headers), completes nodes for settled
+items, settles need mailboxes whose join fired, and corrects kinds.
+`graph activate` / `need bind` errors point here. Stale vivi binaries
+silently skip node minting entirely (observed with an old Homebrew 8.1.0 on
+PATH): `mailspace status` prints the running binary's version — check it
+when nodes go missing, and keep one vivi on PATH.
 
 ### Judgment provider (optional, off by default)
 

@@ -1,9 +1,7 @@
 use vivarium::VivariumError;
 use vivarium::cli::{
-    Command, CycleCommand, GraphActivateCommand, GraphApplyCommand, GraphCommand,
-    GraphCompleteCommand, GraphEdgeCommand, GraphExportCommand, GraphImportCommand,
-    GraphNodeCommand, GraphShowCommand, LocalSendCommand, MailAbsorbStatus, MailCommand,
-    MailDumpCommand, MailListCommand, MailReplyCommand, MailspaceCommand, MailspaceIdentityCommand,
+    Command, CycleCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
+    MailListCommand, MailReplyCommand, MailspaceCommand, MailspaceIdentityCommand,
     MailspaceImportCommand, MemoCommand, TaskCommand, TaskSendCommand, TraceCommand,
 };
 use vivarium::mailspace::{
@@ -60,7 +58,7 @@ pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumE
             Ok(true)
         }
         Command::Graph { command } => {
-            handle_graph_command(command)?;
+            crate::local_graph_command::handle_graph_command(command)?;
             Ok(true)
         }
         Command::Step {
@@ -77,145 +75,6 @@ pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumE
         }
         _ => Ok(false),
     }
-}
-
-fn handle_graph_command(command: &GraphCommand) -> Result<(), VivariumError> {
-    match command {
-        GraphCommand::Import(command) => handle_graph_import(command),
-        GraphCommand::Apply(command) => handle_graph_apply(command),
-        GraphCommand::Show(command) => handle_graph_show(command),
-        GraphCommand::Export(command) => handle_graph_export(command),
-        GraphCommand::Ready(command) => handle_graph_ready(command),
-        GraphCommand::Complete(command) => handle_graph_complete(command),
-        GraphCommand::Activate(command) => handle_graph_activate(command),
-        GraphCommand::Node { command } => handle_graph_node_command(command),
-        GraphCommand::Edge { command } => handle_graph_edge_command(command),
-    }
-}
-
-fn handle_graph_import(command: &GraphImportCommand) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(command.project.as_deref())?;
-    let report = mailspace.graph_import_file(&command.code, &command.file, command.check)?;
-    vivarium::mailspace::print_import_report(&report, command.json, command.confirm_large)
-}
-
-fn handle_graph_apply(command: &GraphApplyCommand) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(command.project.as_deref())?;
-    let report = mailspace.graph_apply_file(&command.graph, &command.file, command.check)?;
-    vivarium::mailspace::print_apply_report(&report, command.json, command.confirm_large)
-}
-
-fn handle_graph_show(command: &GraphShowCommand) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(command.project.as_deref())?;
-    let mermaid = mailspace.graph_export_mermaid(&command.graph, command.include_state)?;
-    print!("{mermaid}");
-    Ok(())
-}
-
-fn handle_graph_export(command: &GraphExportCommand) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(command.project.as_deref())?;
-    let mermaid = mailspace.graph_export_mermaid(&command.graph, command.include_state)?;
-    print!("{mermaid}");
-    Ok(())
-}
-
-fn handle_graph_ready(command: &vivarium::cli::GraphReadyCommand) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(command.project.as_deref())?;
-    if let Some(graph) = command.graph.as_deref() {
-        let show = mailspace.graph_show(graph)?;
-        let frontier = vivarium::mailspace::frontier_from_show(&show);
-        return vivarium::mailspace::print_frontier(&frontier, command.json, command.confirm_large);
-    }
-    let shows = mailspace.graph_board_summaries()?;
-    let frontiers: Vec<_> = shows
-        .iter()
-        .map(vivarium::mailspace::frontier_from_show)
-        .collect();
-    vivarium::mailspace::print_frontiers(&frontiers, command.json, command.confirm_large)
-}
-
-fn handle_graph_complete(command: &GraphCompleteCommand) -> Result<(), VivariumError> {
-    if command.task.is_some() {
-        eprintln!("note: --task is ignored by complete; task binding happens at graph activate");
-    }
-    let mailspace = Mailspace::discover(command.project.as_deref())?;
-    let (graph, source_id) = split_graph_node(&command.node, command.graph.as_deref())?;
-    let show = mailspace.graph_complete(&graph, &source_id, command.note.as_deref())?;
-    let receipt =
-        vivarium::mailspace::action_receipt_from_show("complete", &show, Some(&source_id), None);
-    vivarium::mailspace::print_action_receipt(&receipt, command.json, command.confirm_large)
-}
-
-fn handle_graph_activate(command: &GraphActivateCommand) -> Result<(), VivariumError> {
-    let mailspace = Mailspace::discover(command.project.as_deref())?;
-    let (graph, source_id) = split_graph_node(&command.node, command.graph.as_deref())?;
-    let show =
-        mailspace.graph_activate(&graph, &source_id, &command.task, command.note.as_deref())?;
-    let mut receipt = vivarium::mailspace::action_receipt_from_show(
-        "activate",
-        &show,
-        Some(&source_id),
-        Some(&command.task),
-    );
-    receipt.content = mailspace.content_hash_of(&command.task).ok();
-    vivarium::mailspace::print_action_receipt(&receipt, command.json, command.confirm_large)
-}
-
-fn handle_graph_node_command(command: &GraphNodeCommand) -> Result<(), VivariumError> {
-    match command {
-        GraphNodeCommand::Add(command) => {
-            let mailspace = Mailspace::discover(command.project.as_deref())?;
-            let show = mailspace.graph_node_add(
-                &command.graph,
-                &command.id,
-                command.label.as_deref(),
-                command.kind.as_deref(),
-            )?;
-            let receipt = vivarium::mailspace::action_receipt_from_show(
-                "node_add",
-                &show,
-                Some(&command.id),
-                None,
-            );
-            vivarium::mailspace::print_action_receipt(&receipt, command.json, command.confirm_large)
-        }
-    }
-}
-
-fn handle_graph_edge_command(command: &GraphEdgeCommand) -> Result<(), VivariumError> {
-    match command {
-        GraphEdgeCommand::Add(command) => {
-            let mailspace = Mailspace::discover(command.project.as_deref())?;
-            let show = mailspace.graph_edge_add(
-                &command.graph,
-                &command.from,
-                &command.to,
-                command.label.as_deref(),
-            )?;
-            let node = format!("{}->{}", command.from, command.to);
-            let receipt =
-                vivarium::mailspace::action_receipt_from_show("edge_add", &show, Some(&node), None);
-            vivarium::mailspace::print_action_receipt(&receipt, command.json, command.confirm_large)
-        }
-    }
-}
-
-fn split_graph_node(
-    node: &str,
-    graph_flag: Option<&str>,
-) -> Result<(String, String), VivariumError> {
-    if let Some((graph, source_id)) = node.split_once(':')
-        && !graph.is_empty()
-        && !source_id.is_empty()
-    {
-        return Ok((graph.to_string(), source_id.to_string()));
-    }
-    // Bare source ids address the backlog graph: its ids are mailspace
-    // handles, so the common dispatch path needs no prefix.
-    let graph = graph_flag
-        .map(str::to_string)
-        .unwrap_or_else(|| "backlog".to_string());
-    Ok((graph, node.to_string()))
 }
 
 fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumError> {

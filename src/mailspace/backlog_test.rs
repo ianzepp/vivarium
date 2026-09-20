@@ -325,6 +325,87 @@ fn bind_rejects_done_parent() {
 }
 
 #[test]
+fn bind_rejects_task_parent() {
+    let (mailspace, _tmp) = roster();
+    let task = send_item(&mailspace, "tasks", Some("task"), "not a need", Vec::new());
+    let unit = send_item(&mailspace, "tasks", Some("task"), "unit", Vec::new());
+    let err = mailspace.backlog_bind_units(&task, &[unit]).unwrap_err();
+    assert!(err.to_string().contains("onto needs"), "{err}");
+}
+
+fn role_of(mailspace: &Mailspace, handle: &str) -> String {
+    let storage = mailspace.storage().unwrap();
+    let message_id = storage.resolve_message_token(handle).unwrap();
+    storage
+        .message_by_id(&message_id)
+        .unwrap()
+        .expect("message exists")
+        .local_role
+}
+
+#[test]
+fn join_settles_need_mailbox_and_reopen_restores() {
+    let (mailspace, _tmp) = roster();
+    let need = send_item(&mailspace, "needs", Some("need"), "lower me", Vec::new());
+    let unit = send_item(&mailspace, "tasks", Some("task"), "unit", Vec::new());
+    mailspace
+        .backlog_bind_units(&need, &[unit.clone()])
+        .unwrap();
+    assert_eq!(role_of(&mailspace, &need), "needs");
+
+    // Lifecycle settle by the seat completes the unit; the join must settle
+    // the need's mailbox copy too, not only its graph node.
+    mailspace
+        .move_item("cto", &unit, "done", None, "task done", None)
+        .unwrap();
+    assert_eq!(node(&mailspace, &need).state, "done");
+    assert_eq!(
+        role_of(&mailspace, &need),
+        "done",
+        "join must close the need item"
+    );
+
+    // Reopening the unit invalidates the join: node AND mailbox re-open.
+    mailspace
+        .move_item("cto", &unit, "tasks", None, "task reopen", None)
+        .unwrap();
+    assert_eq!(node(&mailspace, &need).state, "open");
+    assert_eq!(role_of(&mailspace, &need), "needs");
+}
+
+#[test]
+fn join_settle_moves_every_recipient_copy() {
+    let (mut mailspace, _tmp) = roster();
+    mailspace.add_identity("coo").unwrap();
+    let result = mailspace
+        .send(SendRequest {
+            from: "ceo".into(),
+            to: vec!["cto".into(), "coo".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "shared need".into(),
+            body: "done_when: exists".into(),
+            role: "needs".into(),
+            kind: Some("need".into()),
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap();
+    let copies: Vec<String> = result.delivered.iter().map(|d| d.handle.clone()).collect();
+    let unit = send_item(&mailspace, "tasks", Some("task"), "unit", Vec::new());
+    mailspace
+        .backlog_bind_units(&copies[0], &[unit.clone()])
+        .unwrap();
+
+    mailspace
+        .move_item("cto", &unit, "done", None, "task done", None)
+        .unwrap();
+    for copy in &copies {
+        assert_eq!(role_of(&mailspace, copy), "done", "copy {copy} settled");
+    }
+}
+
+#[test]
 fn reopen_cascades_to_done_join_parent() {
     let (mailspace, _tmp) = roster();
     let need = send_item(&mailspace, "needs", Some("need"), "join me", Vec::new());

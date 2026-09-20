@@ -157,9 +157,7 @@ impl Mailspace {
         let target = rows
             .iter()
             .find(|n| n.source_id == source_id)
-            .ok_or_else(|| {
-                VivariumError::Message(format!("graph node source id not found: {source_id}"))
-            })?;
+            .ok_or_else(|| node_not_found_error(&storage, source_id))?;
         if target.state == "done" {
             return self.graph_show(code_or_handle);
         }
@@ -199,9 +197,7 @@ impl Mailspace {
         let target = rows
             .iter()
             .find(|n| n.source_id == source_id)
-            .ok_or_else(|| {
-                VivariumError::Message(format!("graph node source id not found: {source_id}"))
-            })?;
+            .ok_or_else(|| node_not_found_error(&storage, source_id))?;
         if target.state != "open" {
             return Err(VivariumError::Message(format!(
                 "cannot activate node '{}' in state '{}'",
@@ -672,6 +668,22 @@ fn resolve_graph(storage: &Storage, code_or_handle: &str) -> Result<WorkGraphRow
     Err(VivariumError::Message(format!(
         "work graph not found: {code_or_handle}"
     )))
+}
+
+/// Not-found error for a node source id, pointing at the audit repair path
+/// when the id resolves to a real work message that simply lacks a node.
+fn node_not_found_error(storage: &Storage, source_id: &str) -> VivariumError {
+    let mut message = format!("graph node source id not found: {source_id}");
+    if let Ok(message_id) = storage.resolve_message_token(source_id)
+        && let Ok(Some(view)) = storage.message_by_id(&message_id)
+        && matches!(
+            view.local_role.as_str(),
+            "tasks" | "needs" | "wants" | "done"
+        )
+    {
+        message.push_str("; work item has no backlog node (vivi graph audit --repair recovers it)");
+    }
+    VivariumError::Message(message)
 }
 
 pub(super) fn ready_handles(

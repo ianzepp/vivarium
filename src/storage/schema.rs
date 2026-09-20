@@ -63,10 +63,12 @@ const SCHEMA_DDL: &str = "BEGIN;
            absorbed_at TEXT,
            absorbed_by TEXT
          );
-         CREATE INDEX IF NOT EXISTS messages_account_role_idx
-           ON messages(account, local_role, updated_at);
-         CREATE INDEX IF NOT EXISTS messages_account_content_idx
-           ON messages(account, content_id);
+        CREATE INDEX IF NOT EXISTS messages_account_role_idx
+          ON messages(account, local_role, updated_at);
+        CREATE INDEX IF NOT EXISTS messages_account_content_idx
+          ON messages(account, content_id);
+        CREATE INDEX IF NOT EXISTS messages_content_idx
+          ON messages(content_id);
          CREATE TABLE IF NOT EXISTS remote_bindings (
            message_id TEXT PRIMARY KEY REFERENCES messages(message_id) ON DELETE CASCADE,
            account TEXT NOT NULL,

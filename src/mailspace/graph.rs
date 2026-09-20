@@ -343,6 +343,13 @@ pub fn print_frontier(
     println!("  handle   {}", frontier.handle);
     println!("  revision {}", frontier.revision);
     println!(
+        "  counts   ready={} blocked={} active={} gates={}",
+        frontier.ready.len(),
+        frontier.blocked.len(),
+        frontier.active.len(),
+        frontier.gates.len()
+    );
+    println!(
         "  ready    {}",
         frontier.ready.join(", ").if_empty("(none)")
     );

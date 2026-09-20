@@ -2,11 +2,14 @@
 //! per-mailspace `backlog` graph, so readiness spans the whole backlog
 //! without a separate graph-management step.
 
+use serde::Serialize;
+
 use super::Mailspace;
 use super::graph_mutate::{newly_ready_after_done, ready_handles, validate_source_id};
 use crate::error::VivariumError;
 use crate::storage::{
-    BACKLOG_GRAPH_CODE, BacklogMintInput, BacklogNodeInput, Storage, WorkGraphEdgeInput,
+    BACKLOG_GRAPH_CODE, BacklogMintInput, BacklogNodeInput, MailspaceEventInput, Storage,
+    WorkGraphEdgeInput, WorkGraphNodeRow,
 };
 
 /// A resolved `--depends-on` reference to an existing need or want.
@@ -101,7 +104,7 @@ impl Mailspace {
         };
         let nodes = storage.work_graph_nodes(&graph.handle)?;
         let edges = storage.work_graph_edges(&graph.handle)?;
-        let Some(target) = nodes.iter().find(|n| n.source_id == handle) else {
+        let Some(target) = backlog_node_by_token(&storage, &nodes, handle)? else {
             return Ok(false);
         };
         if !matches!(target.state.as_str(), "open" | "active") {
@@ -148,10 +151,14 @@ impl Mailspace {
             .work_graph_by_code(BACKLOG_GRAPH_CODE)?
             .ok_or_else(|| VivariumError::Message(format!("need not found: {parent}")))?;
         let nodes = storage.work_graph_nodes(&graph.handle)?;
-        let parent_node = nodes
-            .iter()
-            .find(|n| n.source_id == parent)
+        let parent_node = backlog_node_by_token(&storage, &nodes, parent)?
             .ok_or_else(|| VivariumError::Message(format!("need not found: {parent}")))?;
+        if parent_node.kind != "need" {
+            return Err(VivariumError::Message(format!(
+                "bind lowers unit tasks onto needs; '{}' is a {}",
+                parent, parent_node.kind
+            )));
+        }
         if parent_node.state != "open" {
             return Err(VivariumError::Message(format!(
                 "cannot bind units to need '{parent}' in state '{}'",
@@ -160,9 +167,10 @@ impl Mailspace {
         }
         let mut unit_handles = Vec::with_capacity(units.len());
         for unit in units {
-            let unit_node = nodes.iter().find(|n| n.source_id == *unit).ok_or_else(|| {
+            let unit_node = backlog_node_by_token(&storage, &nodes, unit)?.ok_or_else(|| {
                 VivariumError::Message(format!(
-                    "unit '{unit}' has no graph node; send it before binding"
+                    "unit '{unit}' has no graph node; send it before binding (vivi graph \
+                         audit --repair recovers untracked items)"
                 ))
             })?;
             unit_handles.push(unit_node.handle.clone());
@@ -172,7 +180,9 @@ impl Mailspace {
         self.backlog_complete_if_join_complete(parent)
     }
 
-    /// Complete `parent` when every unit bound to it is done.
+    /// Complete `parent` when every unit bound to it is done, then settle the
+    /// need's mailbox copies so folder state matches the node transition —
+    /// the join automates the need's completion, not only its graph node.
     ///
     /// # Errors
     /// Returns a [`VivariumError`] on storage failure.
@@ -186,39 +196,98 @@ impl Mailspace {
             return Ok(());
         }
         drop(storage);
-        self.backlog_complete_item(parent).map(|_| ())
+        if self.backlog_complete_item(parent)? {
+            self.settle_need_mailbox(parent, true, "join")?;
+        }
+        Ok(())
+    }
+
+    /// Move every active copy of the need named by `handle` between `needs`
+    /// and `done`, logging `need done` / `need reopen` events tagged
+    /// `via=<via>`. Sealed (absorbed) copies stay untouched. Used by the join
+    /// rule and its reopen reversal so mailbox folders track graph joins.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] on storage failure.
+    pub(super) fn settle_need_mailbox(
+        &self,
+        handle: &str,
+        to_done: bool,
+        via: &str,
+    ) -> Result<(), VivariumError> {
+        let mut storage = self.storage()?;
+        let message_id = match storage.resolve_message_token(handle) {
+            Ok(message_id) => message_id,
+            Err(_) => return Ok(()),
+        };
+        let Some(view) = storage.message_by_id(&message_id)? else {
+            return Ok(());
+        };
+        let (from_role, to_role, command) = if to_done {
+            ("needs", "done", "need done")
+        } else {
+            ("done", "needs", "need reopen")
+        };
+        for sibling_id in storage.message_ids_by_content(&view.content_id)? {
+            let Some(copy) = storage.message_by_id(&sibling_id)? else {
+                continue;
+            };
+            if copy.local_role != from_role || copy.absorbed_at.is_some() {
+                continue;
+            }
+            storage.move_message_to_role(&copy.account, &sibling_id, to_role)?;
+            storage.append_mailspace_event(&MailspaceEventInput {
+                command: command.into(),
+                event_type: "moved".into(),
+                actor_identity: None,
+                account: copy.account.clone(),
+                message_id: sibling_id.clone(),
+                content_id: copy.content_id.clone(),
+                from_role: Some(copy.local_role.clone()),
+                to_role: Some(to_role.into()),
+                from_identity: None,
+                to_identity: Some(copy.account.clone()),
+                subject: copy.subject.clone(),
+                note: Some(format!("via={via}")),
+            })?;
+        }
+        Ok(())
     }
 
     /// Reopen the backlog node for `handle` after a done→open lifecycle move,
     /// cascading to the subgraph parent: reopening a bound unit invalidates
-    /// the join, so a done parent need re-opens too. No-op when the graph,
-    /// the node, or a non-done state says so.
+    /// the join, so a done parent need re-opens too (and its mailbox copies
+    /// return to `needs`). No-op when the graph, the node, or a non-done
+    /// state says so.
     ///
     /// # Errors
     /// Returns a [`VivariumError`] on storage failure.
     pub fn backlog_reopen_item(&self, handle: &str) -> Result<(), VivariumError> {
         self.reopen_item_cascading(handle, &mut Vec::new())
+            .map(|_| ())
     }
 
+    /// Returns the kind of the reopened node, or `None` when no transition
+    /// happened.
     fn reopen_item_cascading(
         &self,
         handle: &str,
         visited: &mut Vec<String>,
-    ) -> Result<(), VivariumError> {
+    ) -> Result<Option<String>, VivariumError> {
         if visited.iter().any(|seen| seen == handle) {
-            return Ok(());
+            return Ok(None);
         }
         visited.push(handle.to_string());
         let mut storage = self.storage()?;
         let Some(graph) = storage.work_graph_by_code(BACKLOG_GRAPH_CODE)? else {
-            return Ok(());
+            return Ok(None);
         };
         let nodes = storage.work_graph_nodes(&graph.handle)?;
-        let Some(target) = nodes.iter().find(|n| n.source_id == handle) else {
-            return Ok(());
+        let Some(target) = backlog_node_by_token(&storage, &nodes, handle)? else {
+            return Ok(None);
         };
         if target.state != "done" {
-            return Ok(());
+            return Ok(None);
         }
         let parent = target.subgraph.clone();
         storage.set_work_graph_node_state(&graph.handle, &target.handle, "open", None)?;
@@ -228,9 +297,12 @@ impl Mailspace {
             self.reopen_item_cascading(&sibling, visited)?;
         }
         if let Some(parent) = parent {
-            self.reopen_item_cascading(&parent, visited)?;
+            let reopened_kind = self.reopen_item_cascading(&parent, visited)?;
+            if reopened_kind.as_deref() == Some("need") {
+                self.settle_need_mailbox(&parent, false, "join-reopen")?;
+            }
         }
-        Ok(())
+        Ok(Some(target.kind))
     }
 
     /// Keep the backlog node in step with a lifecycle folder move. Work-item
@@ -248,6 +320,135 @@ impl Mailspace {
             _ => Ok(()),
         }
     }
+
+    /// Add a post-hoc prerequisite edge between two existing backlog items:
+    /// `dependent` stops being ready until `prereq` completes. Idempotent;
+    /// refuses self edges, frozen dependents, and unknown items.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] naming the offending item.
+    pub fn backlog_connect(
+        &self,
+        dependent: &str,
+        prereq: &str,
+        label: Option<&str>,
+    ) -> Result<(), VivariumError> {
+        let mut storage = self.storage()?;
+        let graph = storage
+            .work_graph_by_code(BACKLOG_GRAPH_CODE)?
+            .ok_or_else(|| VivariumError::Message("no backlog graph; send work first".into()))?;
+        let nodes = storage.work_graph_nodes(&graph.handle)?;
+        let dependent_node =
+            backlog_node_by_token(&storage, &nodes, dependent)?.ok_or_else(|| {
+                VivariumError::Message(format!(
+                    "dependent '{dependent}' has no graph node (vivi graph audit --repair recovers \
+                 untracked items)"
+                ))
+            })?;
+        let prereq_node = backlog_node_by_token(&storage, &nodes, prereq)?.ok_or_else(|| {
+            VivariumError::Message(format!(
+                "prerequisite '{prereq}' has no graph node (vivi graph audit --repair recovers \
+                 untracked items)"
+            ))
+        })?;
+        if dependent_node.handle == prereq_node.handle {
+            return Err(VivariumError::Message(format!(
+                "an item cannot depend on itself: {dependent}"
+            )));
+        }
+        if matches!(dependent_node.state.as_str(), "active" | "done") {
+            return Err(VivariumError::Message(format!(
+                "cannot add prerequisite to {} item '{dependent}'",
+                dependent_node.state
+            )));
+        }
+        storage.mint_backlog(&BacklogMintInput {
+            nodes: Vec::new(),
+            edges: vec![WorkGraphEdgeInput {
+                from_source_id: prereq_node.source_id,
+                to_source_id: dependent_node.source_id,
+                label: label.map(str::to_string),
+                style: "solid".into(),
+            }],
+        })?;
+        Ok(())
+    }
+
+    /// Units bound to the need named by `handle`, with their node states.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] on storage failure.
+    pub fn backlog_bound_units(
+        &self,
+        handle: &str,
+    ) -> Result<Vec<BacklogBoundUnit>, VivariumError> {
+        let storage = self.storage()?;
+        let Some(graph) = storage.work_graph_by_code(BACKLOG_GRAPH_CODE)? else {
+            return Ok(Vec::new());
+        };
+        let nodes = storage.work_graph_nodes(&graph.handle)?;
+        let Some(parent) = backlog_node_by_token(&storage, &nodes, handle)? else {
+            return Ok(Vec::new());
+        };
+        Ok(storage
+            .work_graph_nodes_by_subgraph(&graph.handle, &parent.source_id)?
+            .into_iter()
+            .map(|unit| BacklogBoundUnit {
+                handle: unit.source_id,
+                state: unit.state,
+            })
+            .collect())
+    }
+
+    /// Whether the work item named by `handle` has a backlog node at all —
+    /// distinguishes "already settled via lifecycle" from "never tracked".
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] on storage failure.
+    pub fn backlog_item_tracked(&self, handle: &str) -> Result<bool, VivariumError> {
+        let storage = self.storage()?;
+        let Some(graph) = storage.work_graph_by_code(BACKLOG_GRAPH_CODE)? else {
+            return Ok(false);
+        };
+        let nodes = storage.work_graph_nodes(&graph.handle)?;
+        Ok(backlog_node_by_token(&storage, &nodes, handle)?.is_some())
+    }
+}
+
+/// One bound unit of a need, as shown by `need show`.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct BacklogBoundUnit {
+    pub handle: String,
+    pub state: String,
+}
+
+/// Find the backlog node for a mail token. Falls back to matching the
+/// token's message against node source ids as basis prefixes, so a handle
+/// that drifted (shortest-prefix growth after later sends) still finds the
+/// node minted for the same message.
+pub(super) fn backlog_node_by_token(
+    storage: &Storage,
+    nodes: &[WorkGraphNodeRow],
+    token: &str,
+) -> Result<Option<WorkGraphNodeRow>, VivariumError> {
+    if let Some(found) = nodes.iter().find(|n| n.source_id == token) {
+        return Ok(Some(found.clone()));
+    }
+    let Ok(message_id) = storage.resolve_message_token(token) else {
+        return Ok(None);
+    };
+    let view = storage.message_by_id(&message_id)?;
+    let Some(view) = view else {
+        return Ok(None);
+    };
+    let basis = view
+        .message_id
+        .strip_prefix("msg_")
+        .unwrap_or(&view.message_id);
+    Ok(nodes
+        .iter()
+        .find(|n| basis.starts_with(n.source_id.as_str()))
+        .cloned())
 }
 
 /// Resolve one dependency token to a canonical backlog dep. Accepts open

@@ -300,14 +300,15 @@ fn insert_backlog_node(
     let handle = node_handle_for(graph_handle, &node.source_id);
     tx.execute(
         "INSERT INTO work_graph_nodes
-           (handle, graph_handle, source_id, label, state, subgraph, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?6)",
+           (handle, graph_handle, source_id, label, state, subgraph, kind, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?7)",
         params![
             handle,
             graph_handle,
             node.source_id,
             node.label,
             node.state,
+            node.kind,
             now
         ],
     )

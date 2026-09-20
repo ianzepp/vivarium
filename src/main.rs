@@ -20,6 +20,7 @@ mod label_runner;
 mod list_runner;
 mod local_board_command;
 mod local_goal_command;
+mod local_graph_command;
 mod local_mail_list;
 mod local_mailspace_command;
 mod local_mailspace_dump;
