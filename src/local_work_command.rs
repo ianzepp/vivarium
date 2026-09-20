@@ -9,7 +9,13 @@ use vivarium::mailspace::{
 
 pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumError> {
     match command {
-        NeedCommand::Send(command) => send_local_item(command, "needs", "need", "created")?,
+        NeedCommand::Send(command) => send_local_item(
+            &command.send,
+            "needs",
+            "need",
+            "created",
+            &command.depends_on,
+        )?,
         NeedCommand::Watch(command) => {
             crate::local_mailspace_command::run_watch(&command.common, "need")?;
         }
@@ -75,7 +81,13 @@ pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumE
 
 pub(crate) fn handle_want_command(command: &WantCommand) -> Result<(), VivariumError> {
     match command {
-        WantCommand::Send(command) => send_local_item(command, "wants", "want", "created")?,
+        WantCommand::Send(command) => send_local_item(
+            &command.send,
+            "wants",
+            "want",
+            "created",
+            &command.depends_on,
+        )?,
         WantCommand::Watch(command) => {
             crate::local_mailspace_command::run_watch(&command.common, "want")?;
         }
@@ -292,8 +304,12 @@ fn send_local_item(
     role: &str,
     kind: &str,
     verb: &str,
+    depends_on: &[String],
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
+    if !depends_on.is_empty() {
+        mailspace.backlog_validate_deps(depends_on)?;
+    }
     let result = mailspace.send(SendRequest {
         from: command.from.clone(),
         to: command.to.clone(),
@@ -307,10 +323,11 @@ fn send_local_item(
         role: role.into(),
         kind: Some(kind.into()),
         reply_to: command.reply_to.clone(),
-        depends_on: Vec::new(),
+        depends_on: depends_on.to_vec(),
     })?;
-    for delivered in result.delivered {
+    for delivered in &result.delivered {
         println!("{verb} {} {}", delivered.identity, delivered.handle);
+        mailspace.backlog_attach(kind, &delivered.handle, &command.subject, depends_on)?;
     }
     println!("sent {}", result.sent);
     Ok(())

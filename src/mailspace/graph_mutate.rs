@@ -626,12 +626,15 @@ fn resolve_graph(storage: &Storage, code_or_handle: &str) -> Result<WorkGraphRow
     )))
 }
 
-fn ready_handles(nodes: &[WorkGraphNodeRow], edges: &[WorkGraphEdgeRow]) -> HashSet<String> {
+pub(super) fn ready_handles(
+    nodes: &[WorkGraphNodeRow],
+    edges: &[WorkGraphEdgeRow],
+) -> HashSet<String> {
     let (_, ready, _) = project_nodes(nodes, edges);
     ready.into_iter().map(|n| n.handle).collect()
 }
 
-fn newly_ready_after_done(
+pub(super) fn newly_ready_after_done(
     nodes: &[WorkGraphNodeRow],
     edges: &[WorkGraphEdgeRow],
     completed_handle: &str,
@@ -650,7 +653,7 @@ fn newly_ready_after_done(
         .collect()
 }
 
-fn validate_source_id(id: &str) -> Result<(), VivariumError> {
+pub(super) fn validate_source_id(id: &str) -> Result<(), VivariumError> {
     if id.is_empty()
         || !id
             .chars()

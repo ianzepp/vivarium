@@ -3029,6 +3029,85 @@ fn graph_activate_binds_ready_task_and_refuses_blocked() {
     assert!(receipt.get("nodes").is_none());
 }
 
+#[test]
+fn backlog_citizenship_mints_unlocks_and_never_promotes() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+
+    let dep_output = vivi([
+        "need",
+        "send",
+        "--project",
+        project_s,
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "auth fix",
+        "--body",
+        "must land",
+    ]);
+    assert_success(&dep_output);
+    let dep = handle_after(&stdout(&dep_output), "created cto");
+
+    let want_output = vivi([
+        "want",
+        "send",
+        "--project",
+        project_s,
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "retry helper",
+        "--body",
+        "later",
+        "--depends-on",
+        &dep,
+    ]);
+    assert_success(&want_output);
+    let want = handle_after(&stdout(&want_output), "created cto");
+
+    let node_readiness = |handle: &str| -> String {
+        let board = vivi(["board", "--graph", "--json", "--project", project_s]);
+        assert_success(&board);
+        let board_v: Value = serde_json::from_str(&stdout(&board)).unwrap();
+        let graphs = board_v["graphs"].as_array().expect("graphs present");
+        let backlog = graphs
+            .iter()
+            .find(|g| g["code"] == "backlog")
+            .unwrap_or_else(|| panic!("no backlog graph: {board_v}"));
+        backlog["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["source_id"] == handle)
+            .unwrap_or_else(|| panic!("node {handle} missing: {backlog}"))["readiness"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+
+    assert_eq!(node_readiness(&want), "blocked");
+    assert_eq!(node_readiness(&dep), "ready");
+
+    let done = vivi(["need", "done", "--project", project_s, "--for", "cto", &dep]);
+    assert_success(&done);
+
+    assert_eq!(node_readiness(&want), "ready");
+
+    // Unlocking never promotes: the item is still listed as a want, not a need.
+    let wants = vivi(["want", "list", "--project", project_s, "--for", "cto"]);
+    assert_success(&wants);
+    assert!(stdout(&wants).contains(&want), "{}", stdout(&wants));
+    let needs = vivi(["need", "list", "--project", project_s, "--for", "cto"]);
+    assert_success(&needs);
+    assert!(!stdout(&needs).contains(&want), "{}", stdout(&needs));
+}
+
 fn vivi<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,

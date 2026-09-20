@@ -515,7 +515,9 @@ impl Mailspace {
         if let Some(metadata) = metadata {
             storage.set_item_metadata(&resolved, metadata)?;
         }
-        storage.display_handle(&resolved)
+        let handle = storage.display_handle(&resolved)?;
+        self.sync_backlog_node(&before.local_role, &role, &handle)?;
+        Ok(handle)
     }
 
     fn resolve_recipients(

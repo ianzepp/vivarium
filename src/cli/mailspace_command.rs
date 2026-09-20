@@ -326,6 +326,26 @@ pub struct TaskSendCommand {
 }
 
 #[derive(Debug, Clone, Parser)]
+pub struct NeedSendCommand {
+    #[command(flatten)]
+    pub send: LocalSendCommand,
+
+    /// Need or want handle this need depends on (repeatable)
+    #[arg(long = "depends-on")]
+    pub depends_on: Vec<String>,
+}
+
+#[derive(Debug, Clone, Parser)]
+pub struct WantSendCommand {
+    #[command(flatten)]
+    pub send: LocalSendCommand,
+
+    /// Need or want handle this want depends on (repeatable)
+    #[arg(long = "depends-on")]
+    pub depends_on: Vec<String>,
+}
+
+#[derive(Debug, Clone, Parser)]
 #[command(group(
     ArgGroup::new("reply_body")
         .required(true)

@@ -4,8 +4,8 @@ use clap::Parser;
 use vivarium::cli::{
     AgentCommand, Cli, Command, CycleCommand, EnqueueCommand, ExecCommand, IndexCommand,
     MailAbsorbStatus, MailCommand, MailspaceCommand, MailspaceIdentityCommand, MemoCommand,
-    NeedCommand, ProtonCommand, QueueCommand, TaskCommand, TaskDumpStatusArg, TaskSendCommand,
-    TaskStatus, WantCommand,
+    NeedCommand, NeedSendCommand, ProtonCommand, QueueCommand, TaskCommand, TaskDumpStatusArg,
+    TaskSendCommand, TaskStatus, WantCommand, WantSendCommand,
 };
 
 #[test]
@@ -2136,6 +2136,70 @@ fn parses_task_send_with_depends_on() {
             assert_eq!(send.from, "ceo");
             assert_eq!(send.to, vec!["hand-1"]);
             assert_eq!(send.subject, "do this after that");
+            assert_eq!(depends_on, vec!["abc123", "def456"]);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn parses_need_and_want_send_with_depends_on() {
+    let need = Cli::try_parse_from([
+        "vivi",
+        "need",
+        "send",
+        "--from",
+        "mind",
+        "--to",
+        "cto",
+        "--subject",
+        "audit wave",
+        "--body",
+        "work",
+        "--depends-on",
+        "abc123",
+    ])
+    .unwrap();
+    match need.command {
+        Command::Need {
+            command:
+                NeedCommand::Send(NeedSendCommand {
+                    send, depends_on, ..
+                }),
+        } => {
+            assert_eq!(send.from, "mind");
+            assert_eq!(send.subject, "audit wave");
+            assert_eq!(depends_on, vec!["abc123"]);
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+
+    let want = Cli::try_parse_from([
+        "vivi",
+        "want",
+        "send",
+        "--from",
+        "mind",
+        "--to",
+        "cto",
+        "--subject",
+        "retry helper",
+        "--body",
+        "later",
+        "--depends-on",
+        "abc123",
+        "--depends-on",
+        "def456",
+    ])
+    .unwrap();
+    match want.command {
+        Command::Want {
+            command:
+                WantCommand::Send(WantSendCommand {
+                    send, depends_on, ..
+                }),
+        } => {
+            assert_eq!(send.to, vec!["cto"]);
             assert_eq!(depends_on, vec!["abc123", "def456"]);
         }
         other => panic!("unexpected command: {other:?}"),

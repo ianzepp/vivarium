@@ -464,7 +464,7 @@ pub fn edge_handle_for(graph_handle: &str, from_node: &str, to_node: &str) -> St
     format!("edg_{}", &digest[..16])
 }
 
-fn insert_work_graph(
+pub(super) fn insert_work_graph(
     tx: &Transaction<'_>,
     input: &WorkGraphImportInput,
 ) -> Result<WorkGraphImportCommit, VivariumError> {
@@ -557,7 +557,7 @@ fn insert_nodes(
     Ok(out)
 }
 
-fn insert_edges(
+pub(super) fn insert_edges(
     tx: &Transaction<'_>,
     graph_handle: &str,
     edges: &[WorkGraphEdgeInput],

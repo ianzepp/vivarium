@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::{LocalSendCommand, MailAbsorbStatus};
+use super::MailAbsorbStatus;
 
 /// Seal a mailspace record. Once absorbed, it can no longer be changed.
 #[derive(Debug, Clone, Args)]
@@ -152,7 +152,7 @@ pub enum MemoCommand {
 #[derive(Debug, Subcommand)]
 pub enum NeedCommand {
     /// Send a need message into the recipient's Needs folder
-    Send(LocalSendCommand),
+    Send(super::NeedSendCommand),
 
     /// Wait for need events in the project-local mailspace
     Watch(Box<super::KindWatchCommand>),
@@ -250,7 +250,7 @@ pub enum NeedCommand {
 #[derive(Debug, Subcommand)]
 pub enum WantCommand {
     /// Send a want message into the recipient's Wants folder
-    Send(LocalSendCommand),
+    Send(super::WantSendCommand),
 
     /// Wait for want events in the project-local mailspace
     Watch(Box<super::KindWatchCommand>),

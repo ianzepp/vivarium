@@ -14,6 +14,10 @@ use crate::catalog::{CatalogEntry, RemoteIdentity};
 use crate::error::VivariumError;
 use crate::store::secure_create_dir_all;
 
+mod backlog_graph;
+pub use backlog_graph::{
+    BACKLOG_GRAPH_CODE, BacklogMintCommit, BacklogMintInput, BacklogNodeInput,
+};
 mod events;
 mod goals;
 mod graph;
