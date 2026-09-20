@@ -7,7 +7,9 @@ use chrono::Utc;
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::Storage;
-use super::graph::{insert_edges, insert_work_graph, node_handle_for};
+use super::graph::{
+    WorkGraphNodeRow, insert_edges, insert_work_graph, map_node_row, node_handle_for,
+};
 use super::{VivariumError, WorkGraphEdgeInput, WorkGraphImportInput, sha256_hex};
 
 /// Project-unique code of the per-mailspace backlog graph.
@@ -59,6 +61,91 @@ impl Storage {
         tx.commit()
             .map_err(|e| VivariumError::Other(format!("failed to commit backlog mint: {e}")))?;
         Ok(commit)
+    }
+
+    /// Bind unit nodes to a parent need node by setting each unit's
+    /// `subgraph` to the parent's source id, in one transaction with one
+    /// `unit_bound` event per unit.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if any update fails.
+    pub fn bind_backlog_units(
+        &mut self,
+        graph_handle: &str,
+        parent_source_id: &str,
+        unit_handles: &[String],
+    ) -> Result<(), VivariumError> {
+        let now = Utc::now().to_rfc3339();
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|e| VivariumError::Other(format!("failed to begin backlog bind: {e}")))?;
+        for unit_handle in unit_handles {
+            let changed = tx
+                .execute(
+                    "UPDATE work_graph_nodes SET subgraph = ?1, updated_at = ?2
+                     WHERE handle = ?3 AND graph_handle = ?4",
+                    params![parent_source_id, now, unit_handle, graph_handle],
+                )
+                .map_err(|e| VivariumError::Other(format!("failed to bind backlog unit: {e}")))?;
+            if changed == 0 {
+                return Err(VivariumError::Message(format!(
+                    "graph node not found: {unit_handle}"
+                )));
+            }
+            tx.execute(
+                "INSERT INTO work_graph_events
+                   (graph_handle, occurred_at, event_type, node_handle, note)
+                 VALUES (?1, ?2, 'unit_bound', ?3, ?4)",
+                params![
+                    graph_handle,
+                    now,
+                    unit_handle,
+                    format!("parent={parent_source_id}")
+                ],
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to insert bind event: {e}")))?;
+        }
+        tx.execute(
+            "UPDATE work_graphs SET updated_at = ?1 WHERE handle = ?2",
+            params![now, graph_handle],
+        )
+        .map_err(|e| VivariumError::Other(format!("failed to touch backlog graph: {e}")))?;
+        tx.commit()
+            .map_err(|e| VivariumError::Other(format!("failed to commit backlog bind: {e}")))?;
+        Ok(())
+    }
+
+    /// Load nodes whose `subgraph` names the given parent source id.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] if the query fails.
+    pub fn work_graph_nodes_by_subgraph(
+        &self,
+        graph_handle: &str,
+        parent_source_id: &str,
+    ) -> Result<Vec<WorkGraphNodeRow>, VivariumError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT handle, graph_handle, source_id, label, state, subgraph,
+                        created_at, updated_at
+                 FROM work_graph_nodes WHERE graph_handle = ?1 AND subgraph = ?2
+                 ORDER BY source_id",
+            )
+            .map_err(|e| VivariumError::Other(format!("failed to prepare subgraph nodes: {e}")))?;
+        let rows = stmt
+            .query_map(params![graph_handle, parent_source_id], map_node_row)
+            .map_err(|e| VivariumError::Other(format!("failed to query subgraph nodes: {e}")))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(
+                row.map_err(|e| {
+                    VivariumError::Other(format!("failed to read subgraph node: {e}"))
+                })?,
+            );
+        }
+        Ok(out)
     }
 }
 

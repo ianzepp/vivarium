@@ -245,6 +245,19 @@ pub enum NeedCommand {
         #[arg(long)]
         project: Option<PathBuf>,
     },
+
+    /// Bind unit tasks to a need; the need completes when all units land
+    Bind {
+        /// Need handle or unambiguous prefix
+        handle: String,
+
+        /// Unit task handles bound to the need (at least one)
+        units: Vec<String>,
+
+        /// Project root to use
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Subcommand)]

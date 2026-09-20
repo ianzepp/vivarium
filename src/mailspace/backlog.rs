@@ -72,9 +72,10 @@ impl Mailspace {
         Ok(())
     }
 
-    /// Complete the backlog node for `handle`, unlocking dependents. No-op
-    /// when the backlog graph or the node does not exist (pre-feature items)
-    /// or the node is not completable.
+    /// Complete the backlog node for `handle`, unlocking dependents, then
+    /// cascade the join rule: a parent need whose bound units are now all
+    /// done completes too. No-op when the backlog graph or the node does not
+    /// exist (pre-feature items) or the node is not completable.
     ///
     /// # Errors
     /// Returns a [`VivariumError`] on storage failure.
@@ -94,7 +95,71 @@ impl Mailspace {
         let ready_before = ready_handles(&nodes, &edges);
         let newly_ready = newly_ready_after_done(&nodes, &edges, &target.handle, &ready_before);
         storage.complete_work_graph_node(&graph.handle, &target.handle, None, &newly_ready)?;
+        drop(storage);
+        if let Some(parent) = target.subgraph.clone() {
+            self.backlog_complete_if_join_complete(&parent)?;
+        }
         Ok(())
+    }
+
+    /// Bind unit tasks to a parent need: each unit node's `subgraph` becomes
+    /// the need's source id. Binding already-done units may complete the need
+    /// immediately via the join rule.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] naming the first missing node, or on
+    /// storage failure.
+    pub fn backlog_bind_units(&self, parent: &str, units: &[String]) -> Result<(), VivariumError> {
+        validate_source_id(parent)?;
+        if units.is_empty() {
+            return Err(VivariumError::Message(
+                "bind needs at least one unit handle".into(),
+            ));
+        }
+        let mut storage = self.storage()?;
+        let graph = storage
+            .work_graph_by_code(BACKLOG_GRAPH_CODE)?
+            .ok_or_else(|| VivariumError::Message(format!("need not found: {parent}")))?;
+        let nodes = storage.work_graph_nodes(&graph.handle)?;
+        let parent_node = nodes
+            .iter()
+            .find(|n| n.source_id == parent)
+            .ok_or_else(|| VivariumError::Message(format!("need not found: {parent}")))?;
+        if parent_node.state != "open" {
+            return Err(VivariumError::Message(format!(
+                "cannot bind units to need '{parent}' in state '{}'",
+                parent_node.state
+            )));
+        }
+        let mut unit_handles = Vec::with_capacity(units.len());
+        for unit in units {
+            let unit_node = nodes.iter().find(|n| n.source_id == *unit).ok_or_else(|| {
+                VivariumError::Message(format!(
+                    "unit '{unit}' has no graph node; send it before binding"
+                ))
+            })?;
+            unit_handles.push(unit_node.handle.clone());
+        }
+        storage.bind_backlog_units(&graph.handle, parent, &unit_handles)?;
+        drop(storage);
+        self.backlog_complete_if_join_complete(parent)
+    }
+
+    /// Complete `parent` when every unit bound to it is done.
+    ///
+    /// # Errors
+    /// Returns a [`VivariumError`] on storage failure.
+    fn backlog_complete_if_join_complete(&self, parent: &str) -> Result<(), VivariumError> {
+        let storage = self.storage()?;
+        let Some(graph) = storage.work_graph_by_code(BACKLOG_GRAPH_CODE)? else {
+            return Ok(());
+        };
+        let units = storage.work_graph_nodes_by_subgraph(&graph.handle, parent)?;
+        if units.is_empty() || !units.iter().all(|n| n.state == "done") {
+            return Ok(());
+        }
+        drop(storage);
+        self.backlog_complete_item(parent)
     }
 
     /// Reopen the backlog node for `handle` after a done→open lifecycle move.

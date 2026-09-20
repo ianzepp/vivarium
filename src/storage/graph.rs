@@ -605,7 +605,7 @@ fn map_graph_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkGraphRow> {
     })
 }
 
-fn map_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkGraphNodeRow> {
+pub(super) fn map_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkGraphNodeRow> {
     Ok(WorkGraphNodeRow {
         handle: row.get(0)?,
         graph_handle: row.get(1)?,

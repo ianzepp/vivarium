@@ -3206,6 +3206,93 @@ fn task_depends_on_task_unlocks_via_graph() {
     assert!(stderr(&bad).contains("deadbeef"), "{}", stderr(&bad));
 }
 
+#[test]
+fn need_bind_joins_completion_via_cli() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+
+    let send = |kind: &str, subject: &str| -> String {
+        let output = vivi([
+            kind,
+            "send",
+            "--project",
+            project_s,
+            "--from",
+            "ceo",
+            "--to",
+            "cto",
+            "--subject",
+            subject,
+            "--body",
+            "work",
+        ]);
+        assert_success(&output);
+        handle_after(&stdout(&output), "created cto")
+    };
+
+    let need = send("need", "lower me");
+    let first = send("task", "unit 1");
+    let second = send("task", "unit 2");
+
+    let bind = vivi([
+        "need",
+        "bind",
+        "--project",
+        project_s,
+        &need,
+        &first,
+        &second,
+    ]);
+    assert_success(&bind);
+
+    let node_state = |handle: &str| -> String {
+        let board = vivi(["board", "--graph", "--json", "--project", project_s]);
+        assert_success(&board);
+        let board_v: Value = serde_json::from_str(&stdout(&board)).unwrap();
+        board_v["graphs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|g| g["code"] == "backlog")
+            .unwrap_or_else(|| panic!("no backlog graph: {board_v}"))["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["source_id"] == handle)
+            .unwrap_or_else(|| panic!("node {handle} missing: {board_v}"))["state"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+
+    assert_eq!(node_state(&need), "open");
+
+    let done_one = vivi([
+        "task",
+        "done",
+        "--project",
+        project_s,
+        "--for",
+        "cto",
+        &first,
+    ]);
+    assert_success(&done_one);
+    assert_eq!(node_state(&need), "open");
+
+    let done_two = vivi([
+        "task",
+        "done",
+        "--project",
+        project_s,
+        "--for",
+        "cto",
+        &second,
+    ]);
+    assert_success(&done_two);
+    assert_eq!(node_state(&need), "done");
+}
+
 fn vivi<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,

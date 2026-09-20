@@ -75,6 +75,15 @@ pub(crate) fn handle_need_command(command: &NeedCommand) -> Result<(), VivariumE
             "need reopen",
             "reopened",
         )?,
+        NeedCommand::Bind {
+            handle,
+            units,
+            project,
+        } => {
+            let mailspace = Mailspace::discover(project.as_deref())?;
+            mailspace.backlog_bind_units(handle, units)?;
+            println!("bound {handle}");
+        }
     }
     Ok(())
 }

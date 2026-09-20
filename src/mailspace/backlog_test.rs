@@ -252,3 +252,74 @@ fn mint_records_backlog_events() {
         "{events:?}"
     );
 }
+
+#[test]
+fn bind_joins_need_completion_on_last_unit() {
+    let (mailspace, _tmp) = roster();
+    let need = send_item(&mailspace, "needs", Some("need"), "lower me", Vec::new());
+    let first = send_item(&mailspace, "tasks", Some("task"), "unit 1", Vec::new());
+    let second = send_item(&mailspace, "tasks", Some("task"), "unit 2", Vec::new());
+    let follower = send_item(
+        &mailspace,
+        "wants",
+        Some("want"),
+        "follow",
+        vec![need.clone()],
+    );
+    mailspace
+        .backlog_bind_units(&need, &[first.clone(), second.clone()])
+        .unwrap();
+
+    assert_eq!(node(&mailspace, &follower).readiness, "blocked");
+
+    mailspace.backlog_complete_item(&first).unwrap();
+    assert_eq!(node(&mailspace, &need).state, "open");
+    assert_eq!(node(&mailspace, &follower).readiness, "blocked");
+
+    mailspace.backlog_complete_item(&second).unwrap();
+    assert_eq!(node(&mailspace, &need).state, "done");
+    assert_eq!(node(&mailspace, &follower).readiness, "ready");
+}
+
+#[test]
+fn retro_bind_of_done_units_completes_need() {
+    let (mailspace, _tmp) = roster();
+    let need = send_item(
+        &mailspace,
+        "needs",
+        Some("need"),
+        "late lowering",
+        Vec::new(),
+    );
+    let unit = send_item(
+        &mailspace,
+        "tasks",
+        Some("task"),
+        "already landed",
+        Vec::new(),
+    );
+    mailspace.backlog_complete_item(&unit).unwrap();
+
+    mailspace.backlog_bind_units(&need, &[unit]).unwrap();
+    assert_eq!(node(&mailspace, &need).state, "done");
+}
+
+#[test]
+fn bind_rejects_missing_unit_node() {
+    let (mailspace, _tmp) = roster();
+    let need = send_item(&mailspace, "needs", Some("need"), "bind me", Vec::new());
+    let err = mailspace
+        .backlog_bind_units(&need, &["unsent00".into()])
+        .unwrap_err();
+    assert!(err.to_string().contains("no graph node"), "{err}");
+}
+
+#[test]
+fn bind_rejects_done_parent() {
+    let (mailspace, _tmp) = roster();
+    let need = send_item(&mailspace, "needs", Some("need"), "closed", Vec::new());
+    let unit = send_item(&mailspace, "tasks", Some("task"), "unit", Vec::new());
+    mailspace.backlog_complete_item(&need).unwrap();
+    let err = mailspace.backlog_bind_units(&need, &[unit]).unwrap_err();
+    assert!(err.to_string().contains("state"), "{err}");
+}
