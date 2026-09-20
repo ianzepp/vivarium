@@ -390,6 +390,85 @@ fn task_done_records_verdict_and_tips() {
 }
 
 #[test]
+fn lifecycle_note_on_self_addressed_item_leaves_no_inbox_twin() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("ceo").unwrap();
+    let sent = mailspace
+        .send(SendRequest {
+            from: "ceo".into(),
+            to: vec!["ceo".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "parked idea".into(),
+            body: "someday".into(),
+            role: "wants".into(),
+            kind: Some("want".into()),
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap();
+    let handle = sent.delivered[0].handle.clone();
+
+    mailspace
+        .move_item(
+            "ceo",
+            &handle,
+            "done",
+            Some("closed for now"),
+            "want done",
+            None,
+        )
+        .unwrap();
+
+    // The actor already knows their own note: no unread inbox twin appears;
+    // the sent copy keeps the thread record.
+    let inbox = mailspace.list("ceo", "inbox").unwrap();
+    assert!(inbox.is_empty(), "{inbox:?}");
+    let sent_records = mailspace.list("ceo", "sent").unwrap();
+    assert_eq!(sent_records.len(), 2, "{sent_records:?}");
+    assert!(
+        sent_records
+            .iter()
+            .any(|record| record.subject.starts_with("Re: parked idea")),
+        "{sent_records:?}"
+    );
+}
+
+#[test]
+fn lifecycle_note_delivers_receipt_to_parent_sender() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();
+    mailspace.add_identity("ceo").unwrap();
+    mailspace.add_identity("cto").unwrap();
+    let sent = mailspace
+        .send(SendRequest {
+            from: "ceo".into(),
+            to: vec!["cto".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "task".into(),
+            body: "do it".into(),
+            role: "tasks".into(),
+            kind: Some("task".into()),
+            reply_to: None,
+            depends_on: Vec::new(),
+        })
+        .unwrap();
+    let handle = sent.delivered[0].handle.clone();
+
+    mailspace
+        .move_task("cto", &handle, "done", Some("shipped"), None, &[], &[])
+        .unwrap();
+
+    let ceo_inbox = mailspace.list("ceo", "inbox").unwrap();
+    assert_eq!(ceo_inbox.len(), 1, "{ceo_inbox:?}");
+    assert!(ceo_inbox[0].subject.starts_with("Re:"), "{ceo_inbox:?}");
+    let cto_inbox = mailspace.list("cto", "inbox").unwrap();
+    assert!(cto_inbox.is_empty(), "{cto_inbox:?}");
+}
+
+#[test]
 fn rename_identity_keeps_historical_mail_and_old_alias_working() {
     let tmp = tempfile::tempdir().unwrap();
     let mut mailspace = Mailspace::init(Some(tmp.path())).unwrap();

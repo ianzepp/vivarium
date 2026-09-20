@@ -63,9 +63,15 @@ impl Mailspace {
         let parsed = mail_parser::MessageParser::default()
             .parse(&original)
             .ok_or_else(|| VivariumError::Parse("failed to parse lifecycle reply parent".into()))?;
-        let recipients = reply_recipients(self, &parsed, identity)
-            .unwrap_or_else(|_| vec![identity.to_string()]);
-        let to = self.addresses_for(&recipients)?;
+        // Notes on self-addressed items deliver nothing: the actor already
+        // knows their own note, and the sent copy (minted below) keeps the
+        // thread record. Only other local identities receive an inbox copy.
+        let recipients = reply_recipients(self, &parsed, identity).unwrap_or_default();
+        let to = if recipients.is_empty() {
+            vec![self.address_for(identity)]
+        } else {
+            self.addresses_for(&recipients)?
+        };
         let mut data = build_compose_draft(&ComposeDraft {
             from: self.address_for(identity),
             to,
