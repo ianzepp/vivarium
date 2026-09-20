@@ -36,8 +36,8 @@ normalized edges + node state.
 | --- | --- |
 | `vivi graph import` / `apply` | Atomic create / revise from narrow Mermaid `flowchart` |
 | `vivi graph show` / `export` | Mermaid topology only |
-| `vivi graph ready` | Compact ready/blocked/active frontier (status loops) |
-| `vivi graph complete` / `activate` | Lifecycle receipts; activate binds a task attempt |
+| `vivi graph ready` | Compact ready/blocked/active/gates frontier (status loops) |
+| `vivi graph complete` / `activate` | Lifecycle receipts; activate binds a task attempt and refuses operator gates |
 | `vivi board --graph` | Frontier projection without replacing task/need board items |
 | `vivi need bind` | Lowering: bind unit tasks to a need; join completes the need |
 | `vivi step [--apply <handle>]` | Manifest of dispatches/exceptions over the `backlog` graph; apply completes settled items |

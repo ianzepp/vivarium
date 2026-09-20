@@ -3947,7 +3947,7 @@ dependencies = [
 
 [[package]]
 name = "vivi-pty"
-version = "9.0.1"
+version = "9.1.0"
 dependencies = [
  "anyhow",
  "clap",
