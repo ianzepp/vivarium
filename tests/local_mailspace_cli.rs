@@ -3108,6 +3108,104 @@ fn backlog_citizenship_mints_unlocks_and_never_promotes() {
     assert!(!stdout(&needs).contains(&want), "{}", stdout(&needs));
 }
 
+#[test]
+fn task_depends_on_task_unlocks_via_graph() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+
+    let first_output = vivi([
+        "task",
+        "send",
+        "--project",
+        project_s,
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "unit A",
+        "--body",
+        "work",
+    ]);
+    assert_success(&first_output);
+    let first = handle_after(&stdout(&first_output), "created cto");
+
+    let second_output = vivi([
+        "task",
+        "send",
+        "--project",
+        project_s,
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "unit B",
+        "--body",
+        "work",
+        "--depends-on",
+        &first,
+    ]);
+    assert_success(&second_output);
+    let second = handle_after(&stdout(&second_output), "created cto");
+
+    let readiness = |handle: &str| -> String {
+        let board = vivi(["board", "--graph", "--json", "--project", project_s]);
+        assert_success(&board);
+        let board_v: Value = serde_json::from_str(&stdout(&board)).unwrap();
+        board_v["graphs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|g| g["code"] == "backlog")
+            .unwrap_or_else(|| panic!("no backlog graph: {board_v}"))["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["source_id"] == handle)
+            .unwrap_or_else(|| panic!("node {handle} missing: {board_v}"))["readiness"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+
+    assert_eq!(readiness(&first), "ready");
+    assert_eq!(readiness(&second), "blocked");
+
+    let done = vivi([
+        "task",
+        "done",
+        "--project",
+        project_s,
+        "--for",
+        "cto",
+        &first,
+    ]);
+    assert_success(&done);
+    assert_eq!(readiness(&second), "ready");
+
+    // An unknown dependency handle fails the send without creating anything.
+    let bad = vivi([
+        "task",
+        "send",
+        "--project",
+        project_s,
+        "--from",
+        "ceo",
+        "--to",
+        "cto",
+        "--subject",
+        "bad dep",
+        "--body",
+        "work",
+        "--depends-on",
+        "deadbeef",
+    ]);
+    assert!(!bad.status.success());
+    assert!(stderr(&bad).contains("deadbeef"), "{}", stderr(&bad));
+}
+
 fn vivi<I, S>(args: I) -> Output
 where
     I: IntoIterator<Item = S>,

@@ -113,11 +113,78 @@ fn validate_deps_rejects_unknown_handle() {
 }
 
 #[test]
-fn validate_deps_rejects_task_handle() {
+fn validate_deps_accepts_task_handle() {
     let (mailspace, _tmp) = roster();
     let task = send_item(&mailspace, "tasks", Some("task"), "do work", Vec::new());
-    let err = mailspace.backlog_validate_deps(&[task]).unwrap_err();
-    assert!(err.to_string().contains("task"), "{err}");
+    mailspace.backlog_validate_deps(&[task]).unwrap();
+}
+
+#[test]
+fn task_send_mints_node_and_task_dep_unlocks() {
+    let (mailspace, _tmp) = roster();
+    let first = send_item(&mailspace, "tasks", Some("task"), "unit A", Vec::new());
+    let second = send_item(
+        &mailspace,
+        "tasks",
+        Some("task"),
+        "unit B",
+        vec![first.clone()],
+    );
+
+    assert_eq!(node(&mailspace, &first).readiness, "ready");
+    assert_eq!(node(&mailspace, &second).readiness, "blocked");
+
+    mailspace
+        .move_item("cto", &first, "done", None, "task done", None)
+        .unwrap();
+    assert_eq!(node(&mailspace, &first).state, "done");
+    assert_eq!(node(&mailspace, &second).readiness, "ready");
+
+    mailspace
+        .move_item("cto", &first, "tasks", None, "task reopen", None)
+        .unwrap();
+    assert_eq!(node(&mailspace, &first).state, "open");
+    assert_eq!(node(&mailspace, &second).readiness, "blocked");
+}
+
+#[test]
+fn task_depends_on_need_unlocks_cross_kind() {
+    let (mailspace, _tmp) = roster();
+    let need = send_item(&mailspace, "needs", Some("need"), "auth fix", Vec::new());
+    let task = send_item(
+        &mailspace,
+        "tasks",
+        Some("task"),
+        "audit wave",
+        vec![need.clone()],
+    );
+
+    assert_eq!(node(&mailspace, &task).readiness, "blocked");
+    mailspace.backlog_complete_item(&need).unwrap();
+    assert_eq!(node(&mailspace, &task).readiness, "ready");
+}
+
+#[test]
+fn send_rejects_unknown_dep_before_creating_anything() {
+    let (mailspace, _tmp) = roster();
+    let before = mailspace.list_kind(None, "tasks", "task").unwrap().len();
+    let err = mailspace
+        .send(SendRequest {
+            from: "ceo".into(),
+            to: vec!["cto".into()],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "bad dep".into(),
+            body: "body".into(),
+            role: "tasks".into(),
+            kind: Some("task".into()),
+            reply_to: None,
+            depends_on: vec!["deadbeef".into()],
+        })
+        .unwrap_err();
+    assert!(err.to_string().contains("deadbeef"), "{err}");
+    let after = mailspace.list_kind(None, "tasks", "task").unwrap().len();
+    assert_eq!(before, after);
 }
 
 #[test]

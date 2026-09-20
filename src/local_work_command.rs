@@ -307,9 +307,6 @@ fn send_local_item(
     depends_on: &[String],
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
-    if !depends_on.is_empty() {
-        mailspace.backlog_validate_deps(depends_on)?;
-    }
     let result = mailspace.send(SendRequest {
         from: command.from.clone(),
         to: command.to.clone(),
@@ -327,7 +324,6 @@ fn send_local_item(
     })?;
     for delivered in &result.delivered {
         println!("{verb} {} {}", delivered.identity, delivered.handle);
-        mailspace.backlog_attach(kind, &delivered.handle, &command.subject, depends_on)?;
     }
     println!("sent {}", result.sent);
     Ok(())

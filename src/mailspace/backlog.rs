@@ -118,9 +118,9 @@ impl Mailspace {
         Ok(())
     }
 
-    /// Keep the backlog node in step with a lifecycle folder move. Only
-    /// need/want closes and their reversals touch graph state; promotion
-    /// (wants→needs) intentionally leaves the node open.
+    /// Keep the backlog node in step with a lifecycle folder move. Work-item
+    /// closes (tasks/needs/wants → done) and their reversals touch graph
+    /// state; promotion (wants→needs) intentionally leaves the node open.
     pub(super) fn sync_backlog_node(
         &self,
         from_role: &str,
@@ -128,15 +128,15 @@ impl Mailspace {
         handle: &str,
     ) -> Result<(), VivariumError> {
         match (from_role, to_role) {
-            ("needs" | "wants", "done") => self.backlog_complete_item(handle),
-            ("done", "needs" | "wants") => self.backlog_reopen_item(handle),
+            ("tasks" | "needs" | "wants", "done") => self.backlog_complete_item(handle),
+            ("done", "tasks" | "needs" | "wants") => self.backlog_reopen_item(handle),
             _ => Ok(()),
         }
     }
 }
 
-/// Resolve one dependency token to a canonical backlog dep. Accepts needs,
-/// wants, and done items; refuses tasks until graph unification lands.
+/// Resolve one dependency token to a canonical backlog dep. Accepts open
+/// tasks, needs, and wants plus done items of any kind.
 fn resolve_backlog_dep(storage: &Storage, token: &str) -> Result<BacklogDep, VivariumError> {
     let message_id = storage
         .resolve_message_token(token)
@@ -145,17 +145,13 @@ fn resolve_backlog_dep(storage: &Storage, token: &str) -> Result<BacklogDep, Viv
         .message_by_id(&message_id)?
         .ok_or_else(|| VivariumError::Message(format!("dependency not found: {token}")))?;
     let (kind, state) = match view.local_role.as_str() {
+        "tasks" => ("task", "open"),
         "needs" => ("need", "open"),
         "wants" => ("want", "open"),
         "done" => ("item", "done"),
-        "tasks" => {
-            return Err(VivariumError::Message(format!(
-                "dependency '{token}' is a task; task dependencies join the graph with unification (Phase 2)"
-            )));
-        }
         other => {
             return Err(VivariumError::Message(format!(
-                "dependency '{token}' has role '{other}'; expected a need or want handle"
+                "dependency '{token}' has role '{other}'; expected a task, need, or want handle"
             )));
         }
     };

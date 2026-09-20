@@ -34,6 +34,10 @@ impl Mailspace {
                 "Bcc is not supported for local mailspace delivery in v1".into(),
             ));
         }
+        let work_kind = work_send_kind(&request.role, request.kind.as_deref());
+        if work_kind.is_some() && !request.depends_on.is_empty() {
+            self.backlog_validate_deps(&request.depends_on)?;
+        }
         let from = self.resolve_identity(&request.from)?;
         let recipients = self.resolve_recipients(&request.to, &request.cc)?;
         if recipients.is_empty() {
@@ -61,6 +65,11 @@ impl Mailspace {
         }
         log_send_events(&storage, &from, &request, &delivered_ids, &sent)?;
         let delivered = delivered_with_handles(&storage, delivered_ids)?;
+        if let Some(kind) = work_kind {
+            for message in &delivered {
+                self.backlog_attach(kind, &message.handle, &request.subject, &request.depends_on)?;
+            }
+        }
         Ok(DeliveryResult {
             delivered,
             sent: storage.display_handle(&sent.message_id)?,
@@ -538,6 +547,15 @@ fn role_implies_kind(role: &str, kind: &str) -> bool {
         (role, kind),
         ("tasks", "task") | ("needs", "need") | ("wants", "want") | ("memos", "memo")
     )
+}
+
+/// The backlog-citizenship kind for a send, if this role+kind pair mints a
+/// work-graph node.
+fn work_send_kind<'a>(role: &str, kind: Option<&'a str>) -> Option<&'a str> {
+    match (role, kind) {
+        ("tasks", Some("task")) | ("needs", Some("need")) | ("wants", Some("want")) => kind,
+        _ => None,
+    }
 }
 
 fn sorted_identity_names(names: std::collections::HashSet<String>) -> Vec<String> {
