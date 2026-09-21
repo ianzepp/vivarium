@@ -62,7 +62,6 @@ pub struct WantListRecord {
     pub to: String,
     pub subject: String,
     pub metadata: BTreeMap<String, String>,
-    pub active_tasks: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -238,7 +237,6 @@ impl Mailspace {
                     continue;
                 }
                 records.push(WantListRecord {
-                    active_tasks: self.active_tasks_for(&want.content_id)?,
                     metadata,
                     handle: want.handle,
                     kind: "want".into(),
@@ -348,9 +346,8 @@ impl Mailspace {
         Ok((identity, message))
     }
 
-    /// Effective kind of a stored message, reading blob and events through
-    /// the caller's storage handle — opening a fresh connection here would
-    /// rebuild the short-handle map per call on large boards.
+    /// Effective kind of a stored message. Takes the caller's storage handle so
+    /// a batch shares one connection and one handle map.
     pub(super) fn source_kind(
         &self,
         storage: &crate::storage::Storage,
@@ -398,17 +395,6 @@ impl Mailspace {
             note: Some(format!("active_tasks={task_handles}; sent={}", result.sent)),
         })?;
         Ok(())
-    }
-
-    fn active_tasks_for(&self, content_id: &str) -> Result<Vec<String>, VivariumError> {
-        let storage = self.storage()?;
-        Ok(storage
-            .list_mailspace_events_after(0)?
-            .into_iter()
-            .filter(|event| event.content_id == content_id && event.command == "task from")
-            .filter_map(|event| event.note)
-            .flat_map(|note| parse_active_tasks(&note))
-            .collect())
     }
 }
 
@@ -485,19 +471,6 @@ fn rank(record: &WantListRecord) -> i64 {
         .get("rank")
         .and_then(|rank| rank.parse().ok())
         .unwrap_or(i64::MAX)
-}
-
-fn parse_active_tasks(note: &str) -> Vec<String> {
-    note.split(';')
-        .find_map(|part| part.trim().strip_prefix("active_tasks="))
-        .map(|tasks| {
-            tasks
-                .split(',')
-                .filter(|task| !task.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 fn read_cursor(path: Option<&Path>) -> Result<i64, VivariumError> {

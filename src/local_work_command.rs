@@ -241,18 +241,17 @@ fn list_wants(
         println!("  no wants");
         return Ok(());
     }
-    println!("  handle  status  priority  rank  repo  lane  subject  active_tasks");
+    println!("  handle  status  priority  rank  repo  lane  subject");
     for item in &records {
         println!(
-            "  {}  {}  {}  {}  {}  {}  {}  {}",
+            "  {}  {}  {}  {}  {}  {}  {}",
             item.handle,
             item.status,
             item.metadata.get("priority").map_or("-", String::as_str),
             item.metadata.get("rank").map_or("-", String::as_str),
             item.metadata.get("repo").map_or("-", String::as_str),
             item.metadata.get("lane").map_or("-", String::as_str),
-            item.subject,
-            item.active_tasks.join(",")
+            item.subject
         );
     }
     Ok(())

@@ -2335,6 +2335,59 @@ fn sorted(values: &[&str]) -> Vec<String> {
     values
 }
 
+#[test]
+fn task_from_records_source_provenance_and_want_list_has_no_task_column() {
+    let project = tempfile::tempdir().unwrap();
+    init_roster(project.path());
+    let project_s = project.path().to_str().unwrap();
+    let want = send_work(project.path(), "want", "cto", "want: tidy the seam", "body");
+
+    let created = vivi([
+        "task",
+        "from",
+        "--project",
+        project_s,
+        "--for",
+        "cto",
+        "--to",
+        "ceo",
+        "--subject",
+        "task: tidy the seam",
+        "--body",
+        "done_when: the seam is tidy",
+        &want,
+    ]);
+    assert_success(&created);
+    assert!(stdout(&created).contains(&want), "{}", stdout(&created));
+    let task = handle_after(&stdout(&created), "created ceo");
+
+    // The association is recorded once, on the created task, where the work is.
+    let storage = Storage::open_mailspace(&project.path().join(".vivi")).unwrap();
+    let metadata = storage.item_metadata(&task).unwrap();
+    assert_eq!(
+        metadata.get("source_handle").map(String::as_str),
+        Some(want.as_str())
+    );
+    assert_eq!(
+        metadata.get("source_kind").map(String::as_str),
+        Some("want")
+    );
+    assert!(metadata.contains_key("source_content_id"), "{metadata:?}");
+
+    // `want list` renders wants. A derived-task column was removed: it could
+    // only ever be populated for a want that was never promoted, and computing
+    // it read the whole event log once per want.
+    let list = vivi(["want", "list", "--project", project_s, "--for", "cto"]);
+    assert_success(&list);
+    let text = stdout(&list);
+    assert!(
+        text.contains("handle  status  priority  rank  repo  lane  subject"),
+        "{text}"
+    );
+    assert!(!text.contains("active_tasks"), "{text}");
+    assert!(text.contains(&want), "{text}");
+}
+
 fn init_roster(project: &std::path::Path) {
     assert_success(&vivi([
         "mailspace",
