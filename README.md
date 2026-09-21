@@ -29,9 +29,9 @@ API contract, so Bridge remains the conservative compatibility option.
 
 ## Install
 
-Current release: **9.3.0**
+Current release: **9.4.0**
 ([GitHub releases](https://github.com/ianzepp/vivarium/releases),
-[notes](docs/release-v9.3.0.md)).
+[notes](docs/release-v9.4.0.md)).
 
 Release binaries are published as assets on this repository's GitHub
 releases, and that is the only distribution channel — there is no
