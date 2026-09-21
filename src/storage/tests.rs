@@ -263,6 +263,69 @@ fn short_handles_resolve_uniquely_for_storage_native_ids() {
 }
 
 #[test]
+fn short_handle_map_is_a_fixed_width_prefix_of_the_basis() {
+    let ids = vec![
+        "msg_abcd1234aaaabbbbcccc0001".to_string(),
+        "msg_abcd1234aaaabbbbcccc0002".to_string(),
+        "msg_beef5678aaaabbbbcccc0003".to_string(),
+        "not-a-native-id".to_string(),
+    ];
+
+    let map = short_handle_map(&ids);
+
+    assert_eq!(map["msg_abcd1234aaaabbbbcccc0001"], "abcd1234");
+    assert_eq!(map["msg_beef5678aaaabbbbcccc0003"], "beef5678");
+    // A shared prefix is a shared handle: the map does no cross-record work.
+    assert_eq!(
+        map["msg_abcd1234aaaabbbbcccc0001"],
+        map["msg_abcd1234aaaabbbbcccc0002"]
+    );
+    // An id that is not storage-native is its own handle.
+    assert_eq!(map["not-a-native-id"], "not-a-native-id");
+}
+
+#[test]
+fn a_shared_short_handle_resolves_as_ambiguous_rather_than_by_guess() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut storage = Storage::open(tmp.path()).unwrap();
+    let first = ingest_hinted(&mut storage, "msg_abcd1234aaaabbbbcccc0001", 1);
+    let second = ingest_hinted(&mut storage, "msg_abcd1234aaaabbbbcccc0002", 2);
+    assert_ne!(first, second);
+
+    assert_eq!(storage.display_handle(&first).unwrap(), "abcd1234");
+    assert_eq!(storage.display_handle(&second).unwrap(), "abcd1234");
+    // The shared token is reported, never resolved by guessing.
+    assert!(storage.resolve_message_token("abcd1234").is_err());
+    // The full id still addresses each message.
+    assert_eq!(storage.resolve_message_token(&first).unwrap(), first);
+    assert_eq!(storage.resolve_message_token(&second).unwrap(), second);
+}
+
+fn ingest_hinted(storage: &mut Storage, message_id: &str, remote_uid: u32) -> String {
+    storage
+        .ingest_message(
+            &MessageIngestRequest {
+                account: "acct".into(),
+                local_role: "inbox".into(),
+                read_state: false,
+                starred: false,
+                message_id_hint: Some(message_id.to_string()),
+                seed_hint: format!("remote_uid:{remote_uid}"),
+                remote: Some(RemoteBindingInput {
+                    account: "acct".into(),
+                    provider: "protonmail".into(),
+                    remote_mailbox: "INBOX".into(),
+                    remote_uid,
+                    remote_uidvalidity: 42,
+                }),
+            },
+            &message_bytes("hinted@example.com", "body"),
+        )
+        .unwrap()
+        .message_id
+}
+
+#[test]
 fn content_id_prefix_can_resolve_message() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = message_bytes("content@example.com", "body");

@@ -422,10 +422,9 @@ fn collect_wants(
     now: DateTime<Utc>,
     rows: &mut Vec<HandleRow>,
 ) -> Result<(), VivariumError> {
-    // `list_wants_with_metadata` derives each want's bound tasks one query at a
-    // time, which dominates boot on a large backlog while answering a question
-    // boot does not ask. The plain role listing carries every field the
-    // inventory needs.
+    // The metadata path derives each want's bound tasks by reading the whole
+    // event log once per want, and boot never uses bound tasks. The plain role
+    // listing carries every field the inventory needs.
     for want in mailspace.list_kind(None, "wants", "want")? {
         if want.absorbed_at.is_some() {
             continue;

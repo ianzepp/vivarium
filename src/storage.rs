@@ -404,44 +404,44 @@ fn opaque_message_id(seed: &str) -> String {
     format!("msg_{}", &hash[..24])
 }
 
+/// Short-handle width in characters of the message id's basis.
+///
+/// The basis is 24 hex characters (`opaque_message_id` keeps 12 bytes of a
+/// SHA-256 digest), so this is 32 bits of that digest. The expected number of
+/// colliding pairs across a 74k-message mailbox is 0.6; see
+/// [`short_handle_map`] for what a collision costs.
+const SHORT_HANDLE_LEN: usize = 8;
+
+/// Short display handles for the given message ids.
+///
+/// A handle is a fixed-width prefix of the id's basis (the id without its
+/// `msg_` prefix), so it is a pure function of one id and independent of every
+/// other id in the mailbox. Ids without the `msg_` prefix are their own handle.
+///
+/// An earlier version widened a handle until its prefix was unique across the
+/// mailbox. Proving that uniqueness inserted every prefix of every id at every
+/// length from 8 to the basis length: 17 prefixes per id, 1.26 million String
+/// inserts and about 19 MB of transient allocation, measured at 1.05 seconds
+/// on a 74k-message mailbox and paid by every command that materialized
+/// handles. The widening had never once changed an answer — at this width the
+/// live mailbox has no prefix collision at all. Two ids that share a prefix now
+/// share a handle, and [`Storage::resolve_message_token`] reports the resulting
+/// token as ambiguous rather than guessing; the honest remedy is to address
+/// that message by its full id.
 fn short_handle_map(message_ids: &[String]) -> HashMap<String, String> {
-    const MIN_HANDLE_LEN: usize = 8;
-
-    let bases = message_ids
+    message_ids
         .iter()
-        .filter(|message_id| message_id.starts_with("msg_"))
-        .map(|message_id| (message_id.clone(), handle_basis(message_id).to_string()))
-        .collect::<Vec<_>>();
-    let mut prefix_counts = HashMap::new();
-    for (_, basis) in &bases {
-        let min_len = usize::min(MIN_HANDLE_LEN, basis.len());
-        for len in min_len..=basis.len() {
-            *prefix_counts
-                .entry(basis[..len].to_string())
-                .or_insert(0usize) += 1;
-        }
-    }
-
-    let mut map = HashMap::new();
-    for message_id in message_ids {
-        if !message_id.starts_with("msg_") {
-            map.insert(message_id.clone(), message_id.clone());
-            continue;
-        }
-        let base = handle_basis(message_id);
-        let min_len = usize::min(MIN_HANDLE_LEN, base.len());
-        let handle = (min_len..=base.len())
-            .map(|len| &base[..len])
-            .find(|prefix| prefix_counts.get(*prefix) == Some(&1))
-            .unwrap_or(base)
-            .to_string();
-        map.insert(message_id.clone(), handle);
-    }
-    map
-}
-
-fn handle_basis(message_id: &str) -> &str {
-    message_id.strip_prefix("msg_").unwrap_or(message_id)
+        .map(|message_id| {
+            let handle = match message_id.strip_prefix("msg_") {
+                None => message_id.clone(),
+                Some(basis) => {
+                    let len = usize::min(SHORT_HANDLE_LEN, basis.len());
+                    basis[..len].to_string()
+                }
+            };
+            (message_id.clone(), handle)
+        })
+        .collect()
 }
 
 pub(crate) fn sha256_hex(data: &[u8]) -> String {
