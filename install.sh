@@ -1,4 +1,18 @@
 #!/usr/bin/env sh
+#
+# Install the `vivi` and `vivi-pty` binaries from GitHub release assets.
+#
+# Release archives are attached to this repository's GitHub releases, which is
+# the only distribution channel — there is no package-manager formula. The
+# script selects the archive for the local platform and falls back to a source
+# build when no archive exists for it.
+#
+# Environment:
+#   VIVI_REPO         owner/repo to install from   (default ianzepp/vivarium)
+#   VIVI_VERSION      release tag to install       (default: latest release)
+#   VIVI_INSTALL_DIR  destination directory        (default ~/.local/bin)
+#   VIVI_BIN_NAME     primary binary name          (default vivi)
+#
 set -eu
 
 REPO="${VIVI_REPO:-ianzepp/vivarium}"

@@ -29,27 +29,25 @@ API contract, so Bridge remains the conservative compatibility option.
 
 ## Install
 
-Current release: **9.0.0**
+Current release: **9.3.0**
 ([GitHub releases](https://github.com/ianzepp/vivarium/releases),
-[notes](docs/release-v9.0.0.md)).
-Each published archive and the Homebrew formula install both `vivi` and
-`vivi-pty`.
+[notes](docs/release-v9.3.0.md)).
 
-With Homebrew on macOS:
+Release binaries are published as assets on this repository's GitHub
+releases, and that is the only distribution channel — there is no
+package-manager formula to install or maintain. Each archive contains both
+`vivi` and `vivi-pty`.
 
-```sh
-brew install ianzepp/tap/vivarium
-```
-
-The tap formula is macOS-only (`aarch64` and `x86_64`).
-
-With curl on macOS or Linux:
+With curl on macOS or Linux, which selects the archive for your platform and
+falls back to a source build where none exists:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ianzepp/vivarium/main/install.sh | bash
 ```
 
-Published binary archives for 9.0.0:
+By hand, download the archive for your platform from the
+[latest release](https://github.com/ianzepp/vivarium/releases/latest), unpack
+it, and put both binaries on your `PATH`:
 
 - `vivi-aarch64-apple-darwin.tar.gz`
 - `vivi-x86_64-apple-darwin.tar.gz`
@@ -57,6 +55,10 @@ Published binary archives for 9.0.0:
 
 Linux `aarch64` has no binary archive yet. On that platform the installer
 falls back to `cargo install` from the release tag.
+
+The installer takes `VIVI_VERSION` to pin a release tag, `VIVI_INSTALL_DIR`
+for the destination directory (default `~/.local/bin`), and `VIVI_REPO` to
+install from a fork.
 
 From source, requires Rust 1.93+:
 
