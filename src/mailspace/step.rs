@@ -236,8 +236,7 @@ fn exception(node: &GraphNodeView, kind: &str, reason: &str, detail: &str) -> St
 
 fn item_body(storage: &crate::storage::Storage, message_id: &str) -> Result<String, VivariumError> {
     let data = storage.read_message(message_id)?;
-    let extracted = vivi_mail::extract::extract_text(&data)?;
-    Ok(extracted.body_text)
+    crate::extract::extract_text(&data)
 }
 
 fn count_labeled_clauses(body: &str, label: &str) -> usize {

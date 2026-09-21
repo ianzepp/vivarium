@@ -1,13 +1,8 @@
-//! Unified CLI surface for the `vivi` binary.
-//!
-//! Project-mailspace commands are declared here. Email commands are declared in
-//! `vivi_mail::cli` and held in the mail variants below, so the parsed command
-//! list stays flat while each half owns its own argument structs.
+//! CLI surface for the `vivi` binary.
 
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use vivi_mail::cli as mail;
 
 mod board_command;
 mod mailspace_command;
@@ -29,24 +24,16 @@ pub use mailspace_command::{
 pub use role_command::{RoleCharterCommand, RoleCommand};
 
 #[derive(Debug, Parser)]
-#[command(name = "vivi", version, about = "Local-first IMAP email sync for LLMs")]
+#[command(
+    name = "vivi",
+    version,
+    about = "Local-first project mailspace for LLM agents"
+)]
 pub struct Cli {
-    /// Path to config file
-    #[arg(long, global = true)]
-    pub config: Option<PathBuf>,
-    /// Account name to operate on
-    #[arg(long, global = true)]
-    pub account: Option<String>,
     /// Enable verbose logging
     #[arg(short, long, global = true)]
     pub verbose: bool,
-    /// Accept invalid TLS certificates for this run
-    #[arg(long, global = true)]
-    pub insecure: bool,
-    /// Allow accounts.toml to be group/world readable
-    #[arg(long, global = true)]
-    pub ignore_permissions: bool,
-    /// Project root for mailspace commands (board, task, need, want, mail, mailspace)
+    /// Project root that owns .vivi/ (also accepted after the subcommand)
     #[arg(long, global = true)]
     pub project: Option<PathBuf>,
     #[command(subcommand)]
@@ -55,41 +42,6 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Initialize vivarium config directory and files
-    Init,
-
-    #[cfg(feature = "outbox")]
-    /// Authorize an OAuth account and store its refresh token
-    Auth(mail::AuthArgs),
-
-    #[cfg(feature = "outbox")]
-    /// Print a fresh OAuth access token for token_cmd
-    Token(mail::TokenArgs),
-
-    /// Sync mail from IMAP to local store
-    Sync(mail::SyncArgs),
-
-    /// Poll direct Proton API events and sync changed mail
-    SyncEvents(mail::SyncEventsArgs),
-
-    /// List remote IMAP folders and capabilities
-    Folders(mail::FoldersArgs),
-
-    /// Check account configuration, IMAP, and SMTP connectivity
-    Doctor(mail::DoctorArgs),
-
-    /// Experimental direct Proton API probes
-    Proton(mail::ProtonArgs),
-
-    /// Render a local Markdown document to HTML or PDF
-    Render(mail::RenderCommand),
-
-    /// Watch inbound IMAP mail and emit JSON events after local sync
-    WatchInbox(mail::WatchInboxArgs),
-
-    /// List messages in a folder (inbox, archive, trash, sent, drafts)
-    List(mail::ListArgs),
-
     /// Show project-local actionable work across tasks, needs, and wants
     Board(BoardCommand),
 
@@ -157,12 +109,6 @@ pub enum Command {
         command: CycleCommand,
     },
 
-    /// Show one or more messages by ID
-    Show(mail::ShowArgs),
-
-    /// Show local thread context for a message
-    Thread(mail::ThreadArgs),
-
     /// Trace the cross-role communication tree around a handle
     Trace(TraceCommand),
 
@@ -186,37 +132,4 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-
-    /// Create a reply draft for a message
-    Reply(mail::ReplyCommand),
-
-    /// Compose a new local draft
-    Compose(mail::ComposeCommand),
-
-    /// Export one raw .eml message by ID
-    Export(mail::ExportArgs),
-
-    /// Search messages by keyword
-    Search(mail::SearchArgs),
-
-    /// Build and inspect derived local indexes
-    Index(mail::IndexArgs),
-
-    /// Poll locally downloaded mail for trusted agent instructions
-    Agent(mail::AgentArgs),
-
-    /// Execute external writes immediately
-    Exec(mail::ExecArgs),
-
-    /// Add external writes to the durable review queue
-    Enqueue(mail::EnqueueArgs),
-
-    /// Inspect, drop, or run queued writes
-    Queue(mail::QueueArgs),
-
-    /// Show provider label support for the selected account
-    Labels(mail::LabelsArgs),
-
-    /// Plan or apply a provider label operation
-    Label(mail::LabelArgs),
 }

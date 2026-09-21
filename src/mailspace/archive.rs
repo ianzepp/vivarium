@@ -113,8 +113,18 @@ fn archive_kind(
     Ok(None)
 }
 
+fn expand_tilde(path: &str) -> PathBuf {
+    match path.strip_prefix("~/") {
+        Some(rest) => match dirs::home_dir() {
+            Some(home) => home.join(rest),
+            None => PathBuf::from(path),
+        },
+        None => PathBuf::from(path),
+    }
+}
+
 pub(super) fn resolve_archive_path(root: &Path, raw: &str) -> Result<PathBuf, VivariumError> {
-    let expanded = vivi_mail::config::expand_tilde(raw.trim());
+    let expanded = expand_tilde(raw.trim());
     let path = if expanded.is_absolute() {
         expanded
     } else {

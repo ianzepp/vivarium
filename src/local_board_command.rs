@@ -5,12 +5,12 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use vivarium::VivariumError;
-use vivarium::cli::BoardCommand;
-use vivarium::mailspace::{GoalView, Mailspace};
-use vivarium::role_schedule::{ScheduleReport, ScheduleState, state_label as schedule_state_label};
-use vivarium::role_status::ProcessReport;
-use vivarium::storage::{MailspaceEvent, Storage, StoredMessageView};
+use vivi::VivariumError;
+use vivi::cli::BoardCommand;
+use vivi::mailspace::{GoalView, Mailspace};
+use vivi::role_schedule::{ScheduleReport, ScheduleState, state_label as schedule_state_label};
+use vivi::role_status::ProcessReport;
+use vivi::storage::{MailspaceEvent, Storage, StoredMessageView};
 
 #[derive(Debug, Serialize)]
 struct Board {
@@ -208,8 +208,8 @@ fn board_graphs(mailspace: &Mailspace) -> Result<Vec<BoardGraph>, VivariumError>
 }
 
 fn board_graph_node(
-    node: &vivarium::mailspace::GraphNodeView,
-    show: &vivarium::mailspace::GraphShow,
+    node: &vivi::mailspace::GraphNodeView,
+    show: &vivi::mailspace::GraphShow,
 ) -> BoardGraphNode {
     // Map source-id blocked_by/successors to handles for agent contracts.
     let by_source: HashMap<&str, &str> = show
@@ -370,7 +370,7 @@ fn build_identity_board(
         process: role_process_status(mailspace, identity, with_process),
         schedule: mailspace
             .schedule_report_with(storage, identity)
-            .unwrap_or_else(|_| vivarium::role_schedule::evaluate(None, None, Utc::now())),
+            .unwrap_or_else(|_| vivi::role_schedule::evaluate(None, None, Utc::now())),
         tasks,
         needs,
         wants,
@@ -406,7 +406,7 @@ fn role_process_status(
     let pid = role.and_then(|role| role.pid);
     let host = role.and_then(|role| role.host.as_deref());
     let harness = role.and_then(|role| role.harness.as_deref());
-    Some(vivarium::role_status::probe_quick(pid, host, harness))
+    Some(vivi::role_status::probe_quick(pid, host, harness))
 }
 
 fn partition_board_messages(
@@ -468,7 +468,7 @@ fn board_items_with_count(
 
 fn resolve_since(command: &BoardCommand) -> Result<Option<DateTime<Utc>>, VivariumError> {
     if let Some(since) = &command.since {
-        return vivarium::mailspace::parse_time_bound(since).map(Some);
+        return vivi::mailspace::parse_time_bound(since).map(Some);
     }
     let Some(path) = &command.watermark_file else {
         return Ok(None);
@@ -482,7 +482,7 @@ fn resolve_since(command: &BoardCommand) -> Result<Option<DateTime<Utc>>, Vivari
     if value.is_empty() {
         Ok(None)
     } else {
-        vivarium::mailspace::parse_time_bound(value).map(Some)
+        vivi::mailspace::parse_time_bound(value).map(Some)
     }
 }
 
@@ -677,8 +677,8 @@ fn print_capacity_line(identity: &IdentityBoard) {
     println!();
 }
 
-fn role_status_state_label(state: &vivarium::role_status::ProcessState) -> &'static str {
-    use vivarium::role_status::ProcessState;
+fn role_status_state_label(state: &vivi::role_status::ProcessState) -> &'static str {
+    use vivi::role_status::ProcessState;
     match state {
         ProcessState::NotSet => "not_set",
         ProcessState::Remote => "remote",

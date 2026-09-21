@@ -1,8 +1,8 @@
 use serde::Serialize;
-use vivarium::VivariumError;
-use vivarium::cli::MailListCommand;
-use vivarium::mailspace::{MailAbsorbFilter, Mailspace, canonical_local_role};
-use vivarium::storage::{MailspaceEvent, StoredMessageView};
+use vivi::VivariumError;
+use vivi::cli::MailListCommand;
+use vivi::mailspace::{MailAbsorbFilter, Mailspace, canonical_local_role};
+use vivi::storage::{MailspaceEvent, StoredMessageView};
 
 #[derive(Debug, Serialize)]
 struct MailListItem {

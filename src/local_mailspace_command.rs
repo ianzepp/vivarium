@@ -1,83 +1,42 @@
-use vivarium::VivariumError;
-use vivarium::cli::{
+use vivi::VivariumError;
+use vivi::cli::{
     Command, CycleCommand, LocalSendCommand, MailAbsorbStatus, MailCommand, MailDumpCommand,
     MailListCommand, MailReplyCommand, MailspaceCommand, MailspaceIdentityCommand,
     MailspaceImportCommand, MemoCommand, TaskCommand, TaskSendCommand, TraceCommand,
 };
-use vivarium::mailspace::{
+use vivi::mailspace::{
     DumpFilters, MailAbsorbFilter, MailDumpRequest, Mailspace, MailspaceWatchRequest, SendRequest,
     SourceTaskRequest,
 };
-use vivarium::message;
-use vivarium::storage::StoredMessageView;
+use vivi::message;
+use vivi::storage::StoredMessageView;
 
-pub(crate) fn run_mailspace_command(command: &Command) -> Result<bool, VivariumError> {
+pub(crate) fn run_mailspace_command(command: &Command) -> Result<(), VivariumError> {
     match command {
-        Command::Mailspace { command } => {
-            handle_mailspace_command(command)?;
-            Ok(true)
-        }
-        Command::Board(command) => {
-            crate::local_board_command::handle_board_command(command)?;
-            Ok(true)
-        }
+        Command::Mailspace { command } => handle_mailspace_command(command),
+        Command::Board(command) => crate::local_board_command::handle_board_command(command),
         Command::Boot { project } => {
-            crate::local_boot_command::handle_boot_command(project.as_deref())?;
-            Ok(true)
+            crate::local_boot_command::handle_boot_command(project.as_deref())
         }
-        Command::Mail { command } => {
-            handle_mail_command(command)?;
-            Ok(true)
-        }
-        Command::Task { command } => {
-            handle_task_command(command)?;
-            Ok(true)
-        }
-        Command::Need { command } => {
-            crate::local_work_command::handle_need_command(command)?;
-            Ok(true)
-        }
-        Command::Want { command } => {
-            crate::local_work_command::handle_want_command(command)?;
-            Ok(true)
-        }
-        Command::Memo { command } => {
-            handle_memo_command(command)?;
-            Ok(true)
-        }
-        Command::Goal { command } => {
-            crate::local_goal_command::handle_goal_command(command)?;
-            Ok(true)
-        }
-        Command::Role { command } => {
-            crate::local_role_command::handle_role_command(command)?;
-            Ok(true)
-        }
-        Command::Cycle { command } => {
-            handle_cycle_command(command)?;
-            Ok(true)
-        }
-        Command::Trace(command) => {
-            handle_trace_command(command)?;
-            Ok(true)
-        }
-        Command::Graph { command } => {
-            crate::local_graph_command::handle_graph_command(command)?;
-            Ok(true)
-        }
+        Command::Mail { command } => handle_mail_command(command),
+        Command::Task { command } => handle_task_command(command),
+        Command::Need { command } => crate::local_work_command::handle_need_command(command),
+        Command::Want { command } => crate::local_work_command::handle_want_command(command),
+        Command::Memo { command } => handle_memo_command(command),
+        Command::Goal { command } => crate::local_goal_command::handle_goal_command(command),
+        Command::Role { command } => crate::local_role_command::handle_role_command(command),
+        Command::Cycle { command } => handle_cycle_command(command),
+        Command::Trace(command) => handle_trace_command(command),
+        Command::Graph { command } => crate::local_graph_command::handle_graph_command(command),
         Command::Step {
             apply,
             project,
             json,
-        } => {
-            crate::local_step_command::handle_step_command(
-                apply.as_deref(),
-                project.as_deref(),
-                *json,
-            )?;
-            Ok(true)
-        }
-        _ => Ok(false),
+        } => crate::local_step_command::handle_step_command(
+            apply.as_deref(),
+            project.as_deref(),
+            *json,
+        ),
     }
 }
 
@@ -100,7 +59,7 @@ fn handle_mailspace_command(command: &MailspaceCommand) -> Result<(), VivariumEr
                     })?
                 );
             } else {
-                vivarium::mailspace::print_status(&status);
+                vivi::mailspace::print_status(&status);
             }
         }
         MailspaceCommand::Description { project, set } => {
@@ -132,9 +91,9 @@ pub(crate) fn handle_archive_command(
     project: Option<&std::path::Path>,
     set: Option<&str>,
     clear: bool,
-    command: Option<&vivarium::cli::MailspaceArchiveCommand>,
+    command: Option<&vivi::cli::MailspaceArchiveCommand>,
 ) -> Result<(), VivariumError> {
-    if let Some(vivarium::cli::MailspaceArchiveCommand::Export {
+    if let Some(vivi::cli::MailspaceArchiveCommand::Export {
         project: export_project,
         json,
     }) = command
@@ -214,10 +173,10 @@ fn handle_mailspace_identity_command(
 
 fn import_mailspace(command: &MailspaceImportCommand) -> Result<(), VivariumError> {
     let target = Mailspace::discover(command.project.as_deref())?;
-    let report = vivarium::mailspace::import_mailspace(
+    let report = vivi::mailspace::import_mailspace(
         &target,
         &command.from,
-        vivarium::mailspace::MailspaceImportOptions {
+        vivi::mailspace::MailspaceImportOptions {
             dry_run: command.dry_run,
         },
     )?;
@@ -284,7 +243,7 @@ fn handle_cycle_command(command: &CycleCommand) -> Result<(), VivariumError> {
     Ok(())
 }
 
-fn print_cycle_intake(intake: &vivarium::mailspace::CycleIntake) {
+fn print_cycle_intake(intake: &vivi::mailspace::CycleIntake) {
     println!("cursor {} -> {}", intake.cursor, intake.next_cursor);
     println!("unabsorbed_mail {}", intake.unabsorbed_mail.len());
     println!("completed_tasks {}", intake.completed_tasks.len());
@@ -330,9 +289,9 @@ fn handle_mail_command(command: &MailCommand) -> Result<(), VivariumError> {
     Ok(())
 }
 
-fn print_local_thread(command: &vivarium::cli::MailThreadCommand) -> Result<(), VivariumError> {
+fn print_local_thread(command: &vivi::cli::MailThreadCommand) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
-    vivarium::mailspace::print_thread(
+    vivi::mailspace::print_thread(
         &mailspace,
         &command.handle,
         command.infer,
@@ -344,7 +303,7 @@ fn print_local_thread(command: &vivarium::cli::MailThreadCommand) -> Result<(), 
 
 fn handle_trace_command(command: &TraceCommand) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
-    vivarium::mailspace::print_trace(
+    vivi::mailspace::print_trace(
         &mailspace,
         &command.handle,
         command.max_depth,
@@ -373,7 +332,7 @@ fn list_local_mail(command: &MailListCommand) -> Result<(), VivariumError> {
 
 pub(crate) fn absorb_record(
     kind: &str,
-    command: &vivarium::cli::AbsorbCommand,
+    command: &vivi::cli::AbsorbCommand,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
     let handle = mailspace.absorb(
@@ -391,7 +350,7 @@ fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
     match command {
         MemoCommand::Save(command) => {
             let mailspace = Mailspace::discover(command.project.as_deref())?;
-            let body = vivarium::mailspace::read_body_input(
+            let body = vivi::mailspace::read_body_input(
                 command.body.as_deref(),
                 command.body_file.as_deref(),
             )?;
@@ -412,7 +371,7 @@ fn handle_memo_command(command: &MemoCommand) -> Result<(), VivariumError> {
             print_memo_list_items(&memos, *json)?;
         }
         MemoCommand::Show { handle, json, project } => {
-            vivarium::mailspace::print_thread(
+            vivi::mailspace::print_thread(
                 &Mailspace::discover(project.as_deref())?,
                 handle,
                 false,
@@ -601,15 +560,15 @@ fn list_tasks(
     for_identity: Option<&str>,
     from: Option<&str>,
     to: Option<&str>,
-    status: &vivarium::cli::TaskStatus,
+    status: &vivi::cli::TaskStatus,
     json: bool,
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
     let roles = match status {
-        vivarium::cli::TaskStatus::Open => vec!["tasks"],
-        vivarium::cli::TaskStatus::Done => vec!["done"],
-        vivarium::cli::TaskStatus::All => vec!["tasks", "done"],
+        vivi::cli::TaskStatus::Open => vec!["tasks"],
+        vivi::cli::TaskStatus::Done => vec!["done"],
+        vivi::cli::TaskStatus::All => vec!["tasks", "done"],
     };
     crate::local_work_list::print_work_lists(
         &mailspace,
@@ -640,11 +599,11 @@ fn show_task(
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, json)?;
+    vivi::mailspace::print_thread(&mailspace, handle, false, 50, 50, json)?;
     Ok(())
 }
 
-fn task_from_source(command: &vivarium::cli::TaskFromCommand) -> Result<(), VivariumError> {
+fn task_from_source(command: &vivi::cli::TaskFromCommand) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
     let result = mailspace.task_from_source(SourceTaskRequest {
         source_handle: command.handle.clone(),
@@ -652,7 +611,7 @@ fn task_from_source(command: &vivarium::cli::TaskFromCommand) -> Result<(), Viva
         to: command.to.clone(),
         cc: command.cc.clone(),
         subject: command.subject.clone(),
-        body: vivarium::mailspace::read_body_input(
+        body: vivi::mailspace::read_body_input(
             command.body.as_deref(),
             command.body_file.as_deref(),
         )?,
@@ -667,11 +626,11 @@ fn task_from_source(command: &vivarium::cli::TaskFromCommand) -> Result<(), Viva
 
 fn send_task(command: &TaskSendCommand) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.send.project.as_deref())?;
-    let body = vivarium::mailspace::read_body_input(
+    let body = vivi::mailspace::read_body_input(
         command.send.body.as_deref(),
         command.send.body_file.as_deref(),
     )?;
-    let lacks_clause = !vivarium::mailspace::body_has_labeled_clause(&body, "done_when");
+    let lacks_clause = !vivi::mailspace::body_has_labeled_clause(&body, "done_when");
     let result = mailspace.send(SendRequest {
         from: command.send.from.clone(),
         to: command.send.to.clone(),
@@ -710,7 +669,7 @@ fn send_mail(
         cc: command.cc.clone(),
         bcc: command.bcc.clone(),
         subject: command.subject.clone(),
-        body: vivarium::mailspace::read_body_input(
+        body: vivi::mailspace::read_body_input(
             command.body.as_deref(),
             command.body_file.as_deref(),
         )?,
@@ -737,10 +696,7 @@ fn reply_local_mail(command: &MailReplyCommand) -> Result<(), VivariumError> {
         command.to.clone(),
         command.cc.clone(),
         command.subject.clone(),
-        vivarium::mailspace::read_body_input(
-            command.body.as_deref(),
-            command.body_file.as_deref(),
-        )?,
+        vivi::mailspace::read_body_input(command.body.as_deref(), command.body_file.as_deref())?,
     )?;
     for delivered in result.delivered {
         println!("replied {} {}", delivered.identity, delivered.handle);
@@ -750,7 +706,7 @@ fn reply_local_mail(command: &MailReplyCommand) -> Result<(), VivariumError> {
 }
 
 pub(crate) fn run_watch(
-    command: &vivarium::cli::WatchCommon,
+    command: &vivi::cli::WatchCommon,
     kinds: &str,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
@@ -774,7 +730,7 @@ pub(crate) fn run_watch(
         poll_interval: command.poll_interval.clone(),
         json: command.json,
     };
-    vivarium::mailspace::run_watch(&mailspace, request)
+    vivi::mailspace::run_watch(&mailspace, request)
 }
 
 #[allow(clippy::too_many_arguments)]

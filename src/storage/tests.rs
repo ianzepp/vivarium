@@ -104,48 +104,35 @@ fn schema_v7_adds_node_kind_and_edge_style_on_upgrade() {
 }
 
 #[test]
-fn import_dedupes_blobs_but_keeps_distinct_message_rows() {
+fn ingest_dedupes_blobs_but_keeps_distinct_message_rows() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = message_bytes("dup@example.com", "same body");
-    let first = write_catalog_file(tmp.path(), "inbox-1.eml", &raw);
-    let second = write_catalog_file(tmp.path(), "archive-2.eml", &raw);
+    let mut storage = Storage::open(tmp.path()).unwrap();
 
-    let entries = vec![
-        catalog_entry("acct", "one", &first, "INBOX", Some(remote("INBOX", 7))),
-        catalog_entry(
-            "acct",
-            "two",
-            &second,
-            "Archive",
-            Some(remote("Archive", 8)),
-        ),
-    ];
+    let first = storage
+        .ingest_message(&bound_request("one", "INBOX", 7), &raw)
+        .unwrap();
+    let second = storage
+        .ingest_message(&bound_request("two", "Archive", 8), &raw)
+        .unwrap();
 
-    let result = import_catalog_entries(tmp.path(), &entries).unwrap();
-    let storage = Storage::open(tmp.path()).unwrap();
-
-    assert_eq!(result.imported_messages, 2);
-    assert_eq!(result.imported_blobs, 1);
+    assert_ne!(first.message_id, second.message_id);
+    assert!(first.created_blob);
+    assert!(!second.created_blob);
     assert_eq!(storage.blob_count().unwrap(), 1);
     assert_eq!(storage.message_count().unwrap(), 2);
     assert_eq!(storage.remote_binding_count().unwrap(), 2);
 }
 
 #[test]
-fn import_persists_blob_and_metadata() {
+fn ingest_persists_blob_and_metadata() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = b"Message-ID: <meta@example.com>\r\nFrom: Agent <agent@example.com>\r\nTo: User <user@example.com>\r\nSubject: hello\r\n\r\nbody";
-    let path = write_catalog_file(tmp.path(), "inbox-1.eml", raw);
-    let entries = vec![catalog_entry(
-        "acct",
-        "one",
-        &path,
-        "INBOX",
-        Some(remote("INBOX", 7)),
-    )];
+    let mut storage = Storage::open(tmp.path()).unwrap();
 
-    import_catalog_entries(tmp.path(), &entries).unwrap();
-    let storage = Storage::open(tmp.path()).unwrap();
+    storage
+        .ingest_message(&bound_request("one", "INBOX", 7), raw)
+        .unwrap();
     let data = storage.read_blob(&resulting_content_id(raw)).unwrap();
 
     assert_eq!(data, raw);
@@ -157,16 +144,19 @@ fn import_persists_blob_and_metadata() {
 fn fallback_message_ids_are_stable_for_unbound_entries() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = message_bytes("local@example.com", "body");
-    let path = write_catalog_file(tmp.path(), "draft-1.eml", &raw);
-    let entry = catalog_entry("acct", "draft-handle", &path, "Drafts", None);
+    let request = MessageIngestRequest {
+        account: "acct".into(),
+        local_role: local_role("Drafts"),
+        read_state: false,
+        starred: false,
+        message_id_hint: Some("draft-handle".into()),
+        seed_hint: "draft-handle".into(),
+        remote: None,
+    };
 
     let mut storage = Storage::open(tmp.path()).unwrap();
-    let first = storage
-        .ingest_message(&request_from_catalog_entry(&entry), &raw)
-        .unwrap();
-    let second = storage
-        .ingest_message(&request_from_catalog_entry(&entry), &raw)
-        .unwrap();
+    let first = storage.ingest_message(&request, &raw).unwrap();
+    let second = storage.ingest_message(&request, &raw).unwrap();
 
     assert_eq!(first.message_id, second.message_id);
     assert_eq!(storage.message_count().unwrap(), 1);
@@ -523,49 +513,21 @@ fn resulting_content_id(data: &[u8]) -> String {
     sha256_hex(data)
 }
 
-fn write_catalog_file(root: &Path, name: &str, data: &[u8]) -> String {
-    let path = root.join(name);
-    fs::write(&path, data).unwrap();
-    path.to_string_lossy().to_string()
-}
-
-fn catalog_entry(
-    account: &str,
-    handle: &str,
-    blob_path: &str,
-    folder: &str,
-    remote: Option<RemoteIdentity>,
-) -> CatalogEntry {
-    CatalogEntry {
-        handle: handle.into(),
-        account: account.into(),
-        content_id: sha256_hex(&fs::read(blob_path).unwrap()),
-        blob_path: blob_path.into(),
-        local_role: local_role(folder),
+fn bound_request(handle: &str, mailbox: &str, uid: u32) -> MessageIngestRequest {
+    MessageIngestRequest {
+        account: "acct".into(),
+        local_role: local_role(mailbox),
         read_state: false,
         starred: false,
-        date: "2026-05-03T12:00:00Z".into(),
-        from: "agent@example.com".into(),
-        to: "user@example.com".into(),
-        cc: String::new(),
-        bcc: String::new(),
-        subject: "hi".into(),
-        rfc_message_id: "meta@example.com".into(),
-        remote,
-    }
-}
-
-fn remote(mailbox: &str, uid: u32) -> RemoteIdentity {
-    RemoteIdentity {
-        account: "acct".into(),
-        provider: "protonmail".into(),
-        remote_mailbox: mailbox.into(),
-        local_folder: mailbox.to_ascii_lowercase(),
-        uid,
-        uidvalidity: 42,
-        rfc_message_id: "meta@example.com".into(),
-        size: 128,
-        content_fingerprint: "unused".into(),
+        message_id_hint: Some(handle.into()),
+        seed_hint: handle.into(),
+        remote: Some(RemoteBindingInput {
+            account: "acct".into(),
+            provider: "protonmail".into(),
+            remote_mailbox: mailbox.into(),
+            remote_uid: uid,
+            remote_uidvalidity: 42,
+        }),
     }
 }
 

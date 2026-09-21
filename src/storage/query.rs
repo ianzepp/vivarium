@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use super::{
-    CatalogEntry, OptionalExtension, Storage, StoredMessageView, VivariumError, fs, message_query,
-    params, raw_stored_message_from_row,
+    OptionalExtension, Storage, StoredMessageView, VivariumError, fs, message_query, params,
+    raw_stored_message_from_row,
 };
 
 impl Storage {
@@ -313,63 +313,6 @@ impl Storage {
             }
         }
         Ok(None)
-    }
-
-    /// List catalog entries for an account.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the database query fails.
-    pub fn list_catalog_entries(&self, account: &str) -> Result<Vec<CatalogEntry>, VivariumError> {
-        let mut stmt = self
-            .conn
-            .prepare(&format!(
-                "{} ORDER BY md.date DESC, m.message_id",
-                message_query("WHERE m.account = ?1 AND m.deleted_at IS NULL")
-            ))
-            .map_err(|e| {
-                VivariumError::Other(format!("failed to prepare catalog view listing: {e}"))
-            })?;
-        let rows = stmt
-            .query_map(params![account], raw_stored_message_from_row)
-            .map_err(|e| VivariumError::Other(format!("failed to query catalog view: {e}")))?;
-        let messages: Result<Vec<_>, _> = rows
-            .map(|row| {
-                row.map_err(|e| {
-                    VivariumError::Other(format!("failed to read catalog view row: {e}"))
-                })
-            })
-            .collect();
-        Ok(messages?
-            .into_iter()
-            .map(|message| self.catalog_entry_from_view(message))
-            .collect())
-    }
-
-    /// Look up a single catalog entry by handle or message ID for an account.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the database query fails.
-    pub fn catalog_entry(
-        &self,
-        account: &str,
-        handle_or_id: &str,
-    ) -> Result<Option<CatalogEntry>, VivariumError> {
-        let Some(view) = self
-            .conn
-            .query_row(
-                &format!(
-                    "{} WHERE m.account = ?1 AND m.deleted_at IS NULL AND m.message_id = ?2",
-                    message_query("")
-                ),
-                params![account, handle_or_id],
-                raw_stored_message_from_row,
-            )
-            .optional()
-            .map_err(|e| VivariumError::Other(format!("failed to read catalog entry: {e}")))?
-        else {
-            return Ok(None);
-        };
-        Ok(Some(self.catalog_entry_from_view(view)))
     }
 
     /// Count non-deleted messages for an account.

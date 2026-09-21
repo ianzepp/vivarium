@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::boot::probe::ProbeConfig;
 use crate::error::VivariumError;
+use crate::judgment::Judgment;
 use crate::storage::Storage;
 use crate::store::secure_create_dir_all;
 
@@ -89,6 +90,9 @@ pub struct MailspaceConfig {
     /// learns what a repository is. See [`crate::boot::probe`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub probes: Vec<ProbeConfig>,
+    /// Judgment provider settings. Absent means the shadow screen is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub judgment: Option<Judgment>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -181,6 +185,7 @@ impl Mailspace {
             archive: None,
             identities: Vec::new(),
             probes: Vec::new(),
+            judgment: None,
         };
         write_config(&path, &config)?;
         Storage::open_mailspace(&dir)?;

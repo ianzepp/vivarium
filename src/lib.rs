@@ -4,12 +4,13 @@
 //!
 //! This crate owns durable per-project coordination state — tasks, needs,
 //! wants, mail, memos, goals, roles, and executable work graphs — plus the
-//! `vivi` binary that routes email commands into the `vivi-mail` crate.
+//! `vivi` binary.
 
 pub mod boot;
 pub mod cli;
 pub mod duration;
 pub mod error;
+pub mod extract;
 pub mod judgment;
 pub mod mailspace;
 pub mod message;

@@ -2,7 +2,7 @@ use std::io::Write;
 use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
-use vivarium::storage::Storage;
+use vivi::storage::Storage;
 
 #[test]
 #[allow(clippy::too_many_lines)]

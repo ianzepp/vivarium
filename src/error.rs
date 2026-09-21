@@ -1,7 +1,21 @@
 //! Error type for the mailspace crate.
-//!
-//! The same type is used across both halves during the crate split, so it is
-//! re-exported rather than duplicated. Phase two of the split gives each
-//! repository its own copy.
 
-pub use vivi_mail::VivariumError;
+use std::io;
+
+#[derive(Debug, thiserror::Error)]
+pub enum VivariumError {
+    #[error("configuration error: {0}")]
+    Config(String),
+
+    #[error(transparent)]
+    Io(#[from] io::Error),
+
+    #[error("parse error: {0}")]
+    Parse(String),
+
+    #[error("message error: {0}")]
+    Message(String),
+
+    #[error("{0}")]
+    Other(String),
+}

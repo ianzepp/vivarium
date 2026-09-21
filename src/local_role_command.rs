@@ -1,7 +1,7 @@
-use vivarium::VivariumError;
-use vivarium::cli::{RoleCharterCommand, RoleCommand};
-use vivarium::mailspace::{Mailspace, RoleUpdate, RoleView, read_body_input};
-use vivarium::role_status;
+use vivi::VivariumError;
+use vivi::cli::{RoleCharterCommand, RoleCommand};
+use vivi::mailspace::{Mailspace, RoleUpdate, RoleView, read_body_input};
+use vivi::role_status;
 
 pub(crate) fn handle_role_command(command: &RoleCommand) -> Result<(), VivariumError> {
     match command {

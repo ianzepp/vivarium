@@ -1,23 +1,25 @@
 #!/usr/bin/env sh
 #
-# Install the `vivi` and `vivi-pty` binaries from GitHub release assets.
+# Install the `vivi` binary from GitHub release assets.
 #
 # Release archives are attached to this repository's GitHub releases, which is
 # the only distribution channel — there is no package-manager formula. The
 # script selects the archive for the local platform and falls back to a source
 # build when no archive exists for it.
 #
+# The companion `vivi-pty` binary ships from its own repository,
+# https://github.com/ianzepp/vivi-pty.
+#
 # Environment:
-#   VIVI_REPO         owner/repo to install from   (default ianzepp/vivarium)
+#   VIVI_REPO         owner/repo to install from   (default ianzepp/vivi)
 #   VIVI_VERSION      release tag to install       (default: latest release)
 #   VIVI_INSTALL_DIR  destination directory        (default ~/.local/bin)
 #   VIVI_BIN_NAME     primary binary name          (default vivi)
 #
 set -eu
 
-REPO="${VIVI_REPO:-ianzepp/vivarium}"
+REPO="${VIVI_REPO:-ianzepp/vivi}"
 BIN_NAME="${VIVI_BIN_NAME:-vivi}"
-PTY_BIN_NAME="vivi-pty"
 INSTALL_DIR="${VIVI_INSTALL_DIR:-${HOME}/.local/bin}"
 VERSION="${VIVI_VERSION:-}"
 
@@ -63,23 +65,14 @@ install_binary_release() {
   fi
 
   tar -xzf "${archive}" -C "${tmp}"
-  mkdir -p "${INSTALL_DIR}"
-  installed=false
-  if [ -f "${tmp}/${BIN_NAME}" ]; then
-    install -m 0755 "${tmp}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
-    echo "Installed ${BIN_NAME} to ${INSTALL_DIR}/${BIN_NAME}"
-    installed=true
-  fi
-  if [ -f "${tmp}/${PTY_BIN_NAME}" ]; then
-    install -m 0755 "${tmp}/${PTY_BIN_NAME}" "${INSTALL_DIR}/${PTY_BIN_NAME}"
-    echo "Installed ${PTY_BIN_NAME} to ${INSTALL_DIR}/${PTY_BIN_NAME}"
-    installed=true
-  fi
-  if [ "$installed" = false ]; then
-    echo "error: no binaries found in release archive" >&2
+  if [ ! -f "${tmp}/${BIN_NAME}" ]; then
+    echo "error: no ${BIN_NAME} binary found in release archive" >&2
     rm -rf "${tmp}"
     return 1
   fi
+  mkdir -p "${INSTALL_DIR}"
+  install -m 0755 "${tmp}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
+  echo "Installed ${BIN_NAME} to ${INSTALL_DIR}/${BIN_NAME}"
   rm -rf "${tmp}"
 }
 
@@ -87,8 +80,6 @@ install_from_source() {
   need cargo
   echo "Installing ${BIN_NAME} from source..."
   cargo install --git "https://github.com/${REPO}.git" --tag "${VERSION}" --root "${INSTALL_DIR%/bin}"
-  echo "Installing ${PTY_BIN_NAME} from source..."
-  cargo install --git "https://github.com/${REPO}.git" --tag "${VERSION}" --root "${INSTALL_DIR%/bin}" --path crates/vivi-pty || echo "Warning: ${PTY_BIN_NAME} source install failed" >&2
 }
 
 main() {
@@ -104,7 +95,7 @@ main() {
   echo "Installing ${BIN_NAME} ${VERSION} for ${target}"
 
   if install_binary_release "${target}"; then
-    : # both binaries installed from single archive
+    : # installed from the release archive
   else
     echo "No binary release for ${target}; falling back to cargo install"
     install_from_source
@@ -112,7 +103,7 @@ main() {
 
   case ":${PATH}:" in
     *":${INSTALL_DIR}"*) ;;
-    *) echo "Note: add ${INSTALL_DIR} to PATH if ${BIN_NAME} or ${PTY_BIN_NAME} are not found." ;;
+    *) echo "Note: add ${INSTALL_DIR} to PATH if ${BIN_NAME} is not found." ;;
   esac
 }
 

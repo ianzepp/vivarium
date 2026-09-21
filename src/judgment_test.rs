@@ -1,5 +1,5 @@
 use super::*;
-use vivi_mail::config::types::Judgment;
+use crate::judgment::Judgment;
 
 fn config(provider: Option<&str>, key_cmd: Option<&str>, endpoint: Option<&str>) -> Judgment {
     Judgment {
@@ -13,8 +13,9 @@ fn config(provider: Option<&str>, key_cmd: Option<&str>, endpoint: Option<&str>)
 
 #[test]
 fn from_config_none_when_absent() {
+    assert!(TypesafeProvider::from_config(None).unwrap().is_none());
     assert!(
-        TypesafeProvider::from_config(&config(None, None, None))
+        TypesafeProvider::from_config(Some(&config(None, None, None)))
             .unwrap()
             .is_none()
     );
@@ -22,23 +23,24 @@ fn from_config_none_when_absent() {
 
 #[test]
 fn from_config_rejects_unknown_provider() {
-    let err = TypesafeProvider::from_config(&config(Some("openai"), None, None)).unwrap_err();
+    let err = TypesafeProvider::from_config(Some(&config(Some("openai"), None, None))).unwrap_err();
     assert!(err.to_string().contains("not supported"), "{err}");
 }
 
 #[test]
 fn from_config_requires_key_cmd() {
-    let err = TypesafeProvider::from_config(&config(Some("typesafe"), None, None)).unwrap_err();
+    let err =
+        TypesafeProvider::from_config(Some(&config(Some("typesafe"), None, None))).unwrap_err();
     assert!(err.to_string().contains("key_cmd"), "{err}");
 }
 
 #[test]
 fn from_config_resolves_key_cmd() {
-    let provider = TypesafeProvider::from_config(&config(
+    let provider = TypesafeProvider::from_config(Some(&config(
         Some("typesafe"),
         Some("printf test-key-value"),
         None,
-    ))
+    )))
     .unwrap()
     .expect("provider");
     assert_eq!(provider.model(), "jev-latest");
@@ -46,11 +48,11 @@ fn from_config_resolves_key_cmd() {
 
 #[test]
 fn key_cmd_failure_reports_no_secret() {
-    let err = TypesafeProvider::from_config(&config(
+    let err = TypesafeProvider::from_config(Some(&config(
         Some("typesafe"),
         Some("echo leaked-secret; exit 1"),
         None,
-    ))
+    )))
     .unwrap_err();
     let message = err.to_string();
     assert!(message.contains("key_cmd failed"), "{message}");
@@ -59,18 +61,18 @@ fn key_cmd_failure_reports_no_secret() {
 
 #[test]
 fn key_cmd_empty_output_is_rejected() {
-    let err =
-        TypesafeProvider::from_config(&config(Some("typesafe"), Some("true"), None)).unwrap_err();
+    let err = TypesafeProvider::from_config(Some(&config(Some("typesafe"), Some("true"), None)))
+        .unwrap_err();
     assert!(err.to_string().contains("empty"), "{err}");
 }
 
 #[test]
 fn unreachable_endpoint_classifies_quickly() {
-    let provider = TypesafeProvider::from_config(&config(
+    let provider = TypesafeProvider::from_config(Some(&config(
         Some("typesafe"),
         Some("printf test-key-value"),
         Some("http://127.0.0.1:1"),
-    ))
+    )))
     .unwrap()
     .expect("provider");
     let start = std::time::Instant::now();

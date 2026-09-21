@@ -1,4 +1,4 @@
-# Vivarium Issues & Agent Observations
+# Vivi Issues & Agent Observations
 
 ## [2026-09-20] Vivi 9 graph-coordination field feedback (six items)
 

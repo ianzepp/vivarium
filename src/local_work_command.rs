@@ -1,9 +1,9 @@
-use vivarium::VivariumError;
-use vivarium::cli::{
+use vivi::VivariumError;
+use vivi::cli::{
     LocalSendCommand, NeedCommand, TaskDumpCommand, TaskDumpStatusArg, TaskStatus, WantCommand,
     WantStatus,
 };
-use vivarium::mailspace::{
+use vivi::mailspace::{
     DumpFilters, Mailspace, SendRequest, TaskDumpRequest, WantListOptions, WantMetadataUpdate,
 };
 
@@ -315,13 +315,11 @@ fn send_local_item(
     depends_on: &[String],
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(command.project.as_deref())?;
-    let body = vivarium::mailspace::read_body_input(
-        command.body.as_deref(),
-        command.body_file.as_deref(),
-    )?;
+    let body =
+        vivi::mailspace::read_body_input(command.body.as_deref(), command.body_file.as_deref())?;
     // Wants are parked by design; only task/need bodies feed step clauses.
     let lacks_clause = matches!(kind, "task" | "need")
-        && !vivarium::mailspace::body_has_labeled_clause(&body, "done_when");
+        && !vivi::mailspace::body_has_labeled_clause(&body, "done_when");
     let result = mailspace.send(SendRequest {
         from: command.from.clone(),
         to: command.to.clone(),
@@ -375,7 +373,7 @@ fn show_local_message(
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, json)
+    vivi::mailspace::print_thread(&mailspace, handle, false, 50, 50, json)
 }
 
 /// Need show: the thread plus a bound-units block, so a need's lowering
@@ -386,7 +384,7 @@ fn show_need(
     project: Option<&std::path::Path>,
 ) -> Result<(), VivariumError> {
     let mailspace = Mailspace::discover(project)?;
-    vivarium::mailspace::print_thread(&mailspace, handle, false, 50, 50, json)?;
+    vivi::mailspace::print_thread(&mailspace, handle, false, 50, 50, json)?;
     if json {
         return Ok(());
     }
@@ -422,9 +420,9 @@ fn want_status_roles(status: &WantStatus) -> &'static [&'static str] {
 fn work_dump_request(command: &TaskDumpCommand, open_role: &str, kind: &str) -> TaskDumpRequest {
     TaskDumpRequest {
         status: match command.status {
-            TaskDumpStatusArg::Open => vivarium::mailspace::TaskDumpStatus::Open,
-            TaskDumpStatusArg::Done => vivarium::mailspace::TaskDumpStatus::Done,
-            TaskDumpStatusArg::All => vivarium::mailspace::TaskDumpStatus::All,
+            TaskDumpStatusArg::Open => vivi::mailspace::TaskDumpStatus::Open,
+            TaskDumpStatusArg::Done => vivi::mailspace::TaskDumpStatus::Done,
+            TaskDumpStatusArg::All => vivi::mailspace::TaskDumpStatus::All,
         },
         open_role: open_role.into(),
         kind: kind.into(),

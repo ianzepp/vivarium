@@ -1,7 +1,7 @@
 use serde::Serialize;
-use vivarium::VivariumError;
-use vivarium::mailspace::Mailspace;
-use vivarium::storage::{MailspaceEvent, StoredMessageView};
+use vivi::VivariumError;
+use vivi::mailspace::Mailspace;
+use vivi::storage::{MailspaceEvent, StoredMessageView};
 
 #[derive(Debug, Serialize)]
 struct WorkListItem {

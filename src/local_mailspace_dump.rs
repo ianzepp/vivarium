@@ -1,8 +1,8 @@
 use std::fmt::Write;
 use std::path::Path;
 
-use vivarium::VivariumError;
-use vivarium::mailspace::DumpRecord;
+use vivi::VivariumError;
+use vivi::mailspace::DumpRecord;
 
 const MAX_STDOUT_DUMP_RECORDS: usize = 25;
 const MAX_STDOUT_DUMP_BYTES: usize = 64 * 1024;

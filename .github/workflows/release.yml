@@ -32,13 +32,10 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Build vivi-pty
-        run: cargo build --release --target ${{ matrix.target }} -p vivi-pty
-
-      - name: Package binaries
+      - name: Package binary
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf vivi-${{ matrix.target }}.tar.gz vivi vivi-pty
+          tar czf vivi-${{ matrix.target }}.tar.gz vivi
           mv vivi-${{ matrix.target }}.tar.gz ../../../
 
       - name: Upload artifact

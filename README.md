@@ -1,72 +1,79 @@
-# Vivarium
+# Vivi
 
-Local-first email archive, retrieval, and write layer for private agents. Vivi
-now supports a direct-to-Proton integration through `provider = "proton-api"`:
-it can log in non-interactively, refresh sessions, sync headers or decrypted
-bodies, build local indexes and embeddings, and send mail through Proton's API
-without running Proton Bridge. Bridge-backed IMAP/SMTP remains supported for
-users who prefer Proton's officially packaged local mail gateway, and standard
-IMAP providers continue to work through the same local storage model.
+Project mailspace for private agents: durable, project-local coordination state
+— tasks, needs, wants, mail, memos, roles, goals, and executable work graphs —
+driven by the `vivi` CLI.
 
-Raw RFC 5322 bytes stay on disk as `.eml` blobs, while mutable mailbox state
-and derived indexes live in SQLite.
+Every project keeps its own `.vivi/` directory. Vivi writes coordination state
+there as ordinary files plus one SQLite database, so a group of agents can share
+a project's work with no server and without leaving the repository.
 
-The repository also ships `vivi-pty`, a companion binary that owns agent
-pseudo-terminals. `vivi` remains the durable mail and work interface;
-`vivi-pty` exposes ephemeral terminal runtime state over a local Unix socket.
-See [`crates/vivi-pty`](crates/vivi-pty/README.md).
+Vivi is one of three sibling repositories, split from a single project on
+2026-09-21:
+
+| Repo | Owns |
+| --- | --- |
+| [`vivi`](https://github.com/ianzepp/vivi) (this repo) | Project mailspaces, roles, goals, work graphs, the `vivi` binary |
+| [`vivi-mail`](https://github.com/ianzepp/vivi-mail) | IMAP, SMTP, the direct Proton API, sync, send, the local email archive, search, drafts |
+| [`vivi-pty`](https://github.com/ianzepp/vivi-pty) | The project-scoped PTY runtime adapter |
+
+They share no code and no data. Vivi owns `<project>/.vivi/`; the email account
+configuration and archive that live under `~/.vivarium/` belong to `vivi-mail`.
 
 ## Why
 
-Local agents need access to email. Existing tools (offlineimap, mbsync, mutt) are built for humans and carry decades of assumptions. Vivarium keeps the important part simple: the raw message bytes stay local, stable, and directly readable as `.eml` files, while Vivi owns mailbox placement, flags, bindings, and indexes.
+Agents working in a repository need somewhere to record what must happen, what
+they need from each other, and what they have learned — in a form that survives
+restarts, context compaction, and hand-offs between different models. Vivi keeps
+that state inside the project: tasks, needs, wants, and memos are messages with
+lifecycles, goals are registered file paths, and an executable work graph turns
+dependencies into a ready frontier a fleet can dispatch from.
 
-Vivarium is especially useful for isolated agent containers. A container can be
-initialized with a Proton username plus a password or `password_cmd`, run
-`vivi proton login`, and then sync or send mail directly through Proton without
-manual Bridge setup, generated Bridge passwords, or shared Bridge state. This
-direct path uses Proton's internal API shape rather than a stable public Proton
-API contract, so Bridge remains the conservative compatibility option.
+The properties that matter are durability, project locality, and honesty about
+what has actually been completed.
 
 ## Install
 
 Current release: **9.4.0**
-([GitHub releases](https://github.com/ianzepp/vivarium/releases),
+([GitHub releases](https://github.com/ianzepp/vivi/releases),
 [notes](docs/release-v9.4.0.md)).
 
-Release binaries are published as assets on this repository's GitHub
-releases, and that is the only distribution channel — there is no
-package-manager formula to install or maintain. Each archive contains both
-`vivi` and `vivi-pty`.
+Release binaries are published as assets on this repository's GitHub releases,
+and that is the only distribution channel — there is no package-manager formula
+to install or maintain.
 
 With curl on macOS or Linux, which selects the archive for your platform and
 falls back to a source build where none exists:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ianzepp/vivarium/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ianzepp/vivi/main/install.sh | bash
 ```
 
 By hand, download the archive for your platform from the
-[latest release](https://github.com/ianzepp/vivarium/releases/latest), unpack
-it, and put both binaries on your `PATH`:
+[latest release](https://github.com/ianzepp/vivi/releases/latest), unpack it, and
+put `vivi` on your `PATH`:
 
 - `vivi-aarch64-apple-darwin.tar.gz`
 - `vivi-x86_64-apple-darwin.tar.gz`
 - `vivi-x86_64-unknown-linux-gnu.tar.gz`
 
-Linux `aarch64` has no binary archive yet. On that platform the installer
-falls back to `cargo install` from the release tag.
+Linux `aarch64` has no binary archive yet. On that platform the installer falls
+back to `cargo install` from the release tag.
 
-The installer takes `VIVI_VERSION` to pin a release tag, `VIVI_INSTALL_DIR`
-for the destination directory (default `~/.local/bin`), and `VIVI_REPO` to
-install from a fork.
+The installer takes `VIVI_VERSION` to pin a release tag, `VIVI_INSTALL_DIR` for
+the destination directory (default `~/.local/bin`), and `VIVI_REPO` to install
+from a fork.
+
+The companion `vivi-pty` binary ships from
+[`ianzepp/vivi-pty`](https://github.com/ianzepp/vivi-pty), and the email half
+from [`ianzepp/vivi-mail`](https://github.com/ianzepp/vivi-mail).
 
 From source, requires Rust 1.93+:
 
 ```sh
-git clone https://github.com/ianzepp/vivarium.git
-cd vivarium
+git clone https://github.com/ianzepp/vivi.git
+cd vivi
 cargo install --path .
-cargo install --path crates/vivi-pty
 ```
 
 ## Agent skill
@@ -80,149 +87,40 @@ ln -s "$(pwd)/skills/vivi" ~/.agents/skills/vivi
 
 ## Quick Start
 
+Vivi works from a project directory. Reads need an existing mailspace; most
+write commands create one on first use.
+
+```sh
+cd /path/to/your/project
+vivi mailspace init     # create .vivi/ with mailspace.toml and mail.sqlite
+vivi boot               # read the whole project frame in one command
+vivi board              # actionable work across tasks, needs, and wants
 ```
-vivi init
-```
 
-This creates `~/.vivarium/` with:
+`--project <root>` names the project from anywhere, before or after the
+subcommand. Without it, Vivi uses its own working directory and looks up the
+nearest ancestor holding `.vivi/mailspace.toml`.
 
-- `config.toml` - general settings such as mail root and TLS policy
-- `accounts.toml` - account credentials, created with mode `600`
-- `agent/prompt.md` - default prompt for `vivi agent poll`
-
-Semantic embedding settings are intentionally not guessed. If you want
-`storage_mode = "semantic"`, `vivi sync --embed`, or semantic search, configure
-an embedding service in `config.toml` or pass all embedding options on the
-explicit index command:
+A project declares the identities it may use, and the probes `boot` should run:
 
 ```toml
-[defaults]
-embedding_provider = "ollama"
-embedding_model = "your-embedding-model"
-embedding_endpoint = "http://your-embedding-host/api/embed"
+# .vivi/mailspace.toml
+name = "myproject"
+
+[[identities]]
+name = "mind"
+kind = "mind"
+
+[[identities]]
+name = "hand-1"
+kind = "hand"
+
+[[probes]]
+name = "git"
+command = "git rev-parse --short HEAD"
 ```
 
-Edit `accounts.toml` to add a Proton Bridge account:
-
-```toml
-[[accounts]]
-name = "proton"
-email = "you@proton.me"
-username = "you@proton.me"
-auth = "password"
-password = "your-bridge-app-password"
-imap_host = "127.0.0.1"
-imap_port = 1143
-imap_security = "ssl"
-smtp_host = "127.0.0.1"
-smtp_port = 1025
-smtp_security = "starttls"
-provider = "protonmail"
-storage_mode = "headers" # proxy | headers | bodies | semantic
-```
-
-For direct Proton API sync and send without Bridge:
-
-```toml
-[[accounts]]
-name = "agent-proton"
-email = "agent@proton.me"
-username = "agent@proton.me"
-auth = "password"
-password_cmd = "printenv PROTON_PASSWORD"
-provider = "proton-api"
-storage_mode = "semantic" # headers | bodies | semantic
-```
-
-Then verify the direct API path:
-
-```
-vivi proton auth-info --account agent-proton --json
-vivi proton login-check --account agent-proton --json
-vivi proton login --account agent-proton --json
-vivi proton session-check --account agent-proton --json
-vivi proton identity --account agent-proton --json
-vivi sync --account agent-proton --limit 25 --index --json
-vivi sync --account agent-proton --limit 0 --index --embed --json
-```
-
-`login-check` verifies credentials and discards returned tokens. `login` stores
-the direct Proton session under the account's Vivi state directory, and
-`session-check` refreshes that stored session without using the account
-password. `identity` uses the stored session to report non-secret user, address,
-and key-state metadata.
-
-Direct Proton accounts support local-first reads and draft-first sends.
-`storage_mode = "headers"` stores metadata-only local messages.
-`storage_mode = "bodies"` fetches encrypted Proton payloads, caches them
-privately under the account state directory, decrypts them locally, and stores
-reconstructed RFC-like message blobs in the normal Vivi store. `storage_mode =
-"semantic"` uses the same body fetch/decrypt/cache path, then allows `--embed`
-or `vivi index embeddings` to run as local post-processing over
-already-decrypted local bodies.
-
-To send through the direct Proton API, create or provide a local `.eml` draft
-and execute it with the direct account:
-
-```
-vivi compose --account agent-proton \
-  --from agent@proton.me \
-  --to you@example.com \
-  --subject "Hello" \
-  --body "Plain text" \
-  --html-body-auto
-vivi exec send --account agent-proton --from agent@proton.me path/to/draft.eml
-```
-
-Direct Proton send creates the Proton draft, builds Proton encrypted send
-packages, and submits the message through Proton's API. Clear external
-recipients, Proton/internal recipients, and text/plain external PGP recipients
-are supported. HTML or multipart external PGP recipients still require future
-PGP/MIME package support.
-
-Vivi sends a Bridge-style Proton app version by default because Proton scopes
-key access by client family. If Proton reports that the client is out of date,
-set `VIVI_PROTON_APP_VERSION` to a current Proton client app-version string
-before rerunning the command.
-
-For `provider = "protonmail"`, Vivi defaults to IMAP implicit TLS on
-`127.0.0.1:1143` and SMTP STARTTLS on `127.0.0.1:1025` when host, port, or
-security fields are omitted. Set `imap_security` or `smtp_security` explicitly
-to override those defaults for a different bridge or mail server.
-
-Then sync:
-
-```
-vivi sync
-vivi sync --account proton --reset
-```
-
-`vivi sync --account <name> --reset` is the clean bootstrap path. It removes the
-local cache for that account and rebuilds it from the remote mailbox.
-
-Plain `vivi sync` is incremental. It downloads only missing messages from each
-account's configured provider, then updates storage-backed metadata and local
-indexes for new messages.
-
-Storage modes control how much mail Vivi keeps locally:
-
-- `headers` is the default. Sync stores provider metadata, folder or label
-  identity, and thread/search metadata, but not message bodies.
-- `bodies` stores full RFC 5322 messages locally for fast `show`, `thread`,
-  export, and offline body access. It does not enable semantic indexing by
-  itself.
-- `semantic` stores full messages and allows `vivi sync --embed` or
-  `vivi index embeddings` to build body-derived embeddings. Semantic embedding
-  requires `embedding_provider`, `embedding_model`, and `embedding_endpoint` in
-  `config.toml`, or explicit `--provider`, `--model`, and `--endpoint` flags
-  for `vivi index embeddings`.
-- `proxy` is reserved for live IMAP proxy workflows and does not maintain a
-  sync cache.
-
-Header-only sync keeps deterministic search local because Vivi's lexical index
-uses headers and metadata: sender, recipients, subject, date, folder, message
-IDs, and thread references. Semantic search is body-derived and requires
-`storage_mode = "semantic"`.
+The rest of this document is the mailspace reference.
 
 ## Project Mailspaces
 
@@ -637,9 +535,9 @@ supports caller-owned event-id cursor files with `--cursor-file
 <path> --write-cursor`. `--once` performs one non-blocking scan. The aliases
 `mail watch`, `task watch`, `need watch`, and `want watch` each watch one
 kind and do not take `--kinds`. Use `vivi mailspace watch --kinds` to mix
-kinds. This is deliberately different from `vivi sync-events --watch` or the
-account-scoped `vivi watch-inbox`, which observes inbound IMAP activity and
-emits stable JSON events after local sync. `watch-inbox` never wakes an LLM or
+kinds. This is deliberately different from `vivi-mail`'s `sync-events --watch`
+and account-scoped `watch-inbox`, which observe inbound IMAP activity and
+emit stable JSON events after local sync. `watch-inbox` never wakes an LLM or
 executes outbound work; the Ops bridge owns wake delivery and debounce.
 
 For long local bodies, keep using `--body @path` or pass an explicit body file.
@@ -687,238 +585,68 @@ vivi mailspace import --project /path/to/current/project \
 
 ## Storage Layout
 
-Each account lives under `~/.vivarium/{account}/`:
+Everything Vivi owns lives under the project's `.vivi/` directory:
 
 ```
-~/.vivarium/proton/
-├── blobs/
-│   └── ab/cd/<content_id>.eml
-├── outbox/
-├── Drafts/
-└── .vivarium/
-    ├── storage.sqlite
-    └── embeddings/
+myproject/.vivi/
+├── mailspace.toml         # name, description, identities, archive, probes, judgment
+├── mail.sqlite            # items, events, goals, local links, and the work graphs
+├── blobs/                 # content-addressed message payloads
+└── judgment-corpus.jsonl  # shadow-screen answers, appended by `vivi step --apply`
 ```
 
 Rules:
 
-- `blobs/` is the immutable content store and the raw-message source of truth
-- `.vivarium/storage.sqlite` stores message rows, remote bindings, flags, and metadata
-- `.vivarium/embeddings/` stores provider/model-scoped semantic indexes
-- `outbox/` and `Drafts/` are local working surfaces for compose/reply flows
-
-Message handles shown by the CLI are short prefixes derived from Vivi-local
-`message_id` values. They are stable within a given local cache but are not
-folder-and-UID identifiers like `inbox-2050`.
+- `mail.sqlite` is the store; there is no separate index to rebuild
+- Message handles are short prefixes of Vivi-local `message_id` values, and are
+  stable within a mailspace
+- Nothing here is a cache: deleting `.vivi/` deletes that project's coordination
+  state and its local mail
 
 ## Commands
 
-`vivi --help` is the live top-level list. In 9.0.0 that is: `init`, `sync`,
-`sync-events`, `folders`, `doctor`, `proton`, `render`, `watch-inbox`, `list`,
-`board`, `boot`, `mailspace`, `mail`, `task`, `need`, `want`, `memo`, `goal`,
-`role`, `cycle`, `show`, `thread`, `trace`, `graph`, `step`, `reply`,
-`compose`, `export`, `search`, `index`, `agent`, `exec`, `enqueue`, `queue`,
-`labels`, `label`.
-Project-mailspace commands are in the section above. Account-scoped examples:
+`vivi --help` is the live top-level list. In 9.4.0 that is: `board`, `boot`,
+`mailspace`, `mail`, `task`, `need`, `want`, `memo`, `goal`, `role`, `cycle`,
+`trace`, `graph`, `step`.
+
+Everything Vivi does is project-scoped, so `--project <root>` is accepted either
+before or after the subcommand and every command resolves the same mailspace.
+The mailspace section above is the command reference; the most common entry
+points are:
 
 ```
-vivi init                                      # create config directory and files
-vivi --version                                 # print installed version
-vivi sync                                      # sync all accounts
-vivi sync --account proton                     # sync one account
-vivi sync --account agent-proton --json        # sync a direct Proton API account
-vivi sync --account proton --limit 100         # cap new downloads for this run
-vivi sync --account proton --json              # machine-readable sync summary
-vivi sync --account proton --since 3mo         # sync messages from the last 3 months
-vivi sync --account proton --since 2025-05-02 --before 2026-05-02
-vivi sync --account proton --reset             # delete local cache, then full resync
-vivi sync-events --account agent-proton --json # poll Proton API events once
-vivi sync-events --account agent-proton --watch --json
-vivi folders --account proton --json           # list remote IMAP folders
-vivi render --explain --format pdf              # explain installed render pipelines
-vivi render report.md --output report.pdf       # render local Markdown
-vivi compose --attach-document report.md ...    # draft with Markdown + PDF
-vivi watch-inbox --account proton --json        # inbound-only IMAP event source
-vivi doctor --account proton                   # check config, IMAP, and SMTP connectivity
-vivi list                                      # list inbox (default)
-vivi list sent                                 # list sent folder
-vivi list -n 25                                # list the 25 newest inbox messages
-vivi list inbox --filter DoorDash              # list inbox messages matching handle, sender, or subject
-vivi list --flagged                            # list inbox messages with the starred/flagged IMAP flag
-vivi list --since 3mo                          # list inbox messages from the last 3 months
-vivi list --since 2025-05-02 --before 2026-05-02
-vivi show 4f8c2d1                              # read a message by short handle
-vivi show 4f8c2d1 --json                       # read a message as JSON with citation metadata
-vivi thread 4f8c2d1 --json                     # read local thread context as JSON
-vivi export 4f8c2d1 > message.eml              # export the raw RFC 5322 message
-vivi export 4f8c2d1 --text                     # export normalized local text
-vivi exec archive 4f8c2d1                      # immediately move from inbox to archive
-vivi exec delete 4f8c2d1 a91be44 --json        # immediately delete multiple messages
-vivi enqueue archive 4f8c2d1                   # queue an archive for later review
-vivi queue list                                # list pending queued writes
-vivi queue show q123                           # inspect one queued write
-vivi queue run q123                            # execute one reviewed queued write
-vivi queue run --all                           # execute all pending queued writes in FIFO order
-vivi search "invoice"                          # keyword search
-vivi search "invoice" --json                   # JSON search output with citation metadata
-vivi search "DoorDash" --folder inbox --count  # print only the inbox match count
-vivi search "invoice" --from person@example.com
-vivi search "invoice" --from-domain example.com
-vivi index rebuild --account proton            # rebuild deterministic local index state
-vivi labels --json                             # show provider label support
-vivi reply 4f8c2d1                             # draft a reply from a local message
-vivi compose --to you@example.com --subject hi # create a new local draft
-vivi compose --to you@example.com --subject hi --body "Plain text" --html-body-auto
-vivi exec send --account agent-proton --from agent@proton.me path/to/draft.eml
-vivi agent poll --from person@example.com --json  # trusted-inbox Codex helper
-vivi boot --project .                             # one-read project frame
-vivi step --project . --json                      # backlog dispatch/exception manifest
-vivi step --apply <settled-handle> --project .    # complete a settled item's graph node
+vivi mailspace init --project .              # create .vivi/
+vivi mailspace status --project . --json     # is there a mailspace, and what version wrote it
+vivi boot --project .                        # one-read project frame
+vivi board --project . --json                # actionable work as JSON
+vivi graph ready --project .                 # dispatchable frontier
+vivi step --project . --json                 # dispatch/exception manifest
+vivi step --apply <settled-handle> --project .  # complete a settled item's graph node
 ```
-
-`compose` and `reply` can create multipart drafts with both plain text and HTML.
-Use `--html-body <html>` for explicit HTML, or `--html-body-auto` with `--body`
-to generate a simple styled HTML alternative from the plain-text body. Drafts
-are still local-first; use `vivi exec send path/to/draft.eml` only after
-reviewing the generated `.eml`. On `provider = "proton-api"` accounts, send
-uses Proton's API directly. On Bridge-backed or standard IMAP accounts, send
-uses the account's SMTP settings.
-
-Write commands are split by effect. `vivi exec ...` performs the external write
-now. `vivi enqueue ...` records a durable pending item under the selected
-account's Vivi state, and `vivi queue run ...` is the explicit later execution
-step. `vivi agent poll` still exists as a trusted-inbox Codex helper;
-`vivi agent archive|delete|move|flag` remain plan-or-execute wrappers. Prefer
-`exec` / `enqueue` / `queue` for new write flows.
-
-All commands accept `--account <name>` to target a specific account. Without it, account-scoped commands use the first account in `accounts.toml`; `sync` and `list` operate on all accounts.
-
-### Account Mutation Policy
-
-Each account can declare an explicit mutation `policy` in `accounts.toml`.
-This controls which remote side effects the selected account is authorized to
-perform, independent of command names or queue provenance.
-
-| Policy | `policy =` | Permitted remote operations |
-|---|---|---|
-| **Full-write** (default) | `full-write` | All: archive, move, trash, delete, expunge, flag, send |
-| **Read-only** | `read-only` | Sync, read, search, show only |
-| **Archive** | `archive` | Archive, non-trash moves, flags; denies trash, delete, expunge, send |
-
-```toml
-[[accounts]]
-name = "vault"
-email = "vault@proton.me"
-# ...
-policy = "read-only"
-```
-
-Policy is enforced at both enqueue admission and authoritatively during queue
-execution, so stale or manually constructed queued items cannot bypass it.
-Folder aliases are normalized before classification: `trash`, `deleted`, and
-provider-specific trash folder names all classify as a denied move-to-trash
-under read-only and archive policies.
-
-Local project mailspace operations (board, task, need, want, mail, memo, role,
-graph) are separate from external account mutation policy and are never
-restricted by it.
-
-Check the effective policy with `vivi doctor --account <name>` (text or JSON).
-
-### Not in the default CLI
-
-These surfaces are not available unless you build with extra features, or they
-are not a compatibility promise:
-
-- OAuth browser auth and token minting (`vivi auth` / `vivi token` require the
-  `outbox` cargo feature). `auth = "xoauth2"` with `token_cmd` still works.
-- a stable public compatibility promise for old Maildir-style handles
-
-Inbound IMAP watch is `vivi watch-inbox --account <name> --json`. Direct Proton
-event polling is `vivi sync-events --watch`. Project-local mailspace watch is
-`vivi mailspace watch`.
-
-## Providers
-
-Vivarium handles provider differences at the account boundary:
-
-| Provider | `provider =` | Read source | Send source |
-| --- | --- | --- | --- |
-| Direct Proton API | `"proton-api"` | Proton API | Proton API |
-| Proton Bridge | `"protonmail"` | Bridge IMAP | Bridge SMTP |
-| Gmail | `"gmail"` | Gmail IMAP labels | SMTP |
-| Standard | `"standard"` | IMAP folders | SMTP |
-
-Bridge-backed Gmail and ProtonMail use their provider `All Mail` views only as
-internal sync sources for the local `Archive/` corpus. User-facing archive
-operations target the provider's real `Archive` folder. Standard IMAP accounts
-sync `INBOX` and `Sent` directly. Direct Proton API accounts map Proton labels
-and message state into the same local roles without IMAP.
 
 ## Security
 
-- `accounts.toml` is created with `chmod 600` and checked on load
-- Group/world-readable `accounts.toml` is rejected unless `--ignore-permissions` is set
-- `password_cmd` is supported as an alternative to plaintext passwords:
-  ```toml
-  password_cmd = "security find-generic-password -s vivarium -a you@proton.me -w"
-  ```
-- XOAUTH2 is supported for IMAP sync with `auth = "xoauth2"` and `token_cmd`; the command must print a current OAuth access token:
-  ```toml
-  auth = "xoauth2"
-  token_cmd = "security find-generic-password -s gmail-access-token -w"
-  ```
-- Certificate validation is enabled for `provider = "protonmail"` by default
-- Set `reject_invalid_certs = false` on an account, or use `--insecure` as a one-run override, when a local bridge uses an untrusted certificate
-- Direct Proton API sessions are stored under the selected account's private
-  Vivi state directory and can be refreshed without reusing the account password
-  on every command
-- Direct Proton encrypted message payload caches are account-local private
-  implementation artifacts; do not publish or package them in release artifacts
-
-## Local Operations
-
-For a scheduled local refresh, run a bounded sync from launchd, cron, or a
-similar user-level scheduler:
-
-```
-vivi sync --account proton --since 3mo
-```
-
-For a lightweight maintenance pass that refreshes derived local state without
-downloading a batch, use:
-
-```
-vivi sync --account proton --limit 0
-```
-
-The normal repair path is a clean reset:
-
-```
-vivi sync --account <name> --reset
-```
-
-That clears the local cache for the account, then redownloads and reindexes it
-from the selected remote source of truth: Proton API for `provider =
-"proton-api"`, or IMAP for Bridge, Gmail, and standard accounts. If
-deterministic search/thread state drifts without needing a full reset, use:
-
-```
-vivi index rebuild --account <name>
-```
-
-Before cutting a release that touches provider routing, sync, or send behavior,
-run the live checks in [docs/release-smoke-checks.md](docs/release-smoke-checks.md).
+- Vivi stores no credentials. Accounts, transport, and the email archive live in
+  `vivi-mail`, which owns `~/.vivarium/`.
+- A mailspace may name a `key_cmd` for the judgment provider. It is run through
+  `sh -c` only when `vivi step --apply` consults the provider, and the resulting
+  key is never written to config or to the process environment.
+- Mailspace items are project-local files, so they are exactly as private as the
+  repository that holds them. Do not commit a `.vivi/` directory that carries
+  work you would not publish.
 
 ## Architecture
 
-- **Raw `.eml` blobs are the source of truth.** They are preserved unchanged under `blobs/`.
-- **Mutable mailbox state lives in `storage.sqlite`.** Local role, flags, and remote bindings do not rename blobs.
-- **Remote access is provider-scoped.** Direct Proton API accounts bypass
-  Bridge entirely; Bridge, Gmail, and standard accounts keep using IMAP/SMTP.
-- **Derived data is disposable and rebuildable.** Deterministic indexes and embeddings can be rebuilt from blobs plus storage metadata.
-- **Search results point back to stable local content.** JSON search output includes the short handle, internal `message_id`, and `content_id` citation data.
-- **Full corpus contents never leave the machine by default.** Any cloud access would be explicit, narrow, and user-approved.
+- **The project directory is the store.** Coordination state lives in
+  `<project>/.vivi/`, next to the code it describes.
+- **Items are messages with lifecycles.** Tasks, needs, wants, mail, and memos
+  share one store and one set of folder semantics; lifecycle moves are the API.
+- **The graph is derived from items.** Every `task` / `need` / `want` send mints
+  a node, dependencies become edges, and completions unlock dependents.
+- **Vivi decides readiness; the Mind dispatches.** Vivi never launches an agent.
+- **Reads never mutate.** Only explicit lifecycle, graph, and step commands write.
+- **Goals are pointers, not copies.** A registered goal path references a file
+  that lives wherever its owner keeps it.
 
 ## License
 

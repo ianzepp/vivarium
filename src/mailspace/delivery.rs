@@ -318,8 +318,8 @@ impl Mailspace {
                 continue;
             }
             let data = storage.read_message(&memo.message_id)?;
-            let extracted = vivi_mail::extract::extract_text(&data)?;
-            if extracted.body_text.to_lowercase().contains(&query) {
+            let extracted = crate::extract::extract_text(&data)?;
+            if extracted.to_lowercase().contains(&query) {
                 matched.push(memo);
             }
         }

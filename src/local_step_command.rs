@@ -1,7 +1,6 @@
-use vivarium::VivariumError;
-use vivarium::judgment::{JudgmentProvider, TypesafeProvider};
-use vivarium::mailspace::Mailspace;
-use vivi_mail::config::Config;
+use vivi::VivariumError;
+use vivi::judgment::{JudgmentProvider, TypesafeProvider};
+use vivi::mailspace::Mailspace;
 
 pub(crate) fn handle_step_command(
     apply: Option<&str>,
@@ -11,8 +10,7 @@ pub(crate) fn handle_step_command(
     let mailspace = Mailspace::discover(project)?;
     let manifest = match apply {
         Some(handle) => {
-            let config = Config::load(&Config::default_path())?;
-            let provider = TypesafeProvider::from_config(&config.judgment)?;
+            let provider = TypesafeProvider::from_config(mailspace.config.judgment.as_ref())?;
             mailspace.step_apply_with(
                 handle,
                 provider.as_ref().map(|p| p as &dyn JudgmentProvider),
@@ -32,7 +30,7 @@ pub(crate) fn handle_step_command(
     Ok(())
 }
 
-fn print_manifest(manifest: &vivarium::mailspace::StepManifest) {
+fn print_manifest(manifest: &vivi::mailspace::StepManifest) {
     println!("graph {}", manifest.graph);
     println!();
     if manifest.dispatches.is_empty() {

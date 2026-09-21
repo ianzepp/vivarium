@@ -1,29 +1,46 @@
-# Vivarium Agent Guide
+# Vivi Agent Guide
 
 ## Project
-Vivarium is a local-first email archive, retrieval, sync, indexing, and write
-layer for private agents. The public CLI binary is `vivi`.
+
+Vivi is the project mailspace for private agents: durable, project-local
+coordination state — tasks, needs, wants, mail, memos, roles, goals, and
+executable work graphs — driven by the `vivi` CLI.
 
 The codebase is Rust, Edition 2024, with the toolchain pinned in
 `rust-toolchain.toml`. Treat `Cargo.toml`, `README.md`, and the code as the
 source of truth when these instructions drift.
 
+## Sibling repositories
+
+Vivi was split out of one repository on 2026-09-21. This repo owns the
+mailspace half only:
+
+| Repo | Owns |
+| --- | --- |
+| `vivi` (this repo) | Project mailspaces, roles, goals, work graphs, the `vivi` binary |
+| `vivi-mail` | IMAP, SMTP, the direct Proton API, sync, send, the local email archive, search, drafts, and the `~/.vivarium/` home |
+| `vivi-pty` | The project-scoped PTY runtime adapter |
+
+The three share no code and no data. The mailspace lives at
+`<project>/.vivi/`; the email archive lives under the mail root that
+`vivi-mail` owns. Do not add a dependency from this repo onto either sibling.
+
 ## Current Shape
-- Package: `vivarium`
+
+- Package: `vivi`
 - Binary: `vivi`, defined explicitly with `autobins = false`
-- Optional feature: `outbox`
-- Storage: raw `.eml` blobs plus SQLite metadata, indexes, and embeddings
-- Project mailspaces (`.vivi/mail.sqlite`): tasks, needs, wants, mail, memos,
-  roles, **goal path registry** (pointers to on-disk factory/campaign goal
-  files), and **executable work graphs** (Mermaid import, ready frontier,
-  task-attempt binding)
-- Providers: standard IMAP/SMTP, Proton Bridge-style config, and direct Proton API paths
+- Storage: project-local SQLite at `<project>/.vivi/mail.sqlite`, with
+  markdown bodies and blobs under the same directory
+- Project mailspaces: tasks, needs, wants, mail, memos, roles, **goal path
+  registry** (pointers to on-disk factory/campaign goal files), and
+  **executable work graphs** (Mermaid import, ready frontier, task-attempt
+  binding)
 
 ## Agent skill
 
 Agent-facing `vivi` CLI guidance is [`skills/vivi/SKILL.md`](skills/vivi/SKILL.md).
-Load that skill for mailspace, role, goal, graph, and email command usage.
-Verify live `--help` before exact flags.
+Load that skill for mailspace, role, goal, and graph command usage. Verify live
+`--help` before exact flags.
 
 ## Work Graphs (project mailspace)
 
@@ -62,27 +79,28 @@ binaries too old to mint nodes (check the version in `mailspace status`;
 stale PATH-shadowing installs have caused silent untracked items). No
 schema beyond the graph tables.
 
-**Judgment provider (shadow screens).** User-level `[judgment]` in
-`config.toml` (`provider`/`endpoint`/`model`/`timeout_ms`/`key_cmd`) enables
-TypeSafe System One screens on `vivi step --apply` only: one Noul per
-`done_when` clause plus a completion-honesty Noul, answers appended to
-`.vivi/judgment-corpus.jsonl`. Shadow by design — provider answers never
-gate mechanical completions. Auth is exclusively `key_cmd` (`sh -c`,
-`password_cmd` semantics; no envvar, no inline key). Absent/failing/timed-out
-providers degrade to `judgment=skipped(<class>)`. No read path makes
-provider calls.
+**Judgment provider (shadow screens).** A mailspace-level `[judgment]` table
+in `.vivi/mailspace.toml` (`provider`/`endpoint`/`model`/`timeout_ms`/
+`key_cmd`) enables TypeSafe System One screens on `vivi step --apply` only:
+one Noul per `done_when` clause plus a completion-honesty Noul, answers
+appended to `.vivi/judgment-corpus.jsonl`. Shadow by design — provider
+answers never gate mechanical completions. Auth is exclusively `key_cmd`
+(`sh -c`, `password_cmd` semantics; no envvar, no inline key).
+Absent/failing/timed-out providers degrade to `judgment=skipped(<class>)`.
+No read path makes provider calls.
 
 Invariant: Vivi decides which graph nodes are eligible (ready). The Mind
 dispatches. Fleet (`prepare --node` → claim → activate) proves execution.
 Do not encode Fleet roles inside Vivi core.
 
 ## Coding Standards
+
 - Prefer existing modules and helper APIs before adding new abstractions.
 - Keep production errors in `VivariumError` with `thiserror`; do not introduce `anyhow`.
 - Avoid panics in production paths. Return `Result` where practical, and only use
   `unreachable!` or `unwrap` for truly invariant conditions.
 - Use `clap` derive for CLI parsing.
-- Use `tracing` and `tracing-subscriber` for logging.
+- Use `tracing-subscriber` for logging.
 - Use `tokio` for async work; the CLI entrypoint uses `#[tokio::main]`.
 - Keep files and functions small. Hygiene tests enforce a 1000-line file ceiling
   and a 60-line function ceiling for checked `src/**/*.rs` files.
@@ -93,6 +111,7 @@ Do not encode Fleet roles inside Vivi core.
   behavior easy to understand. Use `tests/` for integration and CLI behavior.
 
 ## Entry Point
+
 `src/main.rs` should keep the current shape:
 
 - `main()` parses `Cli`, initializes tracing, calls `run(...)`, prints errors to
@@ -102,34 +121,37 @@ Do not encode Fleet roles inside Vivi core.
   glue can stay in `src/main.rs` and runner modules.
 
 ## Configuration
-- Default home is `~/.vivarium`.
-- `VIVI_HOME` overrides the home directory and supports `~/...` expansion.
-- `config.toml` is general configuration.
-- `accounts.toml` contains accounts and credentials and should be mode `600`
-  unless `--ignore-permissions` is explicitly used.
+
+- The mailspace config is `<project>/.vivi/mailspace.toml`.
+- `--project` names the project root; otherwise the nearest ancestor holding
+  `.vivi/mailspace.toml` wins.
+- This repo holds no credentials and resolves no user-level home directory.
 - Config is `serde` + `toml`.
 
 ## Validation
+
 Before finishing code changes, run the narrowest useful check first, then widen
 as risk increases:
 
 - `cargo fmt --check`
 - `cargo test --test hygiene`
 - `cargo test`
-- For feature-gated outbox work: `cargo test --features outbox`
 
 For documentation-only edits, at least inspect links or run a small local
 Markdown link scan when the touched file contains links.
 
 ## Dependency Policy
+
 Use the dependencies already in `Cargo.toml` when possible. Important current
 crates include:
 
-- CLI and runtime: `clap`, `tokio`, `tracing`, `tracing-subscriber`
+- CLI and runtime: `clap`, `tokio`, `tracing-subscriber`
 - Config and errors: `serde`, `serde_json`, `toml`, `thiserror`
-- Mail: `async-imap`, `lettre`, `mail-parser`, `mail-builder`, `notify`
-- Storage and indexing: `rusqlite`, `sha2`, `hex`
-- Proton/direct API: `reqwest`, `proton-srp`, `pgp`, `base64`, `rand`
+- Local message composition and parsing: `lettre`, `mail-builder`, `mail-parser`
+- Storage and identity: `rusqlite`, `sha2`, `hex`, `chrono`
+- Process probing: `sysinfo`
+- Judgment provider: `reqwest`
+- Paths: `dirs`
 
 Do not add a new dependency for small local logic that is already covered by
 the standard library or existing crates.

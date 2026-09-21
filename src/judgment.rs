@@ -1,18 +1,37 @@
 //! Judgment provider: typed System One questions over assembled state.
 //!
 //! Vivi asks narrow yes/no (Noul) questions about a settled item's receipt;
-//! the provider answers with probabilities. Providers are constructed from
-//! user-level `[judgment]` config only, authenticate exclusively via
+//! the provider answers with probabilities. Providers are constructed from the
+//! mailspace's `[judgment]` config only, authenticate exclusively via
 //! `key_cmd` (never an envvar, never an inline key), and are consulted only
 //! by the apply path — read paths have no provider parameter at all.
 
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::VivariumError;
-use vivi_mail::config::types::Judgment;
+
+/// Judgment provider settings (the `[judgment]` table in `mailspace.toml`).
+///
+/// There is deliberately no inline key field: authentication is only via
+/// `key_cmd`, mirroring the accounts `password_cmd` mechanism, so the secret
+/// never lives in a config file or the process environment.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct Judgment {
+    /// Provider vendor; only `typesafe` is supported. `None` disables.
+    pub provider: Option<String>,
+    /// Endpoint URL override (vendor default when absent).
+    pub endpoint: Option<String>,
+    /// Model name (vendor default when absent).
+    pub model: Option<String>,
+    /// Request timeout in milliseconds (default 4000).
+    pub timeout_ms: Option<u64>,
+    /// Shell command whose stdout is the API key. Required when provider
+    /// is set.
+    pub key_cmd: Option<String>,
+}
 
 /// Default System One endpoint.
 const DEFAULT_ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";
@@ -80,27 +99,17 @@ pub struct TypesafeProvider {
 }
 
 impl TypesafeProvider {
-    /// Build from `[judgment]` config. Returns `None` when no provider is
-    /// configured (feature off).
+    /// Build from the mailspace's `[judgment]` config. Returns `None` when the
+    /// mailspace declares none, or declares no provider (feature off).
     ///
     /// # Errors
     /// Returns a [`VivariumError`] when the provider is set but the config
     /// is incomplete, the vendor is unknown, or `key_cmd` fails.
-    pub fn from_config(config: &Judgment) -> Result<Option<Self>, VivariumError> {
-        let Some(provider) = config.provider.as_deref() else {
+    pub fn from_config(config: Option<&Judgment>) -> Result<Option<Self>, VivariumError> {
+        let Some(config) = config.filter(|entry| entry.provider.is_some()) else {
             return Ok(None);
         };
-        if provider != "typesafe" {
-            return Err(VivariumError::Config(format!(
-                "judgment.provider '{provider}' is not supported; only 'typesafe'"
-            )));
-        }
-        let Some(key_cmd) = config.key_cmd.as_deref() else {
-            return Err(VivariumError::Config(
-                "judgment.provider is set but judgment.key_cmd is missing in config.toml".into(),
-            ));
-        };
-        let key = run_key_cmd(key_cmd)?;
+        let key = run_key_cmd(resolve_key_cmd(config)?)?;
         Ok(Some(Self {
             endpoint: config
                 .endpoint
@@ -114,6 +123,28 @@ impl TypesafeProvider {
             key,
         }))
     }
+}
+
+/// Validate a `[judgment]` table and return the `key_cmd` to run.
+fn resolve_key_cmd(config: &Judgment) -> Result<&str, VivariumError> {
+    match config.provider.as_deref() {
+        Some("typesafe") => {}
+        Some(other) => {
+            return Err(VivariumError::Config(format!(
+                "judgment.provider '{other}' is not supported; only 'typesafe'"
+            )));
+        }
+        None => {
+            return Err(VivariumError::Config(
+                "judgment.provider is set but no provider was resolved".into(),
+            ));
+        }
+    }
+    config.key_cmd.as_deref().ok_or_else(|| {
+        VivariumError::Config(
+            "judgment.provider is set but judgment.key_cmd is missing in mailspace.toml".into(),
+        )
+    })
 }
 
 impl JudgmentProvider for TypesafeProvider {

@@ -1,51 +1,37 @@
 [package]
-name = "vivarium"
+name = "vivi"
 version = "9.4.0"
 edition = "2024"
+description = "Local-first project mailspace for LLM agents"
 autobins = false
 
+# This package is its own workspace root, so a worktree checked out under
+# `worktrees/` builds on its own instead of being adopted by the checkout above it.
 [workspace]
-members = ["crates/vivi-mail", "crates/vivi-pty"]
-resolver = "2"
 
 [[bin]]
 name = "vivi"
 path = "src/main.rs"
 
-[features]
-outbox = ["vivi-mail/outbox"]
-
 [dependencies]
-vivi-mail = { path = "crates/vivi-mail" }
-async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
-async-trait = "0.1"
-tokio-native-tls = "0.3"
-native-tls = "0.2"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 dirs = "6"
-futures = "0.3"
-base64 = "0.22"
+hex = "0.4"
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
 mail-builder = "0.3"
 mail-parser = "0.9"
-notify = "7"
-pgp = "0.19.0"
-rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["brotli", "deflate", "gzip", "json", "rustls-tls"] }
-proton-srp = "0.8.2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 sysinfo = "0.32"
+tempfile = "3"
+thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 toml = "0.8"
-tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-thiserror = "2"
-sha2 = "0.10"
-tempfile = "3"
-hex = "0.4"
 
 [profile.release]
 strip = true

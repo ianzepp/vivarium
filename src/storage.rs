@@ -12,7 +12,6 @@ use sha2::{Digest, Sha256};
 
 use crate::error::VivariumError;
 use crate::store::secure_create_dir_all;
-use vivi_mail::catalog::{CatalogEntry, RemoteIdentity};
 
 mod backlog_graph;
 pub use backlog_graph::{
@@ -48,12 +47,6 @@ const INTERNAL_DIR: &str = ".vivarium";
 const STORAGE_DB_FILENAME: &str = "storage.sqlite";
 const MAILSPACE_DB_FILENAME: &str = "mail.sqlite";
 const BLOBS_DIR: &str = "blobs";
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StorageImportResult {
-    pub imported_messages: usize,
-    pub imported_blobs: usize,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredMessage {
@@ -203,30 +196,6 @@ impl Storage {
     fn invalidate_handle_cache(&self) {
         *self.handle_cache.borrow_mut() = None;
     }
-
-    /// Import catalog entries (messages and blobs) into the storage.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if any blob file cannot be read or the
-    /// database ingest fails.
-    pub fn import_catalog_entries(
-        &mut self,
-        entries: &[CatalogEntry],
-    ) -> Result<StorageImportResult, VivariumError> {
-        let mut result = StorageImportResult {
-            imported_messages: 0,
-            imported_blobs: 0,
-        };
-        for entry in entries {
-            let data = fs::read(&entry.blob_path)?;
-            let stored = self.ingest_message(&request_from_catalog_entry(entry), &data)?;
-            result.imported_messages += 1;
-            if stored.created_blob {
-                result.imported_blobs += 1;
-            }
-        }
-        Ok(result)
-    }
 }
 
 #[allow(clippy::cast_sign_loss)]
@@ -265,22 +234,6 @@ fn raw_stored_message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Stor
         absorbed_at: row.get(20)?,
         absorbed_by: row.get(21)?,
     })
-}
-
-/// Open storage and import catalog entries.
-///
-/// A convenience wrapper around [`Storage::open`] and
-/// [`Storage::import_catalog_entries`].
-///
-/// # Errors
-/// Returns a [`VivariumError`] if the storage cannot be opened or the
-/// import fails.
-pub fn import_catalog_entries(
-    mail_root: &Path,
-    entries: &[CatalogEntry],
-) -> Result<StorageImportResult, VivariumError> {
-    let mut storage = Storage::open(mail_root)?;
-    storage.import_catalog_entries(entries)
 }
 
 fn blob_relpath(content_id: &str) -> String {
@@ -338,65 +291,6 @@ fn fallback_message_id(request: &MessageIngestRequest, content_id: &str) -> Stri
         request.account, request.local_role, request.seed_hint, content_id
     );
     opaque_message_id(&seed)
-}
-
-fn request_from_catalog_entry(entry: &CatalogEntry) -> MessageIngestRequest {
-    MessageIngestRequest {
-        account: entry.account.clone(),
-        local_role: entry.local_role.clone(),
-        read_state: entry.read_state,
-        starred: entry.starred,
-        message_id_hint: Some(entry.handle.clone()),
-        seed_hint: entry.handle.clone(),
-        remote: entry.remote.as_ref().map(remote_binding_from_catalog),
-    }
-}
-
-fn remote_binding_from_catalog(remote: &RemoteIdentity) -> RemoteBindingInput {
-    RemoteBindingInput {
-        account: remote.account.clone(),
-        provider: remote.provider.clone(),
-        remote_mailbox: remote.remote_mailbox.clone(),
-        remote_uid: remote.uid,
-        remote_uidvalidity: remote.uidvalidity,
-    }
-}
-
-impl Storage {
-    fn catalog_entry_from_view(&self, message: StoredMessageView) -> CatalogEntry {
-        let remote = message.remote.as_ref().map(|binding| RemoteIdentity {
-            account: binding.account.clone(),
-            provider: binding.provider.clone(),
-            remote_mailbox: binding.remote_mailbox.clone(),
-            local_folder: message.local_role.clone(),
-            uid: binding.remote_uid,
-            uidvalidity: binding.remote_uidvalidity,
-            rfc_message_id: message.normalized_message_id.clone().unwrap_or_default(),
-            size: message.byte_size,
-            content_fingerprint: message.content_id.clone(),
-        });
-        CatalogEntry {
-            handle: message.message_id.clone(),
-            account: message.account,
-            content_id: message.content_id,
-            blob_path: self
-                .mail_root
-                .join(&message.blob_relpath)
-                .to_string_lossy()
-                .to_string(),
-            local_role: message.local_role,
-            read_state: message.read_state,
-            starred: message.starred,
-            date: message.date,
-            from: message.from_addr,
-            to: message.to_addr,
-            cc: message.cc_addr,
-            bcc: message.bcc_addr,
-            subject: message.subject,
-            rfc_message_id: message.normalized_message_id.unwrap_or_default(),
-            remote,
-        }
-    }
 }
 
 fn opaque_message_id(seed: &str) -> String {

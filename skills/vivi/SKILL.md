@@ -310,12 +310,12 @@ key_cmd  = "cat ~/.config/secrets/typesafe-ai.key"
 
 Authentication is exclusively `key_cmd` (`sh -c`, `password_cmd` semantics):
 never an envvar (ambient to spawned processes) and never an inline key
-(no field exists). Resolve the real config path before editing — it is
-`VIVI_HOME` if set, else the legacy `~/.config/vivarium/` when it exists,
-else `~/.vivarium/`. A wrong path fails silently (`judgment=off`, empty
-corpus), so verify with one apply after configuring. Screens judge the
-receipt against the clauses: tasks that want meaningful screens should
-carry their validation claim in the body, not only verdict flags.
+(no field exists). The table lives in the project's own mailspace config at
+`<project>/.vivi/mailspace.toml`; there is no user-level config in this repo.
+A wrong path fails silently (`judgment=off`, empty corpus), so verify with one
+apply after configuring. Screens judge the receipt against the clauses: tasks
+that want meaningful screens should carry their validation claim in the body,
+not only verdict flags.
 
 ## Watches and Cycle Intake
 

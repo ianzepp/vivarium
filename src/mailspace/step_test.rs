@@ -127,7 +127,7 @@ fn no_done_when_detail_names_coordination_fields() {
         "tasks",
         "task",
         "audit pass",
-        "verdict: clean_pass\nrepo: vivarium\ntip: 0a6d1a1\nNote: prose stays out.",
+        "verdict: clean_pass\nrepo: vivi\ntip: 0a6d1a1\nNote: prose stays out.",
     );
     let exception =
         exception_for(&mailspace, &task).unwrap_or_else(|| panic!("expected exception for {task}"));

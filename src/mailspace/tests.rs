@@ -725,8 +725,8 @@ fn deliver_raw_batch_rollback_leaves_no_partial_state() {
     mailspace.add_identity("carol").unwrap();
 
     let eml = b"From: sender@example.com\r\n\
-To: alice@vivarium.local\r\n\
-Cc: bob@vivarium.local, carol@vivarium.local\r\n\
+To: alice@example.com\r\n\
+Cc: bob@example.com, carol@example.com\r\n\
 Subject: rollback\r\n\r\nbody";
 
     let recipients = ["alice", "bob", "carol"];
@@ -784,8 +784,8 @@ fn deliver_raw_batch_success_then_list_has_events() {
     mailspace.add_identity("bob").unwrap();
 
     let eml = b"From: sender@example.com\r\n\
-To: alice@vivarium.local\r\n\
-Cc: bob@vivarium.local\r\n\
+To: alice@example.com\r\n\
+Cc: bob@example.com\r\n\
 Subject: batch\r\n\r\nbody";
 
     let recipients = ["alice", "bob"];

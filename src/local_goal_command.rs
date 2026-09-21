@@ -1,6 +1,6 @@
-use vivarium::VivariumError;
-use vivarium::cli::GoalCommand;
-use vivarium::mailspace::{GoalView, Mailspace};
+use vivi::VivariumError;
+use vivi::cli::GoalCommand;
+use vivi::mailspace::{GoalView, Mailspace};
 
 pub(crate) fn handle_goal_command(command: &GoalCommand) -> Result<(), VivariumError> {
     match command {
