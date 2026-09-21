@@ -107,7 +107,7 @@ fn schema_v7_adds_node_kind_and_edge_style_on_upgrade() {
 fn ingest_dedupes_blobs_but_keeps_distinct_message_rows() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = message_bytes("dup@example.com", "same body");
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
 
     let first = storage
         .ingest_message(&bound_request("one", "INBOX", 7), &raw)
@@ -128,7 +128,7 @@ fn ingest_dedupes_blobs_but_keeps_distinct_message_rows() {
 fn ingest_persists_blob_and_metadata() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = b"Message-ID: <meta@example.com>\r\nFrom: Agent <agent@example.com>\r\nTo: User <user@example.com>\r\nSubject: hello\r\n\r\nbody";
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
 
     storage
         .ingest_message(&bound_request("one", "INBOX", 7), raw)
@@ -154,7 +154,7 @@ fn fallback_message_ids_are_stable_for_unbound_entries() {
         remote: None,
     };
 
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
     let first = storage.ingest_message(&request, &raw).unwrap();
     let second = storage.ingest_message(&request, &raw).unwrap();
 
@@ -182,7 +182,7 @@ fn direct_ingest_api_supports_clean_break_sync_target() {
         }),
     };
 
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
     let stored = storage.ingest_message(&request, &raw).unwrap();
 
     assert!(stored.message_id.starts_with("msg_"));
@@ -194,7 +194,7 @@ fn direct_ingest_api_supports_clean_break_sync_target() {
 #[test]
 fn short_handles_resolve_uniquely_for_storage_native_ids() {
     let tmp = tempfile::tempdir().unwrap();
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
 
     let first = storage
         .ingest_message(
@@ -277,7 +277,7 @@ fn short_handle_map_is_a_fixed_width_prefix_of_the_basis() {
 #[test]
 fn a_shared_short_handle_resolves_as_ambiguous_rather_than_by_guess() {
     let tmp = tempfile::tempdir().unwrap();
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
     let first = ingest_hinted(&mut storage, "msg_abcd1234aaaabbbbcccc0001", 1);
     let second = ingest_hinted(&mut storage, "msg_abcd1234aaaabbbbcccc0002", 2);
     assert_ne!(first, second);
@@ -319,7 +319,7 @@ fn ingest_hinted(storage: &mut Storage, message_id: &str, remote_uid: u32) -> St
 fn content_id_prefix_can_resolve_message() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = message_bytes("content@example.com", "body");
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
     let stored = storage
         .ingest_message(
             &MessageIngestRequest {
@@ -352,7 +352,7 @@ fn content_id_prefix_can_resolve_message() {
 fn local_size_fallback_uses_remote_uid_shape_for_storage_rows() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = message_bytes("size@example.com", "body");
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
     storage
         .ingest_message(
             &MessageIngestRequest {
@@ -381,7 +381,7 @@ fn local_size_fallback_uses_remote_uid_shape_for_storage_rows() {
 #[test]
 fn latest_from_prefers_exact_address_and_ignores_memos() {
     let tmp = tempfile::tempdir().unwrap();
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
     ingest_dated(
         &mut storage,
         "mind",
@@ -418,7 +418,7 @@ fn latest_from_prefers_exact_address_and_ignores_memos() {
 #[test]
 fn latest_from_matches_display_name_form() {
     let tmp = tempfile::tempdir().unwrap();
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
     let id = ingest_dated(
         &mut storage,
         "acct",
@@ -437,7 +437,7 @@ fn latest_from_matches_display_name_form() {
 #[test]
 fn schema_v6_adds_from_addr_date_index_on_upgrade() {
     let tmp = tempfile::tempdir().unwrap();
-    let storage = Storage::open(tmp.path()).unwrap();
+    let storage = Storage::open_mailspace(tmp.path()).unwrap();
     storage
         .conn
         .execute("DROP INDEX message_metadata_from_addr_date_idx", [])
@@ -450,7 +450,7 @@ fn schema_v6_adds_from_addr_date_index_on_upgrade() {
         )
         .unwrap();
     drop(storage);
-    let storage = Storage::open(tmp.path()).unwrap();
+    let storage = Storage::open_mailspace(tmp.path()).unwrap();
     let present: i64 = storage
         .conn
         .query_row(
@@ -535,7 +535,7 @@ fn bound_request(handle: &str, mailbox: &str, uid: u32) -> MessageIngestRequest 
 fn move_message_to_role_rejects_wrong_account() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = message_bytes("move@example.com", "body");
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
     let stored = storage
         .ingest_message(
             &MessageIngestRequest {
@@ -571,7 +571,7 @@ fn move_message_to_role_rejects_wrong_account() {
 fn mark_message_deleted_is_idempotent() {
     let tmp = tempfile::tempdir().unwrap();
     let raw = message_bytes("del@example.com", "body");
-    let mut storage = Storage::open(tmp.path()).unwrap();
+    let mut storage = Storage::open_mailspace(tmp.path()).unwrap();
     let stored = storage
         .ingest_message(
             &MessageIngestRequest {

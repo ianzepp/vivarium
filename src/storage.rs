@@ -43,8 +43,6 @@ use metadata::parse_metadata;
 pub use mutate::MailspaceMoveWithReply;
 use schema::{ensure_schema, message_query};
 
-const INTERNAL_DIR: &str = ".vivarium";
-const STORAGE_DB_FILENAME: &str = "storage.sqlite";
 const MAILSPACE_DB_FILENAME: &str = "mail.sqlite";
 const BLOBS_DIR: &str = "blobs";
 
@@ -141,21 +139,6 @@ pub struct Storage {
 }
 
 impl Storage {
-    /// Open (or create) a storage database at the given mail root.
-    ///
-    /// Creates the internal directory and database file if they do not
-    /// exist.
-    ///
-    /// # Errors
-    /// Returns a [`VivariumError`] if the directory cannot be created, the
-    /// database cannot be opened, or the schema cannot be initialized.
-    pub fn open(mail_root: &Path) -> Result<Self, VivariumError> {
-        let internal_dir = mail_root.join(INTERNAL_DIR);
-        secure_create_dir_all(&internal_dir)
-            .map_err(|e| VivariumError::Other(format!("failed to create storage dir: {e}")))?;
-        Self::open_with_db(mail_root, &internal_dir.join(STORAGE_DB_FILENAME))
-    }
-
     /// Open a mailspace-local storage database.
     ///
     /// Creates the mailspace directory and database file if they do not
