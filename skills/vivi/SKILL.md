@@ -39,6 +39,12 @@ The board aggregates open work. Kind-specific `list` commands orient within one
 queue. `show` loads one handle. Use `dump` only for bounded audits or recovery;
 full dumps are noisy and can hide the current frontier.
 
+A handle is the first eight characters of the message id — a fixed-width
+prefix of one record, so it never changes as other records arrive. Any
+mailspace command that takes a handle also accepts the full message id. Two
+records can share a handle when their ids collide; resolving such a token
+reports it as ambiguous rather than guessing, and the full id is the remedy.
+
 Default inspection order:
 
 ```sh
@@ -68,7 +74,11 @@ Run it first when orienting or re-orienting. Every section is capped, and the
 digest closes with a truncation manifest naming each cap and how much it
 omitted — so the digest is complete in coverage and bounded in length. Boot
 never absorbs, closes, promotes, dispatches, or writes. Act on it with the
-ordinary verbs.
+ordinary verbs. The digest has one shape: there is no JSON or sweep variant.
+
+Seats are listed for roles that hold open work or carry a bound process. The
+rest of the roster is counted in the totals line, so a role you expect and do
+not see is being summarized rather than omitted.
 
 Handles carry a closed verdict vocabulary: `open`, `blocked`, `stale`, `live`,
 `unbound`, `unverified`, `dead`, `zombie`, `remote`, `unknown`. `unverified`
@@ -157,6 +167,11 @@ must-do queue; promotion is request-only and never fires because a
 dependency completed. Lifecycle notes (`--note`) never inbox the acting
 identity: other participants receive the receipt, and the actor keeps only a
 read sent copy.
+
+`vivi task from <source> --for <identity> --subject … --body …` creates a task
+from an existing record and records that source on the new task, which is where
+task associations are read from — the work graph holds the dependency chains.
+A want carries no list of tasks created from it.
 
 `absorb` seals a record. After absorption it cannot be changed, reopened,
 promoted, dropped, reprioritized, or deleted. A later reply or derived task is
