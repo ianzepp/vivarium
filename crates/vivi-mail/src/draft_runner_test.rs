@@ -82,8 +82,8 @@ fn send_transport_routes_only_direct_proton_api_away_from_smtp() {
     assert_eq!(send_transport(&Provider::Standard), SendTransport::Smtp);
 }
 
-fn test_runtime(tmp: &std::path::Path, policy: vivarium::config::MutationPolicy) -> super::Runtime {
-    use vivarium::config::{Account, AccountsFile, Auth, Config, Security};
+fn test_runtime(tmp: &std::path::Path, policy: crate::config::MutationPolicy) -> super::Runtime {
+    use crate::config::{Account, AccountsFile, Auth, Config, Security};
 
     let account = Account {
         name: "test".into(),
@@ -109,7 +109,7 @@ fn test_runtime(tmp: &std::path::Path, policy: vivarium::config::MutationPolicy)
         drafts_folder: None,
         label_roots: None,
         storage_mode: None,
-        provider: vivarium::config::Provider::Standard,
+        provider: crate::config::Provider::Standard,
         oauth_authorization_url: None,
         oauth_token_url: None,
         oauth_scope: None,
@@ -129,7 +129,7 @@ fn test_runtime(tmp: &std::path::Path, policy: vivarium::config::MutationPolicy)
 #[tokio::test]
 async fn store_draft_append_remote_denied_under_read_only() {
     let tmp = tempfile::tempdir().unwrap();
-    let runtime = test_runtime(tmp.path(), vivarium::config::MutationPolicy::ReadOnly);
+    let runtime = test_runtime(tmp.path(), crate::config::MutationPolicy::ReadOnly);
     let data = b"From: test@example.com\r\nTo: you@example.com\r\nSubject: hi\r\n\r\nbody";
 
     let err = store_draft(&runtime, data, true).await.unwrap_err();
@@ -140,7 +140,7 @@ async fn store_draft_append_remote_denied_under_read_only() {
 #[tokio::test]
 async fn store_draft_append_remote_denied_under_archive() {
     let tmp = tempfile::tempdir().unwrap();
-    let runtime = test_runtime(tmp.path(), vivarium::config::MutationPolicy::Archive);
+    let runtime = test_runtime(tmp.path(), crate::config::MutationPolicy::Archive);
     let data = b"From: test@example.com\r\nTo: you@example.com\r\nSubject: hi\r\n\r\nbody";
 
     let err = store_draft(&runtime, data, true).await.unwrap_err();
@@ -150,7 +150,7 @@ async fn store_draft_append_remote_denied_under_archive() {
 #[tokio::test]
 async fn store_draft_append_remote_allowed_under_full_write() {
     let tmp = tempfile::tempdir().unwrap();
-    let runtime = test_runtime(tmp.path(), vivarium::config::MutationPolicy::FullWrite);
+    let runtime = test_runtime(tmp.path(), crate::config::MutationPolicy::FullWrite);
     let data = b"From: test@example.com\r\nTo: you@example.com\r\nSubject: hi\r\n\r\nbody";
 
     // Local draft is created; append_remote gate passes under full-write.
@@ -172,7 +172,7 @@ async fn store_draft_append_remote_allowed_under_full_write() {
 #[tokio::test]
 async fn store_draft_local_only_under_read_only() {
     let tmp = tempfile::tempdir().unwrap();
-    let runtime = test_runtime(tmp.path(), vivarium::config::MutationPolicy::ReadOnly);
+    let runtime = test_runtime(tmp.path(), crate::config::MutationPolicy::ReadOnly);
     let data = b"From: test@example.com\r\nTo: you@example.com\r\nSubject: hi\r\n\r\nbody";
 
     // Local-only draft (append_remote=false) must succeed under any policy.

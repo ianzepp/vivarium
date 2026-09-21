@@ -47,7 +47,7 @@ impl Runtime {
         ));
         checks.push(mail_root_check(&mail_root));
 
-        match vivarium::imap::discover_folders(&acct, reject_invalid_certs).await {
+        match crate::imap::discover_folders(&acct, reject_invalid_certs).await {
             Ok(discovery) => checks.push(check(
                 "imap",
                 true,
@@ -61,7 +61,7 @@ impl Runtime {
             Err(err) => checks.push(check("imap", false, err.to_string())),
         }
 
-        match vivarium::smtp::test_connection(&acct, reject_invalid_certs).await {
+        match crate::smtp::test_connection(&acct, reject_invalid_certs).await {
             Ok(true) => checks.push(check("smtp", true, "authenticated; NOOP succeeded")),
             Ok(false) => checks.push(check(
                 "smtp",

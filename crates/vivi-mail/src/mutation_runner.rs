@@ -1,11 +1,11 @@
-use vivarium::VivariumError;
-use vivarium::config::Account;
-use vivarium::imap::{FlagMutation, MutationCapabilities, MutationResult, MutationTarget};
-use vivarium::mutation_command::{
+use crate::VivariumError;
+use crate::config::Account;
+use crate::imap::{FlagMutation, MutationCapabilities, MutationResult, MutationTarget};
+use crate::mutation_command::{
     LocalReconciliation, MutationAction, MutationPreview, PreparedMutation, append_audit,
     output_json, prepare_mutation, reconcile_success,
 };
-use vivarium::queue::QueuedCommand;
+use crate::queue::QueuedCommand;
 
 use super::Runtime;
 
@@ -114,7 +114,7 @@ impl Runtime {
         validate_mutation_confirmation(&inputs, &action_for, options)?;
         let mail_root = acct.mail_path(&self.config);
         let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
-        let discovery = vivarium::imap::discover_folders(&acct, reject_invalid_certs).await?;
+        let discovery = crate::imap::discover_folders(&acct, reject_invalid_certs).await?;
         let capabilities = MutationCapabilities::from(&discovery.capabilities);
         let mut outputs = Vec::new();
         for input in inputs {
@@ -260,7 +260,7 @@ async fn move_remote(
     capabilities: &MutationCapabilities,
     reject_invalid_certs: bool,
 ) -> Result<MutationResult, VivariumError> {
-    vivarium::imap::move_message(
+    crate::imap::move_message(
         account,
         &prepared.remote,
         target,
@@ -276,7 +276,7 @@ async fn hard_expunge_remote(
     capabilities: &MutationCapabilities,
     reject_invalid_certs: bool,
 ) -> Result<MutationResult, VivariumError> {
-    vivarium::imap::hard_expunge(
+    crate::imap::hard_expunge(
         account,
         &prepared.remote,
         capabilities,
@@ -291,7 +291,7 @@ async fn flag_remote(
     mutation: FlagMutation,
     reject_invalid_certs: bool,
 ) -> Result<MutationResult, VivariumError> {
-    vivarium::imap::mutate_flag(account, &prepared.remote, mutation, reject_invalid_certs).await
+    crate::imap::mutate_flag(account, &prepared.remote, mutation, reject_invalid_certs).await
 }
 
 fn validate_mutation_confirmation<F>(

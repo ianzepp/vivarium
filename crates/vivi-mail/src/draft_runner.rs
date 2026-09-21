@@ -1,26 +1,26 @@
 use std::path::{Path, PathBuf};
 
-use vivarium::VivariumError;
-use vivarium::cli::{Command, ComposeCommand};
-use vivarium::config::Provider;
-use vivarium::message::{self, ComposeDraft, ReplyDraft};
-use vivarium::policy::{self, RemoteMutation};
-use vivarium::store::{MailStore, message_id_from_path};
+use crate::VivariumError;
+use crate::cli::{ComposeCommand, MailCommand, ReplyCommand};
+use crate::config::Provider;
+use crate::message::{self, ComposeDraft, ReplyDraft};
+use crate::policy::{self, RemoteMutation};
+use crate::store::{MailStore, message_id_from_path};
 
 use super::Runtime;
 
 pub(super) enum DraftDispatch {
     Handled,
-    Unhandled(Box<Command>),
+    Unhandled(Box<MailCommand>),
 }
 
 impl Runtime {
     pub(super) async fn run_draft_command(
         &self,
-        command: Command,
+        command: MailCommand,
     ) -> Result<DraftDispatch, VivariumError> {
         match command {
-            Command::Reply(vivarium::cli::ReplyCommand {
+            MailCommand::Reply(ReplyCommand {
                 handle,
                 from,
                 body,
@@ -38,7 +38,7 @@ impl Runtime {
                 )
                 .await?;
             }
-            Command::Compose(command) => self.compose(command).await?,
+            MailCommand::Compose(command) => self.compose(command).await?,
             other => return Ok(DraftDispatch::Unhandled(Box::new(other))),
         }
         Ok(DraftDispatch::Handled)
@@ -57,10 +57,10 @@ impl Runtime {
             data = message::replace_from_header(&data, from)?;
         }
         if send_transport(&acct.provider) == SendTransport::DirectProtonApi {
-            vivarium::proton_send::send_raw(&acct, &self.config, &data).await?;
+            crate::proton_send::send_raw(&acct, &self.config, &data).await?;
         } else {
             let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
-            vivarium::smtp::send_raw(&acct, &data, reject_invalid_certs).await?;
+            crate::smtp::send_raw(&acct, &data, reject_invalid_certs).await?;
         }
         let sent = reconcile_sent(&store, path, &data)?;
         println!("sent {}", path.display());
@@ -93,7 +93,7 @@ impl Runtime {
             html_body: resolve_html_body(&body, html_body, html_body_auto),
             body,
         };
-        let attachments = vivarium::render::compose_attachments(
+        let attachments = crate::render::compose_attachments(
             &attachments,
             attach_document.as_deref(),
             &self.config,
@@ -184,7 +184,7 @@ async fn store_draft(
     if append_remote {
         policy::authorize_mutation(&acct, RemoteMutation::AppendDraft)?;
         let reject_invalid_certs = acct.reject_invalid_certs(&runtime.config) && !runtime.insecure;
-        vivarium::imap::append_message(&acct, &acct.drafts_folder(), data, reject_invalid_certs)
+        crate::imap::append_message(&acct, &acct.drafts_folder(), data, reject_invalid_certs)
             .await?;
     }
     Ok(path)

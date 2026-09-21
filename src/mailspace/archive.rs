@@ -114,7 +114,7 @@ fn archive_kind(
 }
 
 pub(super) fn resolve_archive_path(root: &Path, raw: &str) -> Result<PathBuf, VivariumError> {
-    let expanded = crate::config::expand_tilde(raw.trim());
+    let expanded = vivi_mail::config::expand_tilde(raw.trim());
     let path = if expanded.is_absolute() {
         expanded
     } else {

@@ -8,7 +8,7 @@ impl Runtime {
     ) -> Result<(), VivariumError> {
         let acct = self.resolve_account(self.selected_account_name(account))?;
         let reject_invalid_certs = acct.reject_invalid_certs(&self.config) && !self.insecure;
-        let discovery = vivarium::imap::discover_folders(&acct, reject_invalid_certs).await?;
+        let discovery = crate::imap::discover_folders(&acct, reject_invalid_certs).await?;
         if as_json {
             println!(
                 "{}",
@@ -21,7 +21,7 @@ impl Runtime {
     }
 }
 
-fn print_folder_discovery(discovery: &vivarium::imap::FolderDiscovery) {
+fn print_folder_discovery(discovery: &crate::imap::FolderDiscovery) {
     println!("# {}", discovery.account);
     println!("provider: {}", discovery.provider);
     println!("folders:");

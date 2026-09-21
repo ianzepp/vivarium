@@ -11,8 +11,8 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::config::types::Judgment;
 use crate::error::VivariumError;
+use vivi_mail::config::types::Judgment;
 
 /// Default System One endpoint.
 const DEFAULT_ENDPOINT: &str = "https://api.typesafe.ai/v1/systemone";

@@ -1,6 +1,10 @@
 use super::{Runtime, VivariumError};
+use crate::{
+    cli::{ListArgs, MailCommand},
+    message::MessageEntry,
+    store::MailStore,
+};
 use std::io::{self, Write};
-use vivarium::{cli::Command, message::MessageEntry, store::MailStore};
 
 #[allow(clippy::struct_excessive_bools)]
 struct ListRequest<'a> {
@@ -24,8 +28,8 @@ struct ListAccountOutput {
 }
 
 impl Runtime {
-    pub(crate) fn run_list_command(&self, command: Command) -> Result<(), VivariumError> {
-        let Command::List {
+    pub(crate) fn run_list_command(&self, command: MailCommand) -> Result<(), VivariumError> {
+        let MailCommand::List(ListArgs {
             folder,
             limit,
             filter,
@@ -36,7 +40,7 @@ impl Runtime {
             starred,
             unstarred,
             json,
-        } = command
+        }) = command
         else {
             unreachable!();
         };
@@ -56,7 +60,7 @@ impl Runtime {
 
     fn list(&self, request: &ListRequest<'_>) -> Result<(), VivariumError> {
         let window =
-            vivarium::sync::SyncWindow::parse(request.since.as_deref(), request.before.as_deref())?;
+            crate::sync::SyncWindow::parse(request.since.as_deref(), request.before.as_deref())?;
         let read_state = match (request.unread, request.read) {
             (true, false) => Some(false),
             (false, true) => Some(true),
@@ -76,7 +80,7 @@ impl Runtime {
         for acct in &accounts {
             let store = MailStore::new(&acct.mail_path(&self.config));
             let entries = store.list_messages(request.folder)?;
-            let entries = vivarium::list::filter_entries(
+            let entries = crate::list::filter_entries(
                 entries,
                 window,
                 request.limit,
@@ -123,7 +127,7 @@ fn print_account_entries(
     entries: &[MessageEntry],
 ) -> io::Result<()> {
     writeln!(writer, "# {account}")?;
-    vivarium::list::write_entries(writer, folder, entries)
+    crate::list::write_entries(writer, folder, entries)
 }
 
 #[cfg(test)]

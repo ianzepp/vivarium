@@ -4,9 +4,9 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use vivarium::config::Auth;
-use vivarium::proton_decrypt::ProtonBodyDecryptor;
-use vivarium::{VivariumError, proton_api};
+use crate::config::Auth;
+use crate::proton_decrypt::ProtonBodyDecryptor;
+use crate::{VivariumError, proton_api};
 
 use super::Runtime;
 

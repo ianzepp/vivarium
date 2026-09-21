@@ -264,3 +264,7 @@ fn reply_subject(subject: &str) -> String {
         format!("Re: {subject}")
     }
 }
+
+#[cfg(test)]
+#[path = "compose_test.rs"]
+mod tests;

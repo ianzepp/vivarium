@@ -1,9 +1,9 @@
 use std::time::Duration;
 
+use crate::cli::{MailCommand, SyncEventsArgs};
+use crate::config::Provider;
+use crate::proton_events::{ProtonEventSyncOptions, ProtonEventSyncReport};
 use serde::Serialize;
-use vivarium::cli::Command;
-use vivarium::config::Provider;
-use vivarium::proton_events::{ProtonEventSyncOptions, ProtonEventSyncReport};
 
 use super::{MailStore, Runtime, VivariumError};
 
@@ -16,14 +16,14 @@ pub(crate) struct SyncEventsOptions {
 }
 
 impl SyncEventsOptions {
-    pub(crate) fn from_command(command: Command) -> Self {
-        let Command::SyncEvents {
+    pub(crate) fn from_command(command: MailCommand) -> Self {
+        let MailCommand::SyncEvents(SyncEventsArgs {
             account,
             bootstrap,
             watch,
             interval,
             json,
-        } = command
+        }) = command
         else {
             unreachable!();
         };
@@ -84,7 +84,7 @@ impl Runtime {
             )));
         }
         let store = MailStore::new(&acct.mail_path(&self.config));
-        let report = vivarium::proton_events::sync_events(
+        let report = crate::proton_events::sync_events(
             &acct,
             &store,
             ProtonEventSyncOptions {
@@ -115,7 +115,7 @@ impl From<ProtonEventSyncReport> for SyncEventsReport {
 }
 
 fn parse_interval(value: &str) -> Result<Duration, VivariumError> {
-    vivarium::duration::parse_duration(value).map_err(|err| match err {
+    crate::duration::parse_duration(value).map_err(|err| match err {
         VivariumError::Config(message) if message.contains("greater than zero") => {
             VivariumError::Config("--interval must be greater than zero".into())
         }

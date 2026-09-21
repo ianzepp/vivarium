@@ -3943,6 +3943,41 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "vivi-mail",
+]
+
+[[package]]
+name = "vivi-mail"
+version = "9.4.0"
+dependencies = [
+ "async-imap",
+ "async-trait",
+ "base64",
+ "chrono",
+ "clap",
+ "dirs",
+ "futures",
+ "hex",
+ "lettre",
+ "mail-builder",
+ "mail-parser",
+ "native-tls",
+ "notify",
+ "pgp",
+ "proton-srp",
+ "rand 0.8.6",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-native-tls",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

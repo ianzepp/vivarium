@@ -1,28 +1,28 @@
-use vivarium::VivariumError;
-use vivarium::cli::Command;
-use vivarium::labels::{self, LabelOperation};
+use crate::VivariumError;
+use crate::cli::{LabelArgs, LabelsArgs, MailCommand};
+use crate::labels::{self, LabelOperation};
 
 use super::Runtime;
 
 pub(super) enum LabelDispatch {
     Handled,
-    Unhandled(Box<Command>),
+    Unhandled(Box<MailCommand>),
 }
 
 impl Runtime {
     pub(super) fn run_label_command(
         &self,
-        command: Command,
+        command: MailCommand,
     ) -> Result<LabelDispatch, VivariumError> {
         match command {
-            Command::Labels { json } => self.labels(json)?,
-            Command::Label {
+            MailCommand::Labels(LabelsArgs { json }) => self.labels(json)?,
+            MailCommand::Label(LabelArgs {
                 handle,
                 add,
                 remove,
                 dry_run,
                 json,
-            } => self.label(&handle, add, remove, dry_run, json)?,
+            }) => self.label(&handle, add, remove, dry_run, json)?,
             other => return Ok(LabelDispatch::Unhandled(Box::new(other))),
         }
         Ok(LabelDispatch::Handled)

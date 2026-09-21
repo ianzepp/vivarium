@@ -1,26 +1,29 @@
-use vivarium::VivariumError;
-use vivarium::cli::{AgentCommand, Command, EnqueueCommand, ExecCommand, QueueCommand};
-use vivarium::policy;
-use vivarium::queue::{self, QueueItem, QueueStatus, QueuedCommand};
+use crate::VivariumError;
+use crate::cli::{
+    AgentArgs, AgentCommand, EnqueueArgs, EnqueueCommand, ExecArgs, ExecCommand, MailCommand,
+    QueueArgs, QueueCommand,
+};
+use crate::policy;
+use crate::queue::{self, QueueItem, QueueStatus, QueuedCommand};
 
 use super::Runtime;
 use crate::draft_runner::require_eml_path;
 
 pub(super) enum QueueDispatch {
     Handled,
-    Unhandled(Box<Command>),
+    Unhandled(Box<MailCommand>),
 }
 
 impl Runtime {
     pub(super) async fn run_queue_command(
         &self,
-        command: Command,
+        command: MailCommand,
     ) -> Result<QueueDispatch, VivariumError> {
         match command {
-            Command::Exec { command } => self.exec(command).await?,
-            Command::Enqueue { command } => self.enqueue(command)?,
-            Command::Queue { command } => self.queue(command).await?,
-            Command::Agent { command: agent } if is_agent_mutation(&agent) => {
+            MailCommand::Exec(ExecArgs { command }) => self.exec(command).await?,
+            MailCommand::Enqueue(EnqueueArgs { command }) => self.enqueue(command)?,
+            MailCommand::Queue(QueueArgs { command }) => self.queue(command).await?,
+            MailCommand::Agent(AgentArgs { command: agent }) if is_agent_mutation(&agent) => {
                 self.run_agent_mutation_command(agent).await?;
             }
             other => return Ok(QueueDispatch::Unhandled(Box::new(other))),

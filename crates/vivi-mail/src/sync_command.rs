@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::Serialize;
 
-use vivarium::cli::Command;
+use crate::cli::{MailCommand, SyncArgs};
 
 use super::{Runtime, VivariumError, print_sync_result};
 
@@ -21,8 +21,8 @@ pub(crate) struct SyncOptions {
 }
 
 impl SyncOptions {
-    pub(crate) fn from_command(command: Command) -> Self {
-        let Command::Sync {
+    pub(crate) fn from_command(command: MailCommand) -> Self {
+        let MailCommand::Sync(SyncArgs {
             account,
             limit,
             since,
@@ -33,7 +33,7 @@ impl SyncOptions {
             embed,
             json,
             all,
-        } = command
+        }) = command
         else {
             unreachable!();
         };
@@ -103,7 +103,7 @@ impl Runtime {
             options.before.as_deref(),
         )?;
         let window =
-            vivarium::sync::SyncWindow::parse(options.since.as_deref(), options.before.as_deref())?;
+            crate::sync::SyncWindow::parse(options.since.as_deref(), options.before.as_deref())?;
         let mut reports = Vec::new();
         match self.selected_account_name(options.account.clone()) {
             Some(name) => {
@@ -124,14 +124,14 @@ impl Runtime {
 
     async fn sync_one_account(
         &self,
-        acct: &vivarium::config::Account,
+        acct: &crate::config::Account,
         options: &SyncOptions,
-        window: vivarium::sync::SyncWindow,
+        window: crate::sync::SyncWindow,
     ) -> Result<SyncReport, VivariumError> {
         if options.reset {
-            vivarium::sync::reset_account_cache(acct, &self.config, options.confirm_reset)?;
+            crate::sync::reset_account_cache(acct, &self.config, options.confirm_reset)?;
         }
-        let result = vivarium::sync::sync_account(
+        let result = crate::sync::sync_account(
             acct,
             &self.config,
             self.insecure,
@@ -151,8 +151,8 @@ impl Runtime {
 
     async fn run_post_sync_indexes(
         &self,
-        acct: &vivarium::config::Account,
-        result: &vivarium::sync::SyncResult,
+        acct: &crate::config::Account,
+        result: &crate::sync::SyncResult,
         index: bool,
         embed: bool,
         as_json: bool,
@@ -178,8 +178,8 @@ impl Runtime {
 
     async fn embedding_report(
         &self,
-        acct: &vivarium::config::Account,
-        result: &vivarium::sync::SyncResult,
+        acct: &crate::config::Account,
+        result: &crate::sync::SyncResult,
         mail_root: &std::path::Path,
         as_json: bool,
     ) -> Result<EmbeddingCountReport, VivariumError> {
@@ -195,9 +195,9 @@ impl Runtime {
             .iter()
             .map(|entry| entry.handle.clone())
             .collect::<BTreeSet<_>>();
-        let mut options = vivarium::embeddings::EmbeddingOptions::from_config(&self.config)?;
+        let mut options = crate::embeddings::EmbeddingOptions::from_config(&self.config)?;
         options.catalog_handles = Some(catalog_handles);
-        let stats = vivarium::embeddings::index_embeddings(mail_root, &acct.name, options).await?;
+        let stats = crate::embeddings::index_embeddings(mail_root, &acct.name, options).await?;
         if !as_json {
             print_embedding_stats(&acct.name, &stats);
         }
@@ -216,7 +216,7 @@ fn rebuild_index_report(
     account: &str,
     as_json: bool,
 ) -> Result<IndexCountReport, VivariumError> {
-    let stats = vivarium::email_index::rebuild(mail_root, account)?;
+    let stats = crate::email_index::rebuild(mail_root, account)?;
     if !as_json {
         println!(
             "indexed {account}: scanned={} updated={} reused={} stale={} errors={}",
@@ -232,7 +232,7 @@ fn rebuild_index_report(
     })
 }
 
-fn print_embedding_stats(account: &str, stats: &vivarium::embeddings::EmbeddingStats) {
+fn print_embedding_stats(account: &str, stats: &crate::embeddings::EmbeddingStats) {
     println!(
         "embedded {account}: scanned={} reused={} embedded={} stale={} errors={}",
         stats.scanned, stats.reused, stats.embedded, stats.stale, stats.errors
@@ -241,7 +241,7 @@ fn print_embedding_stats(account: &str, stats: &vivarium::embeddings::EmbeddingS
 
 fn sync_report(
     account: String,
-    result: &vivarium::sync::SyncResult,
+    result: &crate::sync::SyncResult,
     post_sync: PostSyncReports,
 ) -> SyncReport {
     SyncReport {

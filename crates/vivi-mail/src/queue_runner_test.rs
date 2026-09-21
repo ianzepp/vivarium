@@ -1,7 +1,7 @@
 use super::*;
-use vivarium::VivariumError;
-use vivarium::config::{Account, AccountsFile, Auth, Config, MutationPolicy, Security};
-use vivarium::queue::{self, QueueItem, QueueStatus, QueuedCommand};
+use crate::VivariumError;
+use crate::config::{Account, AccountsFile, Auth, Config, MutationPolicy, Security};
+use crate::queue::{self, QueueItem, QueueStatus, QueuedCommand};
 
 fn test_runtime(tmp: &std::path::Path, policy: MutationPolicy) -> Runtime {
     let account = Account {
@@ -28,7 +28,7 @@ fn test_runtime(tmp: &std::path::Path, policy: MutationPolicy) -> Runtime {
         drafts_folder: None,
         label_roots: None,
         storage_mode: None,
-        provider: vivarium::config::Provider::Standard,
+        provider: crate::config::Provider::Standard,
         oauth_authorization_url: None,
         oauth_token_url: None,
         oauth_scope: None,

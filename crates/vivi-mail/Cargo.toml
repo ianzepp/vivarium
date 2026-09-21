@@ -1,22 +1,15 @@
 [package]
-name = "vivarium"
-version = "9.3.0"
+name = "vivi-mail"
+version = "9.4.0"
 edition = "2024"
+description = "Email transport, sync, and local archive for Vivi"
+license = "MIT"
 autobins = false
 
-[workspace]
-members = ["crates/vivi-mail", "crates/vivi-pty"]
-resolver = "2"
-
-[[bin]]
-name = "vivi"
-path = "src/main.rs"
-
 [features]
-outbox = ["vivi-mail/outbox"]
+outbox = []
 
 [dependencies]
-vivi-mail = { path = "crates/vivi-mail" }
 async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
 async-trait = "0.1"
 tokio-native-tls = "0.3"
@@ -37,7 +30,6 @@ proton-srp = "0.8.2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sysinfo = "0.32"
 tokio = { version = "1", features = ["full"] }
 toml = "0.8"
 tracing = "0.1"
@@ -46,11 +38,3 @@ thiserror = "2"
 sha2 = "0.10"
 tempfile = "3"
 hex = "0.4"
-
-[profile.release]
-strip = true
-lto = "thin"
-
-[profile.dev]
-incremental = false
-debug = "line-tables-only"

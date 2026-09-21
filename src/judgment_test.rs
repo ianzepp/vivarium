@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::types::Judgment;
+use vivi_mail::config::types::Judgment;
 
 fn config(provider: Option<&str>, key_cmd: Option<&str>, endpoint: Option<&str>) -> Judgment {
     Judgment {

@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use super::{Runtime, VivariumError};
-use vivarium::cli::IndexCommand;
-use vivarium::storage::Storage;
+use crate::cli::IndexCommand;
+use crate::storage::Storage;
 
 impl Runtime {
     pub(crate) async fn index(&self, command: IndexCommand) -> Result<(), VivariumError> {
@@ -27,7 +27,7 @@ impl Runtime {
                         acct.resolved_storage_mode()
                     )));
                 }
-                let mut options = vivarium::embeddings::EmbeddingOptions::from_values(
+                let mut options = crate::embeddings::EmbeddingOptions::from_values(
                     &self.config,
                     provider.as_deref(),
                     model.as_deref(),
@@ -42,7 +42,7 @@ impl Runtime {
 }
 
 fn run_index_rebuild(mail_root: &Path, account: &str) -> Result<(), VivariumError> {
-    let stats = vivarium::email_index::rebuild(mail_root, account)?;
+    let stats = crate::email_index::rebuild(mail_root, account)?;
     println!(
         "indexed {account}: scanned={} updated={} reused={} stale={} errors={}",
         stats.scanned, stats.updated, stats.reused, stats.stale, stats.errors
@@ -52,7 +52,7 @@ fn run_index_rebuild(mail_root: &Path, account: &str) -> Result<(), VivariumErro
 
 fn index_counts(mail_root: &Path, account: &str) -> Result<(usize, usize), VivariumError> {
     let catalog_count = Storage::open(mail_root)?.count_messages_for_account(account)?;
-    let index = vivarium::email_index::EmailIndex::open(mail_root)?;
+    let index = crate::email_index::EmailIndex::open(mail_root)?;
     let indexed_count = index.count_messages(account)?;
     Ok((catalog_count, indexed_count))
 }
@@ -78,9 +78,9 @@ fn run_index_pending(mail_root: &Path, account: &str) -> Result<(), VivariumErro
 async fn run_index_embeddings(
     mail_root: &Path,
     account: &str,
-    options: vivarium::embeddings::EmbeddingOptions,
+    options: crate::embeddings::EmbeddingOptions,
 ) -> Result<(), VivariumError> {
-    let stats = vivarium::embeddings::index_embeddings(mail_root, account, options).await?;
+    let stats = crate::embeddings::index_embeddings(mail_root, account, options).await?;
     println!(
         "embedded {account}: scanned={} reused={} embedded={} stale={} errors={}",
         stats.scanned, stats.reused, stats.embedded, stats.stale, stats.errors

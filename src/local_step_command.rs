@@ -1,7 +1,7 @@
 use vivarium::VivariumError;
-use vivarium::config::Config;
 use vivarium::judgment::{JudgmentProvider, TypesafeProvider};
 use vivarium::mailspace::Mailspace;
+use vivi_mail::config::Config;
 
 pub(crate) fn handle_step_command(
     apply: Option<&str>,

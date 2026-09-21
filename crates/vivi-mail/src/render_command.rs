@@ -1,5 +1,5 @@
-use vivarium::VivariumError;
-use vivarium::cli::{RenderCommand, RenderFormat};
+use crate::VivariumError;
+use crate::cli::{RenderCommand, RenderFormat};
 
 use super::Runtime;
 
@@ -12,7 +12,7 @@ impl Runtime {
         if command.explain {
             println!(
                 "{}",
-                vivarium::render::explain(&self.config, format, command.engine)?
+                crate::render::explain(&self.config, format, command.engine)?
             );
             return Ok(());
         }
@@ -22,13 +22,8 @@ impl Runtime {
         let output = command.output.ok_or_else(|| {
             VivariumError::Config("render requires --output unless --explain is used".into())
         })?;
-        let receipt = vivarium::render::render_document(
-            &input,
-            &output,
-            format,
-            &self.config,
-            command.engine,
-        )?;
+        let receipt =
+            crate::render::render_document(&input, &output, format, &self.config, command.engine)?;
         println!(
             "{}",
             serde_json::to_string_pretty(&receipt).map_err(|error| {

@@ -1,20 +1,19 @@
+//! Unified CLI surface for the `vivi` binary.
+//!
+//! Project-mailspace commands are declared here. Email commands are declared in
+//! `vivi_mail::cli` and held in the mail variants below, so the parsed command
+//! list stays flat while each half owns its own argument structs.
+
 use std::path::PathBuf;
 
-use clap::{ArgGroup, Parser, Subcommand};
+use clap::{Parser, Subcommand};
+use vivi_mail::cli as mail;
 
-mod agent_command;
 mod board_command;
-mod draft_command;
-mod index_command;
 mod mailspace_command;
-mod proton_command;
-mod render_command;
 mod role_command;
-mod write_command;
-pub use agent_command::AgentCommand;
+
 pub use board_command::BoardCommand;
-pub use draft_command::{ComposeCommand, ReplyCommand};
-pub use index_command::IndexCommand;
 pub use mailspace_command::{
     AbsorbCommand, CycleCommand, GoalCommand, GraphActivateCommand, GraphApplyCommand,
     GraphAuditCommand, GraphCommand, GraphCompleteCommand, GraphConnectCommand,
@@ -27,10 +26,7 @@ pub use mailspace_command::{
     TaskSendCommand, TaskStatus, TraceCommand, WantCommand, WantSendCommand, WantStatus,
     WatchCommon,
 };
-pub use proton_command::ProtonCommand;
-pub use render_command::{RenderCommand, RenderFormat};
 pub use role_command::{RoleCharterCommand, RoleCommand};
-pub use write_command::{EnqueueCommand, ExecCommand, QueueCommand};
 
 #[derive(Debug, Parser)]
 #[command(name = "vivi", version, about = "Local-first IMAP email sync for LLMs")]
@@ -64,175 +60,35 @@ pub enum Command {
 
     #[cfg(feature = "outbox")]
     /// Authorize an OAuth account and store its refresh token
-    Auth {
-        /// Account to authorize (overrides --account)
-        account: Option<String>,
-
-        /// OAuth client ID (overrides account config)
-        #[arg(long)]
-        client_id: Option<String>,
-
-        /// OAuth client secret (overrides account config)
-        #[arg(long)]
-        client_secret: Option<String>,
-    },
+    Auth(mail::AuthArgs),
 
     #[cfg(feature = "outbox")]
     /// Print a fresh OAuth access token for token_cmd
-    Token {
-        /// Account to mint a token for (overrides --account)
-        account: Option<String>,
-    },
+    Token(mail::TokenArgs),
 
     /// Sync mail from IMAP to local store
-    Sync {
-        /// Account to sync (overrides --account)
-        #[arg(long)]
-        account: Option<String>,
-
-        /// Maximum number of new messages to download in this run
-        #[arg(long)]
-        limit: Option<usize>,
-
-        /// Sync messages on or after this date (YYYY-MM-DD, or relative like 30d, 3mo, 1y)
-        #[arg(long)]
-        since: Option<String>,
-
-        /// Sync messages before this date (YYYY-MM-DD)
-        #[arg(long)]
-        before: Option<String>,
-
-        /// Delete the local account cache before syncing
-        #[arg(long)]
-        reset: bool,
-
-        /// Confirm reset for accounts with a custom `mail_dir`
-        #[arg(long)]
-        confirm_reset: bool,
-
-        /// Rebuild the deterministic metadata index after sync succeeds
-        #[arg(long)]
-        index: bool,
-
-        /// Build local embeddings after sync succeeds; implies --index
-        #[arg(long)]
-        embed: bool,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-
-        /// Sync all IMAP folders (Inbox, Sent, All Mail)
-        #[arg(long)]
-        all: bool,
-    },
+    Sync(mail::SyncArgs),
 
     /// Poll direct Proton API events and sync changed mail
-    SyncEvents {
-        /// Account to sync (overrides --account)
-        #[arg(long)]
-        account: Option<String>,
-
-        /// Run a normal direct Proton sync before initializing or polling the event cursor
-        #[arg(long)]
-        bootstrap: bool,
-
-        /// Continue polling for events
-        #[arg(long)]
-        watch: bool,
-
-        /// Poll interval for --watch, such as 30s, 5m, or a bare number of seconds
-        #[arg(long, default_value = "30s")]
-        interval: String,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
+    SyncEvents(mail::SyncEventsArgs),
 
     /// List remote IMAP folders and capabilities
-    Folders {
-        /// Account to inspect (overrides --account)
-        #[arg(long)]
-        account: Option<String>,
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
+    Folders(mail::FoldersArgs),
 
     /// Check account configuration, IMAP, and SMTP connectivity
-    Doctor {
-        /// Account to inspect (overrides --account)
-        #[arg(long)]
-        account: Option<String>,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
+    Doctor(mail::DoctorArgs),
 
     /// Experimental direct Proton API probes
-    Proton {
-        #[command(subcommand)]
-        command: ProtonCommand,
-    },
+    Proton(mail::ProtonArgs),
 
     /// Render a local Markdown document to HTML or PDF
-    Render(RenderCommand),
+    Render(mail::RenderCommand),
 
     /// Watch inbound IMAP mail and emit JSON events after local sync
-    WatchInbox {
-        /// Account to watch (overrides --account)
-        #[arg(long)]
-        account: Option<String>,
-
-        /// Emit the stable structured event contract required by Ops
-        #[arg(long)]
-        json: bool,
-    },
+    WatchInbox(mail::WatchInboxArgs),
 
     /// List messages in a folder (inbox, archive, trash, sent, drafts)
-    List {
-        /// Folder name
-        #[arg(default_value = "inbox")]
-        folder: String,
-
-        /// Maximum messages to display per account
-        #[arg(short = 'n', long)]
-        limit: Option<usize>,
-
-        /// Filter listed messages by handle, sender, or subject text
-        #[arg(long)]
-        filter: Option<String>,
-
-        /// List messages on or after this date (YYYY-MM-DD, or relative like 30d, 3mo, 1y)
-        #[arg(long)]
-        since: Option<String>,
-
-        /// List messages before this date (YYYY-MM-DD)
-        #[arg(long)]
-        before: Option<String>,
-
-        /// List only unread messages
-        #[arg(long, conflicts_with = "read")]
-        unread: bool,
-
-        /// List only read messages
-        #[arg(long)]
-        read: bool,
-
-        /// List only starred/flagged messages
-        #[arg(long, visible_alias = "flagged", conflicts_with = "unstarred")]
-        starred: bool,
-
-        /// List only unstarred/unflagged messages
-        #[arg(long, visible_alias = "unflagged")]
-        unstarred: bool,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
+    List(mail::ListArgs),
 
     /// Show project-local actionable work across tasks, needs, and wants
     Board(BoardCommand),
@@ -302,29 +158,10 @@ pub enum Command {
     },
 
     /// Show one or more messages by ID
-    Show {
-        /// Message identifiers (filename stems)
-        #[arg(required = true)]
-        message_ids: Vec<String>,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
+    Show(mail::ShowArgs),
 
     /// Show local thread context for a message
-    Thread {
-        /// Message identifier (filename stem)
-        message_id: String,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-
-        /// Maximum messages to include
-        #[arg(long, default_value = "50")]
-        limit: usize,
-    },
+    Thread(mail::ThreadArgs),
 
     /// Trace the cross-role communication tree around a handle
     Trace(TraceCommand),
@@ -351,125 +188,35 @@ pub enum Command {
     },
 
     /// Create a reply draft for a message
-    Reply(ReplyCommand),
+    Reply(mail::ReplyCommand),
 
     /// Compose a new local draft
-    Compose(ComposeCommand),
+    Compose(mail::ComposeCommand),
 
     /// Export one raw .eml message by ID
-    Export {
-        /// Message identifier (filename stem)
-        message_id: String,
-
-        /// Export normalized local text instead of raw RFC 5322 bytes
-        #[arg(long)]
-        text: bool,
-    },
+    Export(mail::ExportArgs),
 
     /// Search messages by keyword
-    Search {
-        /// Search query (space-separated keywords)
-        query: String,
-
-        /// Restrict results to one local folder role, such as inbox, archive, trash, sent, or drafts
-        #[arg(long)]
-        folder: Option<String>,
-
-        /// Restrict results to messages from this sender address or From header text
-        #[arg(long = "from")]
-        from_addr: Option<String>,
-
-        /// Restrict results to messages from this sender domain
-        #[arg(long = "from-domain")]
-        from_domain: Option<String>,
-
-        /// Maximum results to return
-        #[arg(long, default_value = "20")]
-        limit: usize,
-
-        /// Number of results to skip
-        #[arg(long, default_value = "0")]
-        offset: usize,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-
-        /// Print only the total matching message count
-        #[arg(long)]
-        count: bool,
-
-        /// Use local email embeddings for semantic search
-        #[arg(long)]
-        semantic: bool,
-
-        /// Combine lexical and semantic search
-        #[arg(long)]
-        hybrid: bool,
-    },
+    Search(mail::SearchArgs),
 
     /// Build and inspect derived local indexes
-    Index {
-        #[command(subcommand)]
-        command: IndexCommand,
-    },
+    Index(mail::IndexArgs),
 
     /// Poll locally downloaded mail for trusted agent instructions
-    Agent {
-        #[command(subcommand)]
-        command: AgentCommand,
-    },
+    Agent(mail::AgentArgs),
 
     /// Execute external writes immediately
-    Exec {
-        #[command(subcommand)]
-        command: ExecCommand,
-    },
+    Exec(mail::ExecArgs),
 
     /// Add external writes to the durable review queue
-    Enqueue {
-        #[command(subcommand)]
-        command: EnqueueCommand,
-    },
+    Enqueue(mail::EnqueueArgs),
 
     /// Inspect, drop, or run queued writes
-    Queue {
-        #[command(subcommand)]
-        command: QueueCommand,
-    },
+    Queue(mail::QueueArgs),
 
     /// Show provider label support for the selected account
-    Labels {
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
+    Labels(mail::LabelsArgs),
 
     /// Plan or apply a provider label operation
-    #[command(group(
-        ArgGroup::new("label_mode")
-            .args(["add", "remove"])
-            .required(true)
-            .multiple(false)
-    ))]
-    Label {
-        /// Message handle or local message identifier
-        handle: String,
-
-        /// Label to apply
-        #[arg(long)]
-        add: Option<String>,
-
-        /// Label to remove
-        #[arg(long)]
-        remove: Option<String>,
-
-        /// Preview without changing mailbox state
-        #[arg(long)]
-        dry_run: bool,
-
-        /// Output as JSON
-        #[arg(long)]
-        json: bool,
-    },
+    Label(mail::LabelArgs),
 }

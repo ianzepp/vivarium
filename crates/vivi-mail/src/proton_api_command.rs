@@ -1,8 +1,8 @@
 use serde::Serialize;
 
-use vivarium::cli::ProtonCommand;
-use vivarium::config::{Auth, Provider};
-use vivarium::{VivariumError, proton_api};
+use crate::cli::ProtonCommand;
+use crate::config::{Auth, Provider};
+use crate::{VivariumError, proton_api};
 
 use super::Runtime;
 
@@ -233,7 +233,7 @@ impl Runtime {
     pub(crate) fn resolve_proton_api_account(
         &self,
         account: Option<String>,
-    ) -> Result<vivarium::config::Account, VivariumError> {
+    ) -> Result<crate::config::Account, VivariumError> {
         let acct = self.resolve_account(self.selected_account_name(account))?;
         if acct.provider != Provider::ProtonApi {
             return Err(VivariumError::Config(format!(
