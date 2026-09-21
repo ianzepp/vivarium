@@ -237,8 +237,48 @@ vivi role add cto --kind head --harness subagent
 # legacy alias still works:
 # vivi mailspace identity add hand-1
 vivi mailspace status
+vivi boot
 vivi board
 ```
+
+### Boot (one-read project frame)
+
+`vivi boot` renders the whole project frame in a single bounded read: seat
+bindings against observed process state, declared cadences and their silence,
+unabsorbed mail, open handles with verdicts, registered goals with register
+tallies, memos, charter heads, and the backlog sliced into seat-sized groups.
+Use it first when orienting, or after a compaction resets the working picture.
+
+```sh
+vivi boot --project /path/to/project
+```
+
+It is read-only, stateless, and idempotent: two runs are comparable, and boot
+never absorbs, closes, promotes, dispatches, or writes. Act on the frame with
+the ordinary verbs.
+
+Every section is capped, and the digest closes with a truncation manifest that
+names each cap and how much it omitted. Handles carry a closed verdict
+vocabulary (`open`, `blocked`, `stale`, `live`, `unbound`, `unverified`,
+`dead`, `zombie`, `remote`, `unknown`), and a registered goal whose Status line
+claims a different completion count than its own register is reported as
+`MISMATCH`.
+
+Facts Vivi cannot own — git ancestry, lane state, the live seat count of a
+harness — arrive through project-declared probes:
+
+```toml
+[[probes]]
+name = "example"
+command = "scripta/boot-probe"   # executable, resolved against the mailspace root
+```
+
+A probe prints one JSON object on stdout with `facts` (flat preamble lines),
+`sections` (named blocks of lines), and `verdicts` (`handle` plus a verdict
+slug and an optional detail). A probe that is missing, exits non-zero, or
+prints unparseable JSON is reported under `probes skipped` and never fails
+boot, so a project with no probes still gets every native section. See
+[`skills/vivi/SKILL.md`](skills/vivi/SKILL.md) for the full contract.
 
 ### Roles (agent seats)
 
@@ -673,10 +713,10 @@ folder-and-UID identifiers like `inbox-2050`.
 
 `vivi --help` is the live top-level list. In 9.0.0 that is: `init`, `sync`,
 `sync-events`, `folders`, `doctor`, `proton`, `render`, `watch-inbox`, `list`,
-`board`, `mailspace`, `mail`, `task`, `need`, `want`, `memo`, `goal`, `role`,
-`cycle`, `show`, `thread`, `trace`, `graph`, `step`, `reply`, `compose`,
-`export`, `search`, `index`, `agent`, `exec`, `enqueue`, `queue`, `labels`,
-`label`.
+`board`, `boot`, `mailspace`, `mail`, `task`, `need`, `want`, `memo`, `goal`,
+`role`, `cycle`, `show`, `thread`, `trace`, `graph`, `step`, `reply`,
+`compose`, `export`, `search`, `index`, `agent`, `exec`, `enqueue`, `queue`,
+`labels`, `label`.
 Project-mailspace commands are in the section above. Account-scoped examples:
 
 ```
@@ -729,6 +769,7 @@ vivi compose --to you@example.com --subject hi # create a new local draft
 vivi compose --to you@example.com --subject hi --body "Plain text" --html-body-auto
 vivi exec send --account agent-proton --from agent@proton.me path/to/draft.eml
 vivi agent poll --from person@example.com --json  # trusted-inbox Codex helper
+vivi boot --project .                             # one-read project frame
 vivi step --project . --json                      # backlog dispatch/exception manifest
 vivi step --apply <settled-handle> --project .    # complete a settled item's graph node
 ```

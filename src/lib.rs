@@ -1,6 +1,7 @@
 #![deny(clippy::pedantic)]
 
 pub mod agent;
+pub mod boot;
 pub mod catalog;
 pub mod cli;
 pub mod config;

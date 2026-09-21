@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::boot::probe::ProbeConfig;
 use crate::error::VivariumError;
 use crate::storage::Storage;
 use crate::store::secure_create_dir_all;
@@ -80,6 +81,14 @@ pub struct MailspaceConfig {
     pub archive: Option<String>,
     #[serde(default)]
     pub identities: Vec<LocalIdentity>,
+    /// Project-declared boot probes.
+    ///
+    /// Boot renders the facts Vivi owns. Facts it cannot own — git ancestry,
+    /// lane state, the live seat count of a subagent harness — arrive through
+    /// these executables, so the command stays project-agnostic and Vivi never
+    /// learns what a repository is. See [`crate::boot::probe`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub probes: Vec<ProbeConfig>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -171,6 +180,7 @@ impl Mailspace {
             description: None,
             archive: None,
             identities: Vec::new(),
+            probes: Vec::new(),
         };
         write_config(&path, &config)?;
         Storage::open_mailspace(&dir)?;

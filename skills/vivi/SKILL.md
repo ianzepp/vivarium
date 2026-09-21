@@ -42,6 +42,7 @@ full dumps are noisy and can hide the current frontier.
 Default inspection order:
 
 ```sh
+vivi boot --project <root>
 vivi step --project <root> --json
 vivi board --project <root> --for <role> --process --graph --json
 vivi task list --project <root> --for <role> --status open
@@ -49,6 +50,64 @@ vivi need list --project <root> --for <role> --status open
 vivi mail list --project <root> --for <role>
 vivi task show --project <root> <handle>
 ```
+
+## Boot
+
+`vivi boot` prints the whole project frame in one read: seat bindings against
+observed process state, declared cadences and their silence, unabsorbed mail,
+open handles with verdicts, registered goals with register tallies, memos,
+charter heads, and the backlog sliced into seat-sized groups. It is read-only,
+stateless, and idempotent, so it serves a cold boot and a post-compaction warm
+boot alike, and two runs are comparable.
+
+```sh
+vivi boot --project <root>
+```
+
+Run it first when orienting or re-orienting. Every section is capped, and the
+digest closes with a truncation manifest naming each cap and how much it
+omitted — so the digest is complete in coverage and bounded in length. Boot
+never absorbs, closes, promotes, dispatches, or writes. Act on it with the
+ordinary verbs.
+
+Handles carry a closed verdict vocabulary: `open`, `blocked`, `stale`, `live`,
+`unbound`, `unverified`, `dead`, `zombie`, `remote`, `unknown`. `unverified`
+means a subagent harness owns liveness and an OS PID is not a valid signal;
+`unbound` means the seat is active with no bound process; `stale` means a probe
+found the landing already present; `blocked` comes from the backlog graph and
+outranks a probe verdict.
+
+For a registered goal, boot reads the Status line and any markdown table with
+a `Status` column. When the Status line's `N/M` completion claim disagrees with
+the register's own done count, it prints `MISMATCH` with both numbers.
+
+### Probes
+
+Boot renders the facts Vivi owns. Facts it cannot own — git ancestry, lane
+state, the live seat count of a harness — arrive through probes the project
+declares in `.vivi/mailspace.toml`:
+
+```toml
+[[probes]]
+name = "example"
+command = "scripta/boot-probe"   # executable, resolved against the mailspace root
+```
+
+The probe prints one JSON object on stdout:
+
+```json
+{
+  "facts": ["main is at deadbeef"],
+  "sections": [{"title": "world", "lines": ["radix main deadbeef"]}],
+  "verdicts": [{"handle": "abc12345", "verdict": "stale", "detail": "commit already on main"}]
+}
+```
+
+`facts` render with the preamble, `sections` render as named blocks, and
+`verdicts` merge onto the handle inventory by full handle or by a unique
+prefix of at least four characters. A probe that is missing, exits non-zero,
+or prints unparseable JSON is reported under `probes skipped` and never fails
+boot, so a project with no probes still gets every native section.
 
 `vivi step --json` is the bounded intake: a fixed-shape manifest of
 dispatches and exceptions over the backlog graph. Prefer it (and the delta

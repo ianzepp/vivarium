@@ -237,6 +237,16 @@ pub enum Command {
     /// Show project-local actionable work across tasks, needs, and wants
     Board(BoardCommand),
 
+    /// Show the whole project frame in one read: seats, loops, unabsorbed mail,
+    /// handles with verdicts, goals with register tallies, and the backlog
+    /// sliced for dispatch. Read-only and stateless, so it serves a cold boot
+    /// and a post-compaction warm boot alike.
+    Boot {
+        /// Project root that owns .vivi/ (also accepted globally: vivi --project <ROOT> boot)
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+
     /// Manage a project-local Vivi mailspace
     Mailspace {
         #[command(subcommand)]

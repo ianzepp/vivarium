@@ -19,6 +19,7 @@ mod index_runner;
 mod label_runner;
 mod list_runner;
 mod local_board_command;
+mod local_boot_command;
 mod local_goal_command;
 mod local_graph_command;
 mod local_mail_list;
@@ -145,6 +146,7 @@ impl Runtime {
             | Command::Cycle { .. }
             | Command::Trace { .. }
             | Command::Graph { .. }
+            | Command::Boot { .. }
             | Command::Step { .. } => unreachable!(),
             Command::Show { message_ids, json } => self.show(&message_ids, json),
             Command::Thread {
